@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import WebKit
 
 enum AppState {
     case idle
@@ -25,11 +24,6 @@ struct ContentView: View {
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
                 .ignoresSafeArea()
 
-            // Invisible anchor that injects the WKWebView into the window off-screen.
-            // Must have a real window + frame for YouTube's JS to execute.
-            WebViewAnchor(webView: loader.webView)
-                .frame(width: 0, height: 0)
-
             VStack(spacing: 0) {
                 header
                     .padding(.top, 32)
@@ -47,7 +41,16 @@ struct ContentView: View {
             .padding(.bottom, 24)
         }
         .frame(width: 520)
-        .onAppear { checkClipboard() }
+        .onAppear {
+            checkClipboard()
+            // Attach WKWebView to the real window so YouTube renders its full UI.
+            // Must happen after the window exists; brief async dispatch guarantees that.
+            DispatchQueue.main.async {
+                if let window = NSApp.windows.first(where: { $0.isVisible }) {
+                    loader.attachToWindow(window)
+                }
+            }
+        }
     }
 
     // MARK: - Header
@@ -257,20 +260,3 @@ struct VisualEffectView: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-// MARK: - WebView Anchor
-// Adds the WKWebView as a direct subview of the NSWindow off-screen,
-// so it has a real frame and window for YouTube's JS to execute.
-
-struct WebViewAnchor: NSViewRepresentable {
-    let webView: WKWebView
-
-    func makeNSView(context: Context) -> NSView {
-        NSView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        guard webView.superview == nil, let contentView = nsView.window?.contentView else { return }
-        webView.frame = CGRect(x: -900, y: 0, width: 800, height: 600)
-        contentView.addSubview(webView, positioned: .below, relativeTo: nil)
-    }
-}

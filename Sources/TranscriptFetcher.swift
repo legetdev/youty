@@ -8,23 +8,46 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 
     let webView: WKWebView
     private var continuation: CheckedContinuation<(title: String, markdown: String), Error>?
+    private var jsInjected = false
 
     override init() {
         let config = WKWebViewConfiguration()
-        // Register message handler BEFORE creating webView
         let controller = WKUserContentController()
         config.userContentController = controller
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 800, height: 600), configuration: config)
+        config.mediaTypesRequiringUserActionForPlayback = .all  // don't autoplay video
+        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
         super.init()
         webView.navigationDelegate = self
-        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         controller.add(self, name: "youtyTranscript")
+        // Block images, media, and video CDN — cuts page load time significantly
+        let blockRules = """
+        [
+          {"trigger":{"url-filter":".*","resource-type":["image","media","font"]},"action":{"type":"block"}},
+          {"trigger":{"url-filter":".*\\\\.googlevideo\\\\.com"},"action":{"type":"block"}}
+        ]
+        """
+        WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: "youty-block", encodedContentRuleList: blockRules
+        ) { [weak self] list, _ in
+            if let list = list {
+                DispatchQueue.main.async { self?.webView.configuration.userContentController.add(list) }
+            }
+        }
+    }
+
+    func attachToWindow(_ window: NSWindow) {
+        guard webView.superview == nil, let cv = window.contentView else { return }
+        webView.frame = CGRect(x: -1300, y: 0, width: 1280, height: 800)
+        cv.addSubview(webView)
+        // Pre-warm session: load YouTube homepage so JS bundles are cached before user requests
+        webView.load(URLRequest(url: URL(string: "https://www.youtube.com")!))
     }
 
     func fetch(urlString: String) async throws -> (title: String, markdown: String) {
         guard let videoID = TranscriptFetcher.extractVideoID(from: urlString) else {
             throw FetchError.invalidURL
         }
+        jsInjected = false
         let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
         return try await withCheckedThrowingContinuation { cont in
             self.continuation = cont
@@ -35,77 +58,79 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Inject script that:
-        // 1. Waits for ytInitialPlayerResponse
-        // 2. Fetches transcript XML (using browser session so ATT headers are added automatically)
-        // 3. Parses XML with DOMParser (avoids passing large raw XML to Swift)
-        // 4. Posts segments to Swift via messageHandler
+        // Only inject when a fetch is pending and this is the right page
+        guard continuation != nil else { return }
+        guard !jsInjected else { return }
+        jsInjected = true
+
+        // IMPORTANT: outer wrapper is a plain sync IIFE (returns undefined, not a Promise).
+        // evaluateJavaScript only errors on Promise return values — that error silently
+        // kills the async task in some WebKit versions. The sync wrapper prevents this.
         let js = """
-        (async function youtyFetch() {
+        (function() {
+          (async function youtyFetch() {
             function post(obj) {
-                window.webkit.messageHandlers.youtyTranscript.postMessage(obj);
+              window.webkit.messageHandlers.youtyTranscript.postMessage(obj);
             }
 
-            // 1. Wait for ytInitialPlayerResponse (title + caption availability check)
+            // 1. Wait for ytInitialPlayerResponse
             let ipr = null;
-            for (let i = 0; i < 60; i++) {
-                ipr = window.ytInitialPlayerResponse;
-                if (ipr && ipr.videoDetails && ipr.videoDetails.title) break;
-                await new Promise(r => setTimeout(r, 150));
+            for (let i = 0; i < 80; i++) {
+              ipr = window.ytInitialPlayerResponse;
+              if (ipr && ipr.videoDetails && ipr.videoDetails.title) break;
+              await new Promise(r => setTimeout(r, 150));
             }
             if (!ipr || !ipr.videoDetails) {
-                return post({error: 'no_response', url: location.href});
+              return post({error: 'no_response', url: location.href.slice(0,80)});
             }
             const title = ipr.videoDetails.title;
 
-            // 2. Check captions exist
-            const tracks = ipr.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+            // 2. Quick caption availability check
+            const tracks = (ipr.captions &&
+                            ipr.captions.playerCaptionsTracklistRenderer &&
+                            ipr.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
             if (!tracks.length) return post({error: 'no_captions', title});
 
-            // 3. Find the "Show transcript" button (poll in case it renders late)
-            let transcriptBtn = null;
+            // 3. Find the Show Transcript button (poll up to 6 s)
+            let btn = null;
             for (let i = 0; i < 30; i++) {
-                const allBtns = Array.from(document.querySelectorAll('button, tp-yt-paper-button'));
-                transcriptBtn = allBtns.find(b => /transcript/i.test(b.textContent || ''));
-                if (transcriptBtn) break;
-                await new Promise(r => setTimeout(r, 200));
+              const all = Array.from(document.querySelectorAll('button, tp-yt-paper-button'));
+              btn = all.find(b => /transcript/i.test(b.textContent || ''));
+              if (btn) break;
+              await new Promise(r => setTimeout(r, 200));
             }
-            if (!transcriptBtn) return post({error: 'no_transcript_button', title});
+            if (!btn) return post({error: 'no_btn', title,
+              btns: Array.from(document.querySelectorAll('button')).slice(0,5).map(b=>b.textContent?.trim()).join('|')
+            });
 
-            // 4. Click it and wait for the panel to populate
-            transcriptBtn.click();
+            btn.click();
 
-            let segments = [];
+            // 4. Wait for panel segments (up to 12 s)
+            let segs = [];
             for (let i = 0; i < 60; i++) {
-                await new Promise(r => setTimeout(r, 200));
-                const els = document.querySelectorAll(
-                    'ytd-transcript-segment-renderer yt-formatted-string.segment-text'
-                );
-                if (els.length > 0) {
-                    segments = Array.from(els).map(el => (el.textContent || '').trim()).filter(Boolean);
-                    break;
-                }
+              await new Promise(r => setTimeout(r, 200));
+              const els = document.querySelectorAll(
+                'ytd-transcript-segment-renderer yt-formatted-string.segment-text'
+              );
+              if (els.length) {
+                segs = Array.from(els).map(e => (e.textContent || '').trim()).filter(Boolean);
+                break;
+              }
             }
-
-            if (!segments.length) return post({error: 'panel_empty', title});
-            post({title, segments});
+            if (!segs.length) return post({error: 'panel_empty', title});
+            post({title, segments: segs});
+          })();
         })();
         """
-        // evaluateJavaScript returns an error because the IIFE returns a Promise,
-        // which can't be serialized to Obj-C. That error is expected and non-fatal —
-        // the actual result arrives via WKScriptMessageHandler once the async work completes.
+
         webView.evaluateJavaScript(js) { _, error in
-            if let err = error as NSError?,
-               err.domain == WKErrorDomain,
-               err.code == WKError.javaScriptResultTypeIsUnsupported.rawValue {
-                // Expected: async IIFE returns a Promise. JS is still running.
-            } else if let error = error {
-                NSLog("[youty] unexpected JS inject error: \(error)")
+            if let error = error {
+                NSLog("[youty] evaluateJavaScript error: %@", error.localizedDescription)
             }
         }
 
-        // Safety timeout: if the message handler hasn't fired in 30s, fail cleanly.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+        // 35-second hard timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 35) { [weak self] in
             guard let self = self, self.continuation != nil else { return }
             self.finish(throwing: FetchError.parseError)
         }
@@ -114,29 +139,24 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         finish(throwing: FetchError.networkError)
     }
-
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
         finish(throwing: FetchError.networkError)
     }
 
     // MARK: - WKScriptMessageHandler
 
-    func userContentController(_ userContentController: WKUserContentController,
-                                didReceive message: WKScriptMessage) {
+    func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "youtyTranscript",
               let dict = message.body as? [String: Any] else {
             finish(throwing: FetchError.parseError)
             return
         }
 
-        NSLog("[youty] JS message: \(dict)")
-
-        if let errorKey = dict["error"] as? String {
-            switch errorKey {
-            case "no_captions", "no_transcript_button":
+        if let errKey = dict["error"] as? String {
+            NSLog("[youty] JS error: %@ — %@", errKey, dict.description)
+            switch errKey {
+            case "no_captions", "no_btn":
                 finish(throwing: FetchError.noTranscript)
-            case "no_response":
-                finish(throwing: FetchError.parseError)
             default:
                 finish(throwing: FetchError.parseError)
             }
@@ -168,14 +188,13 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     }
 
     private func decodeHTMLEntities(_ s: String) -> String {
-        s
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
-            .replacingOccurrences(of: "&quot;", with: "\"")
-            .replacingOccurrences(of: "&#39;", with: "'")
-            .replacingOccurrences(of: "&#x27;", with: "'")
-            .replacingOccurrences(of: "&nbsp;", with: " ")
+        s.replacingOccurrences(of: "&amp;", with: "&")
+         .replacingOccurrences(of: "&lt;", with: "<")
+         .replacingOccurrences(of: "&gt;", with: ">")
+         .replacingOccurrences(of: "&quot;", with: "\"")
+         .replacingOccurrences(of: "&#39;", with: "'")
+         .replacingOccurrences(of: "&#x27;", with: "'")
+         .replacingOccurrences(of: "&nbsp;", with: " ")
     }
 }
 
@@ -188,21 +207,16 @@ enum TranscriptFetcher {
         if !s.hasPrefix("http") { s = "https://" + s }
         guard let url = URL(string: s) else { return nil }
         let host = url.host ?? ""
-
         if host.contains("youtu.be") {
             let id = url.pathComponents.dropFirst().first
             return id?.isEmpty == false ? String(id!) : nil
         }
         let path = url.pathComponents
         if let idx = path.firstIndex(where: { $0 == "shorts" || $0 == "embed" }),
-           idx + 1 < path.count {
-            return path[idx + 1]
-        }
+           idx + 1 < path.count { return path[idx + 1] }
         if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let v = comps.queryItems?.first(where: { $0.name == "v" })?.value,
-           !v.isEmpty {
-            return v
-        }
+           !v.isEmpty { return v }
         return nil
     }
 
@@ -212,33 +226,23 @@ enum TranscriptFetcher {
     }
 
     private static func wrapText(_ text: String, lineWidth: Int) -> String {
-        let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        var lines: [String] = []
-        var current = ""
-        for word in words {
+        var lines: [String] = []; var current = ""
+        for word in text.split(separator: " ", omittingEmptySubsequences: true).map(String.init) {
             let candidate = current.isEmpty ? word : current + " " + word
-            if candidate.count > lineWidth && !current.isEmpty {
-                lines.append(current); current = word
-            } else {
-                current = candidate
-            }
+            if candidate.count > lineWidth && !current.isEmpty { lines.append(current); current = word }
+            else { current = candidate }
         }
         if !current.isEmpty { lines.append(current) }
         return lines.joined(separator: "\n")
     }
 }
 
-// MARK: - Segment (kept for API compatibility)
-
-struct TranscriptSegment {
-    let text: String
-}
+struct TranscriptSegment { let text: String }
 
 // MARK: - Errors
 
 enum FetchError: LocalizedError {
     case invalidURL, networkError, parseError, noTranscript
-
     var errorDescription: String? {
         switch self {
         case .invalidURL:   return "That doesn't look like a valid YouTube link."
