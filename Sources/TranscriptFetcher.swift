@@ -91,29 +91,44 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
                             ipr.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
             if (!tracks.length) return post({error: 'no_captions', title});
 
-            // 3. Find the Show Transcript button (poll up to 6 s)
+            // 3. Find the "Show transcript" button (poll up to 6 s).
+            //    Prefer aria-label="Show transcript" to avoid clicking the
+            //    "Transcript" chip tab, which opens the wrong panel.
             let btn = null;
             for (let i = 0; i < 30; i++) {
               const all = Array.from(document.querySelectorAll('button, tp-yt-paper-button'));
-              btn = all.find(b => /transcript/i.test(b.textContent || ''));
+              // Priority order — must NOT pick the "Transcript" chip tab first on videos
+              // that also have a "Show transcript" button (it opens the wrong panel).
+              btn = all.find(b => b.getAttribute('aria-label') === 'Show transcript')
+                 || all.find(b => /^show transcript$/i.test((b.textContent || '').trim()))
+                 || all.find(b => /show transcript/i.test(b.getAttribute('aria-label') || ''))
+                 || all.find(b => /^transcript$/i.test((b.textContent || '').trim()))  // legacy chip fallback
+                 || all.find(b => /transcript/i.test(b.getAttribute('aria-label') || ''));
               if (btn) break;
               await new Promise(r => setTimeout(r, 200));
             }
-            if (!btn) return post({error: 'no_btn', title,
-              btns: Array.from(document.querySelectorAll('button')).slice(0,5).map(b=>b.textContent?.trim()).join('|')
-            });
+            if (!btn) return post({error: 'no_btn', title});
 
             btn.click();
 
-            // 4. Wait for panel segments (up to 12 s)
+            // 4. Wait for segments — handles BOTH YouTube UI variants:
+            //    Legacy: ytd-transcript-segment-renderer yt-formatted-string.segment-text
+            //    Modern: transcript-segment-view-model span.ytAttributedStringHost
             let segs = [];
             for (let i = 0; i < 60; i++) {
               await new Promise(r => setTimeout(r, 200));
-              const els = document.querySelectorAll(
+              let els = document.querySelectorAll(
                 'ytd-transcript-segment-renderer yt-formatted-string.segment-text'
               );
+              if (!els.length) {
+                els = document.querySelectorAll(
+                  'transcript-segment-view-model span.ytAttributedStringHost'
+                );
+              }
               if (els.length) {
-                segs = Array.from(els).map(e => (e.textContent || '').trim()).filter(Boolean);
+                segs = Array.from(els)
+                  .map(e => (e.textContent || '').trim())
+                  .filter(t => t.length > 0);
                 break;
               }
             }
