@@ -25,11 +25,10 @@ struct ContentView: View {
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
                 .ignoresSafeArea()
 
-            // Hidden WKWebView — must be in hierarchy for JS execution
-            WebViewContainer(webView: loader.webView)
-                .frame(width: 1, height: 1)
-                .opacity(0)
-                .allowsHitTesting(false)
+            // Invisible anchor that injects the WKWebView into the window off-screen.
+            // Must have a real window + frame for YouTube's JS to execute.
+            WebViewAnchor(webView: loader.webView)
+                .frame(width: 0, height: 0)
 
             VStack(spacing: 0) {
                 header
@@ -258,10 +257,20 @@ struct VisualEffectView: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 
-// MARK: - WebView Container
+// MARK: - WebView Anchor
+// Adds the WKWebView as a direct subview of the NSWindow off-screen,
+// so it has a real frame and window for YouTube's JS to execute.
 
-struct WebViewContainer: NSViewRepresentable {
+struct WebViewAnchor: NSViewRepresentable {
     let webView: WKWebView
-    func makeNSView(context: Context) -> WKWebView { webView }
-    func updateNSView(_ nsView: WKWebView, context: Context) {}
+
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard webView.superview == nil, let contentView = nsView.window?.contentView else { return }
+        webView.frame = CGRect(x: -900, y: 0, width: 800, height: 600)
+        contentView.addSubview(webView, positioned: .below, relativeTo: nil)
+    }
 }
