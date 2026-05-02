@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import WebKit
 
 enum AppState {
     case idle
@@ -9,6 +10,7 @@ enum AppState {
 }
 
 struct ContentView: View {
+    @StateObject private var loader = TranscriptLoader()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var showCopied = false
@@ -20,21 +22,23 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            // Full-window glass background
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
                 .ignoresSafeArea()
 
+            // Hidden WKWebView — must be in hierarchy for JS execution
+            WebViewContainer(webView: loader.webView)
+                .frame(width: 1, height: 1)
+                .opacity(0)
+                .allowsHitTesting(false)
+
             VStack(spacing: 0) {
-                // Header
                 header
                     .padding(.top, 32)
                     .padding(.bottom, 28)
 
-                // Input area
                 inputSection
                     .padding(.horizontal, 24)
 
-                // Result or spacer
                 resultSection
                     .padding(.horizontal, 24)
                     .padding(.top, 20)
@@ -101,9 +105,7 @@ struct ContentView: View {
         } label: {
             HStack(spacing: 8) {
                 if case .loading = state {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
+                    ProgressView().controlSize(.small).tint(.white)
                 } else {
                     Image(systemName: "waveform.and.magnifyingglass")
                 }
@@ -113,9 +115,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 11)
             .background(
-                isValidURL
-                    ? Color.accentColor
-                    : Color.secondary.opacity(0.25),
+                isValidURL ? Color.accentColor : Color.secondary.opacity(0.25),
                 in: RoundedRectangle(cornerRadius: 12)
             )
             .foregroundStyle(isValidURL ? .white : .secondary)
@@ -139,41 +139,29 @@ struct ContentView: View {
     @ViewBuilder
     private var resultSection: some View {
         switch state {
-        case .idle:
-            EmptyView()
-
-        case .loading:
+        case .idle, .loading:
             EmptyView()
 
         case .error(let msg):
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(.red)
-                Text(msg)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.primary)
+                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                Text(msg).font(.system(size: 13)).foregroundStyle(.primary)
                 Spacer()
                 Button {
                     withAnimation { state = .idle }
                 } label: {
-                    Image(systemName: "xmark")
-                        .foregroundStyle(.tertiary)
-                        .font(.system(size: 11))
+                    Image(systemName: "xmark").foregroundStyle(.tertiary).font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
-            )
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.3), lineWidth: 1))
             .transition(.move(edge: .bottom).combined(with: .opacity))
 
         case .success(let title, let markdown):
             VStack(spacing: 12) {
-                // Transcript scroll view
                 ScrollView {
                     Text(markdown)
                         .font(.system(size: 13, design: .monospaced))
@@ -184,18 +172,12 @@ struct ContentView: View {
                 }
                 .frame(height: 280)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                )
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.12), lineWidth: 1))
 
-                // Action buttons
                 HStack(spacing: 10) {
-                    actionButton(
-                        icon: showCopied ? "checkmark" : "doc.on.doc",
-                        label: showCopied ? "Copied" : "Copy",
-                        color: .secondary
-                    ) {
+                    actionButton(icon: showCopied ? "checkmark" : "doc.on.doc",
+                                 label: showCopied ? "Copied" : "Copy",
+                                 color: .secondary) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(markdown, forType: .string)
                         withAnimation { showCopied = true }
@@ -203,7 +185,6 @@ struct ContentView: View {
                             withAnimation { showCopied = false }
                         }
                     }
-
                     actionButton(icon: "arrow.down.circle", label: "Save as Markdown", color: .accentColor) {
                         saveMarkdown(markdown, title: title)
                     }
@@ -217,17 +198,13 @@ struct ContentView: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                Text(label)
-                    .font(.system(size: 13, weight: .medium))
+                Text(label).font(.system(size: 13, weight: .medium))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 9)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .foregroundStyle(color)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-            )
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12), lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
@@ -237,7 +214,7 @@ struct ContentView: View {
     private func fetch() async {
         withAnimation(.spring(duration: 0.3)) { state = .loading }
         do {
-            let (title, markdown) = try await TranscriptFetcher.fetch(urlString: urlInput)
+            let (title, markdown) = try await loader.fetch(urlString: urlInput)
             withAnimation(.spring(duration: 0.4)) {
                 state = .success(title: title, markdown: markdown)
             }
@@ -251,9 +228,7 @@ struct ContentView: View {
     private func saveMarkdown(_ content: String, title: String) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        let safeName = title
-            .components(separatedBy: .init(charactersIn: "/\\:*?\"<>|"))
-            .joined(separator: "-")
+        let safeName = title.components(separatedBy: .init(charactersIn: "/\\:*?\"<>|")).joined(separator: "-")
         panel.nameFieldStringValue = "\(safeName).md"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
@@ -273,7 +248,6 @@ struct ContentView: View {
 struct VisualEffectView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blendingMode: NSVisualEffectView.BlendingMode
-
     func makeNSView(context: Context) -> NSVisualEffectView {
         let v = NSVisualEffectView()
         v.material = material
@@ -281,6 +255,13 @@ struct VisualEffectView: NSViewRepresentable {
         v.state = .active
         return v
     }
-
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+// MARK: - WebView Container
+
+struct WebViewContainer: NSViewRepresentable {
+    let webView: WKWebView
+    func makeNSView(context: Context) -> WKWebView { webView }
+    func updateNSView(_ nsView: WKWebView, context: Context) {}
 }

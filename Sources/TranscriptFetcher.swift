@@ -1,36 +1,125 @@
 import Foundation
+import WebKit
 
-struct TranscriptSegment {
-    let text: String
-}
+// MARK: - Public API
 
-struct CaptionTrack: Decodable {
-    let baseUrl: String
-    let languageCode: String
-}
+@MainActor
+class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate {
+    let webView: WKWebView
+    private var continuation: CheckedContinuation<(title: String, markdown: String), Error>?
 
-struct TranscriptFetcher {
-
-    // MARK: - Public
-
-    static func fetch(urlString: String) async throws -> (title: String, markdown: String) {
-        guard let videoID = extractVideoID(from: urlString) else {
-            throw FetchError.invalidURL
-        }
-        let (title, tracks) = try await fetchPlayerResponse(videoID: videoID)
-        guard let track = selectTrack(from: tracks) else {
-            throw FetchError.noTranscript
-        }
-        guard let trackURL = URL(string: track.baseUrl) else {
-            throw FetchError.noTranscript
-        }
-        let xml = try await fetchXML(from: trackURL)
-        let segments = parseXML(xml)
-        let markdown = formatMarkdown(title: title, segments: segments)
-        return (title, markdown)
+    override init() {
+        let config = WKWebViewConfiguration()
+        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: config)
+        super.init()
+        webView.navigationDelegate = self
+        // Suppress YouTube's bot-detection for programmatic page loads
+        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
 
-    // MARK: - Video ID
+    func fetch(urlString: String) async throws -> (title: String, markdown: String) {
+        guard let videoID = TranscriptFetcher.extractVideoID(from: urlString) else {
+            throw FetchError.invalidURL
+        }
+        let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
+        return try await withCheckedThrowingContinuation { cont in
+            self.continuation = cont
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    // MARK: - WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        // Poll for ytInitialPlayerResponse (YouTube populates it after JS runs)
+        let js = """
+        (async () => {
+            let r = null;
+            for (let i = 0; i < 60; i++) {
+                r = window.ytInitialPlayerResponse;
+                if (r && r.videoDetails) break;
+                await new Promise(res => setTimeout(res, 150));
+            }
+            if (!r || !r.videoDetails) return JSON.stringify({error: 'no_response'});
+
+            const title = r.videoDetails.title || 'YouTube Transcript';
+            const trackList = r.captions
+                && r.captions.playerCaptionsTracklistRenderer
+                && r.captions.playerCaptionsTracklistRenderer.captionTracks;
+            if (!trackList || !trackList.length) return JSON.stringify({error: 'no_captions'});
+
+            const track = trackList.find(t => t.languageCode === 'en')
+                       || trackList.find(t => t.languageCode && t.languageCode.startsWith('en'))
+                       || trackList[0];
+
+            try {
+                const resp = await fetch(track.baseUrl);
+                const xml = await resp.text();
+                return JSON.stringify({title, xml});
+            } catch (e) {
+                return JSON.stringify({error: 'fetch_failed: ' + String(e)});
+            }
+        })()
+        """
+        webView.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { [weak self] result in
+            let mapped: Result<Any?, Error> = result.map { $0 as Any? }
+            DispatchQueue.main.async { self?.handleJSResult(mapped) }
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        finish(throwing: FetchError.networkError)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        finish(throwing: FetchError.networkError)
+    }
+
+    // MARK: - Private
+
+    private func handleJSResult(_ result: Result<Any?, Error>) {
+        switch result {
+        case .failure:
+            finish(throwing: FetchError.parseError)
+        case .success(let value):
+            guard let json = value as? String,
+                  let data = json.data(using: .utf8),
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+                finish(throwing: FetchError.parseError)
+                return
+            }
+            if let errorMsg = dict["error"] {
+                finish(throwing: errorMsg.contains("no_captions") ? FetchError.noTranscript : FetchError.parseError)
+                return
+            }
+            guard let title = dict["title"], let xml = dict["xml"] else {
+                finish(throwing: FetchError.parseError)
+                return
+            }
+            let segments = TranscriptFetcher.parseXML(xml)
+            guard !segments.isEmpty else {
+                finish(throwing: FetchError.noTranscript)
+                return
+            }
+            let markdown = TranscriptFetcher.formatMarkdown(title: title, segments: segments)
+            finish(returning: (title, markdown))
+        }
+    }
+
+    private func finish(returning value: (String, String)) {
+        continuation?.resume(returning: value)
+        continuation = nil
+    }
+
+    private func finish(throwing error: Error) {
+        continuation?.resume(throwing: error)
+        continuation = nil
+    }
+}
+
+// MARK: - Helpers (reused by loader)
+
+enum TranscriptFetcher {
 
     static func extractVideoID(from raw: String) -> String? {
         var s = raw.trimmingCharacters(in: .whitespaces)
@@ -38,136 +127,29 @@ struct TranscriptFetcher {
         guard let url = URL(string: s) else { return nil }
         let host = url.host ?? ""
 
-        // youtu.be/{id}
         if host.contains("youtu.be") {
             let id = url.pathComponents.dropFirst().first
             return id?.isEmpty == false ? String(id!) : nil
         }
 
-        // youtube.com/shorts/{id} or /embed/{id}
         let path = url.pathComponents
         if let idx = path.firstIndex(where: { $0 == "shorts" || $0 == "embed" }),
            idx + 1 < path.count {
             return path[idx + 1]
         }
 
-        // youtube.com/watch?v={id}
         if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
            let v = comps.queryItems?.first(where: { $0.name == "v" })?.value,
            !v.isEmpty {
             return v
         }
-
         return nil
     }
 
-    // MARK: - Player Response
-
-    private static func fetchPlayerResponse(videoID: String) async throws -> (title: String, tracks: [CaptionTrack]) {
-        guard let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)") else {
-            throw FetchError.invalidURL
-        }
-        var req = URLRequest(url: url)
-        req.setValue(
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            forHTTPHeaderField: "User-Agent"
-        )
-        req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw FetchError.networkError
-        }
-        guard let html = String(data: data, encoding: .utf8) else {
-            throw FetchError.parseError
-        }
-
-        return try parsePlayerResponse(from: html)
-    }
-
-    private static func extractJSONObject(from html: String, after marker: String) -> String? {
-        guard let markerRange = html.range(of: marker) else { return nil }
-        let tail = html[markerRange.upperBound...]
-        guard let braceRange = tail.range(of: "{") else { return nil }
-
-        var depth = 0
-        var inString = false
-        var escaped = false
-        let start = braceRange.lowerBound
-
-        for idx in html[start...].indices {
-            let ch = html[idx]
-            if escaped { escaped = false; continue }
-            if ch == "\\" && inString { escaped = true; continue }
-            if ch == "\"" { inString.toggle(); continue }
-            if inString { continue }
-            if ch == "{" { depth += 1 }
-            else if ch == "}" {
-                depth -= 1
-                if depth == 0 { return String(html[start...idx]) }
-            }
-        }
-        return nil
-    }
-
-    private static func parsePlayerResponse(from html: String) throws -> (title: String, tracks: [CaptionTrack]) {
-        // Locate the marker, then use brace-counting to extract the full JSON object.
-        // A regex with .+? stops at the first `};` — cutting off `captions` which lives deep in the blob.
-        guard let jsonString = extractJSONObject(from: html, after: "ytInitialPlayerResponse") else {
-            throw FetchError.parseError
-        }
-        guard let jsonData = jsonString.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
-            throw FetchError.parseError
-        }
-
-        // Title
-        let title: String
-        if let details = json["videoDetails"] as? [String: Any],
-           let t = details["title"] as? String {
-            title = t
-        } else {
-            title = "YouTube Transcript"
-        }
-
-        // Caption tracks
-        var tracks: [CaptionTrack] = []
-        if let captions = json["captions"] as? [String: Any],
-           let renderer = captions["playerCaptionsTracklistRenderer"] as? [String: Any],
-           let rawTracks = renderer["captionTracks"] as? [[String: Any]] {
-            for raw in rawTracks {
-                if let baseUrl = raw["baseUrl"] as? String,
-                   let lang = raw["languageCode"] as? String {
-                    tracks.append(CaptionTrack(baseUrl: baseUrl, languageCode: lang))
-                }
-            }
-        }
-
-        return (title, tracks)
-    }
-
-    // MARK: - Track Selection
-
-    private static func selectTrack(from tracks: [CaptionTrack]) -> CaptionTrack? {
-        if let en = tracks.first(where: { $0.languageCode == "en" }) { return en }
-        if let enAny = tracks.first(where: { $0.languageCode.hasPrefix("en") }) { return enAny }
-        return tracks.first
-    }
-
-    // MARK: - XML Parsing
-
-    private static func fetchXML(from url: URL) async throws -> String {
-        let (data, _) = try await URLSession.shared.data(from: url)
-        guard let xml = String(data: data, encoding: .utf8) else { throw FetchError.parseError }
-        return xml
-    }
-
-    private static func parseXML(_ xml: String) -> [TranscriptSegment] {
+    static func parseXML(_ xml: String) -> [TranscriptSegment] {
         let parser = TranscriptXMLParser()
         return parser.parse(xml)
     }
-
-    // MARK: - Markdown Formatting
 
     static func formatMarkdown(title: String, segments: [TranscriptSegment]) -> String {
         let raw = segments.map(\.text).joined(separator: " ")
@@ -179,7 +161,6 @@ struct TranscriptFetcher {
         let words = text.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         var lines: [String] = []
         var current = ""
-
         for word in words {
             let candidate = current.isEmpty ? word : current + " " + word
             if candidate.count > lineWidth && !current.isEmpty {
@@ -192,6 +173,12 @@ struct TranscriptFetcher {
         if !current.isEmpty { lines.append(current) }
         return lines.joined(separator: "\n")
     }
+}
+
+// MARK: - Segment
+
+struct TranscriptSegment {
+    let text: String
 }
 
 // MARK: - XML Parser
@@ -222,8 +209,7 @@ private class TranscriptXMLParser: NSObject, XMLParserDelegate {
                 qualifiedName: String?) {
         if name == "text" {
             inText = false
-            let clean = decodeHTMLEntities(currentText)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let clean = decodeHTMLEntities(currentText).trimmingCharacters(in: .whitespacesAndNewlines)
             if !clean.isEmpty { segments.append(TranscriptSegment(text: clean)) }
         }
     }
@@ -243,17 +229,14 @@ private class TranscriptXMLParser: NSObject, XMLParserDelegate {
 // MARK: - Errors
 
 enum FetchError: LocalizedError {
-    case invalidURL
-    case networkError
-    case parseError
-    case noTranscript
+    case invalidURL, networkError, parseError, noTranscript
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "That doesn't look like a valid YouTube link."
-        case .networkError: return "Couldn't reach YouTube. Check your connection."
-        case .parseError: return "Couldn't read the video page. YouTube may have changed."
-        case .noTranscript: return "This video has no available transcript."
+        case .invalidURL:    return "That doesn't look like a valid YouTube link."
+        case .networkError:  return "Couldn't reach YouTube. Check your connection."
+        case .parseError:    return "Couldn't read the video page. YouTube may have changed."
+        case .noTranscript:  return "This video has no available transcript."
         }
     }
 }
