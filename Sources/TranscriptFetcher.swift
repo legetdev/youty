@@ -85,16 +85,37 @@ struct TranscriptFetcher {
         return try parsePlayerResponse(from: html)
     }
 
+    private static func extractJSONObject(from html: String, after marker: String) -> String? {
+        guard let markerRange = html.range(of: marker) else { return nil }
+        let tail = html[markerRange.upperBound...]
+        guard let braceRange = tail.range(of: "{") else { return nil }
+
+        var depth = 0
+        var inString = false
+        var escaped = false
+        let start = braceRange.lowerBound
+
+        for idx in html[start...].indices {
+            let ch = html[idx]
+            if escaped { escaped = false; continue }
+            if ch == "\\" && inString { escaped = true; continue }
+            if ch == "\"" { inString.toggle(); continue }
+            if inString { continue }
+            if ch == "{" { depth += 1 }
+            else if ch == "}" {
+                depth -= 1
+                if depth == 0 { return String(html[start...idx]) }
+            }
+        }
+        return nil
+    }
+
     private static func parsePlayerResponse(from html: String) throws -> (title: String, tracks: [CaptionTrack]) {
-        // Extract ytInitialPlayerResponse JSON blob
-        let pattern = #"ytInitialPlayerResponse\s*=\s*(\{.+?\});"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
-              let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-              let range = Range(match.range(at: 1), in: html) else {
+        // Locate the marker, then use brace-counting to extract the full JSON object.
+        // A regex with .+? stops at the first `};` — cutting off `captions` which lives deep in the blob.
+        guard let jsonString = extractJSONObject(from: html, after: "ytInitialPlayerResponse") else {
             throw FetchError.parseError
         }
-
-        let jsonString = String(html[range])
         guard let jsonData = jsonString.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
             throw FetchError.parseError
