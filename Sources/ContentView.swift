@@ -33,20 +33,17 @@ struct ContentView: View {
                     .padding(.horizontal, 24)
 
                 resultSection
-                    .padding(.horizontal, 24)
-                    .padding(.top, 20)
-
-                Spacer(minLength: 0)
             }
             .padding(.bottom, 24)
         }
         .frame(width: 520)
+        .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             checkClipboard()
-            // Attach WKWebView to the real window so YouTube renders its full UI.
-            // Must happen after the window exists; brief async dispatch guarantees that.
             DispatchQueue.main.async {
                 if let window = NSApp.windows.first(where: { $0.isVisible }) {
+                    window.isOpaque = false
+                    window.backgroundColor = .clear
                     loader.attachToWindow(window)
                 }
             }
@@ -160,6 +157,8 @@ struct ContentView: View {
             .padding(.vertical, 10)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.3), lineWidth: 1))
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
             .transition(.move(edge: .bottom).combined(with: .opacity))
 
         case .success(let title, let markdown):
@@ -192,6 +191,8 @@ struct ContentView: View {
                     }
                 }
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
