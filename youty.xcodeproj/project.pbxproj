@@ -10,18 +10,22 @@
 		21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */; };
 		348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		7700E341676B9465D4ADD448 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */; };
+		8609704C5B930A0AE41EDEAE /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 57CDA26D3414E63EDB216766 /* AppIcon.icns */; };
 		9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
 		C8B9333704250B395669467E /* VideoExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07EACD9853587F324A75FFB /* VideoExtractor.swift */; };
 		C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
+		ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2C2747C12D2CBE36AD416926 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		095F0E65E14289ABD525C24B /* youty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = youty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptFetcher.swift; sourceTree = "<group>"; };
+		2C2747C12D2CBE36AD416926 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		4BB446E58CBBADED63AFD0D2 /* youty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = youty.entitlements; sourceTree = "<group>"; };
 		515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		57CDA26D3414E63EDB216766 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		D07EACD9853587F324A75FFB /* VideoExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExtractor.swift; sourceTree = "<group>"; };
 		DEA64626546F131BCD86B15A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E533613734AEB3CF1ABED12B /* youtyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = youtyApp.swift; sourceTree = "<group>"; };
@@ -41,6 +45,8 @@
 		D064152482EEF1C6C5964B10 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				57CDA26D3414E63EDB216766 /* AppIcon.icns */,
+				2C2747C12D2CBE36AD416926 /* Assets.xcassets */,
 				515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */,
 				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
 				DEA64626546F131BCD86B15A /* Info.plist */,
@@ -70,6 +76,7 @@
 			buildConfigurationList = C55ACEFE74D51240482EED2E /* Build configuration list for PBXNativeTarget "youty" */;
 			buildPhases = (
 				4CCED308D87EE0941CCCCC2C /* Sources */,
+				8DF49C2845D037821AA14228 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -115,6 +122,18 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8DF49C2845D037821AA14228 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8609704C5B930A0AE41EDEAE /* AppIcon.icns in Resources */,
+				ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		4CCED308D87EE0941CCCCC2C /* Sources */ = {
@@ -195,7 +214,7 @@
 		7098D1273BEC287D12E8ED7E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Sources/youty.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -277,7 +296,7 @@
 		D148BF154954770C86D21905 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = Sources/youty.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
