@@ -10,9 +10,13 @@ enum AppState {
 
 struct ContentView: View {
     @StateObject private var loader = TranscriptLoader()
+    @StateObject private var vault = VaultManager()
+    @StateObject private var videoExtractor = VideoExtractor()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var lastResult: FetchResult?
+    @State private var vaultSaved = false
+    @State private var vaultError: String?
     @State private var showCopied = false
     @FocusState private var inputFocused: Bool
 
@@ -46,6 +50,7 @@ struct ContentView: View {
                     window.isOpaque = false
                     window.backgroundColor = .clear
                     loader.attachToWindow(window)
+                    videoExtractor.attach(to: window)
                 }
             }
         }
@@ -187,9 +192,68 @@ struct ContentView: View {
                             withAnimation { showCopied = false }
                         }
                     }
-                    actionButton(icon: "arrow.down.circle", label: "Save as Markdown", color: .accentColor) {
+                    actionButton(icon: "arrow.down.circle", label: "Save Markdown", color: .secondary) {
                         saveMarkdown(markdown, title: title)
                     }
+                    actionButton(icon: vaultSaved ? "checkmark" : "square.and.arrow.down.on.square",
+                                 label: vaultSaved ? "Saved ✓" : "Save to Vault",
+                                 color: .accentColor) {
+                        saveToVault()
+                    }
+                }
+
+                // Vault setup prompt
+                if vault.vaultURL == nil {
+                    HStack(spacing: 5) {
+                        Text("No vault set —")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Button("Choose folder") { vault.chooseVault() }
+                            .font(.system(size: 12))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+
+                // Vault error banner
+                if let err = vaultError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                        Text(err).font(.system(size: 12)).foregroundStyle(.primary)
+                        Spacer()
+                        Button { vaultError = nil } label: {
+                            Image(systemName: "xmark").font(.system(size: 10)).foregroundStyle(.tertiary)
+                        }.buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.3), lineWidth: 1))
+                }
+
+                // Background frame progress
+                if case .downloading(let p) = vault.frameState {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ProgressView(value: p).tint(.accentColor)
+                        Text("Downloading frames \(Int(p * 100))%")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if case .extracting = vault.frameState {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text("Extracting frames…")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                } else if case .done = vault.frameState {
+                    Text("Frames saved ✓")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                } else if case .failed(let msg) = vault.frameState {
+                    Text("Frames failed: \(msg)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.red)
                 }
             }
             .padding(.horizontal, 24)
@@ -227,6 +291,23 @@ struct ContentView: View {
             withAnimation(.spring(duration: 0.3)) {
                 state = .error(error.localizedDescription)
             }
+        }
+    }
+
+    private func saveToVault() {
+        guard let result = lastResult else { return }
+        vaultError = nil
+        let metadata = MetadataEnricher.enrich(from: result)
+        do {
+            try vault.saveNote(result: result, metadata: metadata)
+            withAnimation { vaultSaved = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation { self.vaultSaved = false }
+            }
+            // Kick off background frame extraction if VideoExtractor spike is confirmed.
+            // Wire up here once spike passes: vault.extractFramesInBackground(...)
+        } catch {
+            vaultError = error.localizedDescription
         }
     }
 

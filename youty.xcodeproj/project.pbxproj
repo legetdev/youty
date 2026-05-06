@@ -8,17 +8,25 @@
 
 /* Begin PBXBuildFile section */
 		21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */; };
+		348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		7700E341676B9465D4ADD448 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */; };
+		9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
+		C8B9333704250B395669467E /* VideoExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07EACD9853587F324A75FFB /* VideoExtractor.swift */; };
+		C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		095F0E65E14289ABD525C24B /* youty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = youty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptFetcher.swift; sourceTree = "<group>"; };
+		3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		4BB446E58CBBADED63AFD0D2 /* youty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = youty.entitlements; sourceTree = "<group>"; };
 		515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		D07EACD9853587F324A75FFB /* VideoExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExtractor.swift; sourceTree = "<group>"; };
 		DEA64626546F131BCD86B15A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E533613734AEB3CF1ABED12B /* youtyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = youtyApp.swift; sourceTree = "<group>"; };
+		ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameExtractor.swift; sourceTree = "<group>"; };
+		FB6708940A3424B502A6232E /* MetadataEnricher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataEnricher.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -34,8 +42,12 @@
 			isa = PBXGroup;
 			children = (
 				515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */,
+				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
 				DEA64626546F131BCD86B15A /* Info.plist */,
+				FB6708940A3424B502A6232E /* MetadataEnricher.swift */,
 				2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */,
+				3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */,
+				D07EACD9853587F324A75FFB /* VideoExtractor.swift */,
 				4BB446E58CBBADED63AFD0D2 /* youty.entitlements */,
 				E533613734AEB3CF1ABED12B /* youtyApp.swift */,
 			);
@@ -110,7 +122,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				7700E341676B9465D4ADD448 /* ContentView.swift in Sources */,
+				9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */,
+				348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */,
 				21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */,
+				C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */,
+				C8B9333704250B395669467E /* VideoExtractor.swift in Sources */,
 				AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -15,17 +15,34 @@ struct VideoDetails: Sendable {
     let lengthSeconds: Int
     let keywords: [String]
     let shortDescription: String
+    let youtubeSummary: String
 }
 
 struct FetchResult: Sendable {
     let videoID: String
     let title: String
-    let markdown: String               // plain prose, for display
-    let segments: [TranscriptSegment]  // timestamped, for vault
+    let markdown: String
+    let segments: [TranscriptSegment]
     let videoDetails: VideoDetails
 }
 
 // MARK: - Loader
+
+// Fetches transcripts via WKWebView + DOM scraping.
+//
+// Why WKWebView (not URLSession):
+//   YouTube's timedtext caption URLs return empty bodies from URLSession —
+//   they require full browser session cookies. WKWebView maintains those cookies.
+//
+// Why Chrome UA:
+//   YouTube omits captionTracks from ytInitialPlayerResponse for default WebKit UA.
+//   Chrome UA causes YouTube to include the full response, which lets us verify
+//   captions exist before proceeding.
+//
+// Why DOM scraping (not baseUrl fetch):
+//   Fetching track.baseUrl from JS or URLSession returns empty XML regardless.
+//   Clicking "Show transcript" triggers YouTube's internal get_transcript API,
+//   which renders segments in the DOM. We scrape that rendered DOM.
 
 @MainActor
 class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -43,7 +60,6 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         super.init()
         webView.navigationDelegate = self
         controller.add(self, name: "youtyTranscript")
-        // Block images, media, fonts, and video CDN — cuts page load time significantly
         let blockRules = """
         [
           {"trigger":{"url-filter":".*","resource-type":["image","media","font"]},"action":{"type":"block"}},
@@ -84,9 +100,6 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         guard continuation != nil, !jsInjected else { return }
         jsInjected = true
 
-        // Wait for ytInitialPlayerResponse, select the best caption track,
-        // and post its URL directly. No DOM scraping, no button clicking.
-        // Track priority: manual English > auto English > manual any > auto any.
         let js = """
         (function() {
           (async function youtyFetch() {
@@ -94,6 +107,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
               window.webkit.messageHandlers.youtyTranscript.postMessage(obj);
             }
 
+            // 1. Wait for ytInitialPlayerResponse
             let ipr = null;
             for (let i = 0; i < 80; i++) {
               ipr = window.ytInitialPlayerResponse;
@@ -103,29 +117,85 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             if (!ipr || !ipr.videoDetails) return post({error: 'no_response'});
 
             const vd = ipr.videoDetails;
+
+            // 2. Verify captions exist
             const tracks = (ipr.captions &&
                             ipr.captions.playerCaptionsTracklistRenderer &&
                             ipr.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
             if (!tracks.length) return post({error: 'no_captions'});
 
-            const isManual  = t => t.kind !== 'asr';
-            const isEnglish = t => (t.languageCode || '').startsWith('en');
-            const track = tracks.find(t => isManual(t) && isEnglish(t))
-                       || tracks.find(t => isEnglish(t))
-                       || tracks.find(t => isManual(t))
-                       || tracks[0];
+            // 3. Find and click "Show transcript" button
+            let btn = null;
+            for (let i = 0; i < 30; i++) {
+              const all = Array.from(document.querySelectorAll('button, tp-yt-paper-button'));
+              btn = all.find(b => b.getAttribute('aria-label') === 'Show transcript')
+                 || all.find(b => /^show transcript$/i.test((b.textContent || '').trim()))
+                 || all.find(b => /show transcript/i.test(b.getAttribute('aria-label') || ''))
+                 || all.find(b => /^transcript$/i.test((b.textContent || '').trim()));
+              if (btn) break;
+              await new Promise(r => setTimeout(r, 200));
+            }
+            if (!btn) return post({error: 'no_btn'});
+            btn.click();
+
+            // 4. Wait for segments — handles both legacy and modern YouTube UI
+            let segs = [];
+            for (let i = 0; i < 60; i++) {
+              await new Promise(r => setTimeout(r, 200));
+
+              // Legacy: ytd-transcript-segment-renderer
+              const legacyEls = document.querySelectorAll('ytd-transcript-segment-renderer');
+              if (legacyEls.length) {
+                segs = Array.from(legacyEls).map(el => ({
+                  text: (el.querySelector('yt-formatted-string.segment-text') || {}).textContent || '',
+                  ts:   ((el.querySelector('.segment-timestamp') || {}).textContent || '').trim()
+                })).filter(s => s.text.trim().length > 0);
+                break;
+              }
+
+              // Modern: transcript-segment-view-model
+              const modernEls = document.querySelectorAll('transcript-segment-view-model');
+              if (modernEls.length) {
+                segs = Array.from(modernEls).map(el => ({
+                  text: (el.querySelector('span.ytAttributedStringHost') || {}).textContent || '',
+                  ts:   (el.querySelector('.segment-timestamp, [class*="timestamp"]') || {}).textContent?.trim() || ''
+                })).filter(s => s.text.trim().length > 0);
+                break;
+              }
+            }
+            if (!segs.length) return post({error: 'panel_empty'});
+
+            // 5. Opportunistically extract YouTube's AI summary
+            let youtubeSummary = '';
+            try {
+              for (const panel of (ipr.engagementPanels || [])) {
+                const content = panel.engagementPanelSectionListRenderer
+                                && panel.engagementPanelSectionListRenderer.content;
+                if (!content) continue;
+                const structured = content.structuredDescriptionContentRenderer;
+                if (!structured) continue;
+                for (const item of (structured.items || [])) {
+                  const runs = item.videoDescriptionHeaderRenderer
+                               && item.videoDescriptionHeaderRenderer.description
+                               && item.videoDescriptionHeaderRenderer.description.runs;
+                  if (runs) { youtubeSummary = runs.map(r => r.text||'').join(''); break; }
+                }
+                if (youtubeSummary) break;
+              }
+            } catch(e) {}
 
             post({
-              title:      vd.title || '',
-              captionUrl: track.baseUrl,
-              videoID:    vd.videoId || '',
+              title:   vd.title || '',
+              videoID: vd.videoId || '',
+              segments: segs,
               videoDetails: {
                 videoID:          vd.videoId || '',
                 title:            vd.title || '',
                 author:           vd.author || '',
                 lengthSeconds:    parseInt(vd.lengthSeconds || '0', 10),
                 keywords:         vd.keywords || [],
-                shortDescription: (vd.shortDescription || '').slice(0, 2000)
+                shortDescription: (vd.shortDescription || '').slice(0, 2000),
+                youtubeSummary:   youtubeSummary.slice(0, 3000)
               }
             });
           })();
@@ -134,7 +204,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
-                NSLog("[youty] evaluateJavaScript error: %@", error.localizedDescription)
+                NSLog("[youty] JS error: %@", error.localizedDescription)
             }
         }
 
@@ -161,16 +231,20 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         }
 
         if let errKey = dict["error"] as? String {
-            NSLog("[youty] JS error: %@", errKey)
-            finish(throwing: errKey == "no_captions" ? FetchError.noTranscript : FetchError.parseError)
+            switch errKey {
+            case "no_captions", "no_btn", "panel_empty":
+                finish(throwing: FetchError.noTranscript)
+            default:
+                finish(throwing: FetchError.parseError)
+            }
             return
         }
 
-        guard let title      = dict["title"]      as? String, !title.isEmpty,
-              let captionUrl = dict["captionUrl"]  as? String,
-              let videoID    = dict["videoID"]     as? String,
-              let vdRaw      = dict["videoDetails"] as? [String: Any],
-              let url        = URL(string: captionUrl) else {
+        guard let title    = dict["title"]    as? String, !title.isEmpty,
+              let videoID  = dict["videoID"]  as? String,
+              let rawSegs  = dict["segments"] as? [[String: Any]],
+              let vdRaw    = dict["videoDetails"] as? [String: Any],
+              !rawSegs.isEmpty else {
             finish(throwing: FetchError.parseError)
             return
         }
@@ -178,107 +252,45 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         let videoDetails = VideoDetails(
             videoID:          videoID,
             title:            title,
-            author:           vdRaw["author"]           as? String ?? "",
-            lengthSeconds:    vdRaw["lengthSeconds"]    as? Int    ?? 0,
+            author:           vdRaw["author"]           as? String   ?? "",
+            lengthSeconds:    vdRaw["lengthSeconds"]    as? Int      ?? 0,
             keywords:         vdRaw["keywords"]         as? [String] ?? [],
-            shortDescription: vdRaw["shortDescription"] as? String ?? ""
+            shortDescription: vdRaw["shortDescription"] as? String   ?? "",
+            youtubeSummary:   vdRaw["youtubeSummary"]   as? String   ?? ""
         )
 
-        // Fetch the caption XML on a background task, then return to MainActor
-        Task {
-            do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                let xml = String(data: data, encoding: .utf8) ?? ""
-                let parsed = CaptionXMLParser.parse(xml)
-                guard !parsed.isEmpty else {
-                    self.finish(throwing: FetchError.noTranscript)
-                    return
-                }
-                let segments = parsed.map {
-                    TranscriptSegment(text: $0.text, timestamp: $0.formattedTimestamp)
-                }
-                let markdown = TranscriptFetcher.formatMarkdown(title: title,
-                                                                segments: parsed.map(\.text))
-                self.finish(returning: FetchResult(
-                    videoID:      videoID,
-                    title:        title,
-                    markdown:     markdown,
-                    segments:     segments,
-                    videoDetails: videoDetails
-                ))
-            } catch {
-                self.finish(throwing: FetchError.networkError)
-            }
+        let segments = rawSegs.compactMap { raw -> TranscriptSegment? in
+            guard let text = raw["text"] as? String, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+            let ts = (raw["ts"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return TranscriptSegment(text: decodeHTMLEntities(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                                     timestamp: ts)
         }
+
+        guard !segments.isEmpty else {
+            finish(throwing: FetchError.noTranscript)
+            return
+        }
+
+        let markdown = TranscriptFetcher.formatMarkdown(title: title, segments: segments.map(\.text))
+        finish(returning: FetchResult(
+            videoID:      videoID,
+            title:        title,
+            markdown:     markdown,
+            segments:     segments,
+            videoDetails: videoDetails
+        ))
     }
 
     // MARK: - Private
 
     private func finish(returning value: FetchResult) {
-        continuation?.resume(returning: value)
-        continuation = nil
+        continuation?.resume(returning: value); continuation = nil
     }
-
     private func finish(throwing error: Error) {
-        continuation?.resume(throwing: error)
-        continuation = nil
-    }
-}
-
-// MARK: - Caption XML parser
-
-private final class CaptionXMLParser: NSObject, XMLParserDelegate {
-
-    struct Segment {
-        let text: String
-        let startSeconds: Double
-
-        var formattedTimestamp: String {
-            let total = Int(startSeconds)
-            let h = total / 3600
-            let m = (total % 3600) / 60
-            let s = total % 60
-            return h > 0 ? String(format: "%d:%02d:%02d", h, m, s)
-                         : String(format: "%d:%02d", m, s)
-        }
+        continuation?.resume(throwing: error); continuation = nil
     }
 
-    private var segments: [Segment] = []
-    private var currentStart: Double = 0
-    private var currentText = ""
-    private var inText = false
-
-    static func parse(_ xml: String) -> [Segment] {
-        let instance = CaptionXMLParser()
-        let parser = XMLParser(data: Data(xml.utf8))
-        parser.delegate = instance
-        parser.parse()
-        return instance.segments
-    }
-
-    func parser(_ parser: XMLParser, didStartElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?,
-                attributes attributeDict: [String: String] = [:]) {
-        guard elementName == "text" else { return }
-        currentStart = Double(attributeDict["start"] ?? "0") ?? 0
-        currentText = ""
-        inText = true
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        guard inText else { return }
-        currentText += string
-    }
-
-    func parser(_ parser: XMLParser, didEndElement elementName: String,
-                namespaceURI: String?, qualifiedName: String?) {
-        guard elementName == "text" else { return }
-        inText = false
-        let cleaned = decodeEntities(currentText.trimmingCharacters(in: .whitespacesAndNewlines))
-        if !cleaned.isEmpty { segments.append(Segment(text: cleaned, startSeconds: currentStart)) }
-    }
-
-    private func decodeEntities(_ s: String) -> String {
+    private func decodeHTMLEntities(_ s: String) -> String {
         s.replacingOccurrences(of: "&amp;",  with: "&")
          .replacingOccurrences(of: "&lt;",   with: "<")
          .replacingOccurrences(of: "&gt;",   with: ">")
