@@ -1,25 +1,49 @@
 import Foundation
 import WebKit
 
+// MARK: - Result types
+
+struct TranscriptSegment: Sendable {
+    let text: String
+    let timestamp: String  // "M:SS" or "H:MM:SS"
+}
+
+struct VideoDetails: Sendable {
+    let videoID: String
+    let title: String
+    let author: String
+    let lengthSeconds: Int
+    let keywords: [String]
+    let shortDescription: String
+}
+
+struct FetchResult: Sendable {
+    let videoID: String
+    let title: String
+    let markdown: String               // plain prose, for display
+    let segments: [TranscriptSegment]  // timestamped, for vault
+    let videoDetails: VideoDetails
+}
+
 // MARK: - Loader
 
 @MainActor
 class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler {
 
     let webView: WKWebView
-    private var continuation: CheckedContinuation<(title: String, markdown: String), Error>?
+    private var continuation: CheckedContinuation<FetchResult, Error>?
     private var jsInjected = false
 
     override init() {
         let config = WKWebViewConfiguration()
         let controller = WKUserContentController()
         config.userContentController = controller
-        config.mediaTypesRequiringUserActionForPlayback = .all  // don't autoplay video
+        config.mediaTypesRequiringUserActionForPlayback = .all
         webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
         super.init()
         webView.navigationDelegate = self
         controller.add(self, name: "youtyTranscript")
-        // Block images, media, and video CDN — cuts page load time significantly
+        // Block images, media, fonts, and video CDN — cuts page load time significantly
         let blockRules = """
         [
           {"trigger":{"url-filter":".*","resource-type":["image","media","font"]},"action":{"type":"block"}},
@@ -39,11 +63,10 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         guard webView.superview == nil, let cv = window.contentView else { return }
         webView.frame = CGRect(x: -1300, y: 0, width: 1280, height: 800)
         cv.addSubview(webView)
-        // Pre-warm session: load YouTube homepage so JS bundles are cached before user requests
         webView.load(URLRequest(url: URL(string: "https://www.youtube.com")!))
     }
 
-    func fetch(urlString: String) async throws -> (title: String, markdown: String) {
+    func fetch(urlString: String) async throws -> FetchResult {
         guard let videoID = TranscriptFetcher.extractVideoID(from: urlString) else {
             throw FetchError.invalidURL
         }
@@ -58,14 +81,12 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // Only inject when a fetch is pending and this is the right page
-        guard continuation != nil else { return }
-        guard !jsInjected else { return }
+        guard continuation != nil, !jsInjected else { return }
         jsInjected = true
 
-        // IMPORTANT: outer wrapper is a plain sync IIFE (returns undefined, not a Promise).
-        // evaluateJavaScript only errors on Promise return values — that error silently
-        // kills the async task in some WebKit versions. The sync wrapper prevents this.
+        // Wait for ytInitialPlayerResponse, select the best caption track,
+        // and post its URL directly. No DOM scraping, no button clicking.
+        // Track priority: manual English > auto English > manual any > auto any.
         let js = """
         (function() {
           (async function youtyFetch() {
@@ -73,67 +94,40 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
               window.webkit.messageHandlers.youtyTranscript.postMessage(obj);
             }
 
-            // 1. Wait for ytInitialPlayerResponse
             let ipr = null;
             for (let i = 0; i < 80; i++) {
               ipr = window.ytInitialPlayerResponse;
               if (ipr && ipr.videoDetails && ipr.videoDetails.title) break;
               await new Promise(r => setTimeout(r, 150));
             }
-            if (!ipr || !ipr.videoDetails) {
-              return post({error: 'no_response', url: location.href.slice(0,80)});
-            }
-            const title = ipr.videoDetails.title;
+            if (!ipr || !ipr.videoDetails) return post({error: 'no_response'});
 
-            // 2. Quick caption availability check
+            const vd = ipr.videoDetails;
             const tracks = (ipr.captions &&
                             ipr.captions.playerCaptionsTracklistRenderer &&
                             ipr.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
-            if (!tracks.length) return post({error: 'no_captions', title});
+            if (!tracks.length) return post({error: 'no_captions'});
 
-            // 3. Find the "Show transcript" button (poll up to 6 s).
-            //    Prefer aria-label="Show transcript" to avoid clicking the
-            //    "Transcript" chip tab, which opens the wrong panel.
-            let btn = null;
-            for (let i = 0; i < 30; i++) {
-              const all = Array.from(document.querySelectorAll('button, tp-yt-paper-button'));
-              // Priority order — must NOT pick the "Transcript" chip tab first on videos
-              // that also have a "Show transcript" button (it opens the wrong panel).
-              btn = all.find(b => b.getAttribute('aria-label') === 'Show transcript')
-                 || all.find(b => /^show transcript$/i.test((b.textContent || '').trim()))
-                 || all.find(b => /show transcript/i.test(b.getAttribute('aria-label') || ''))
-                 || all.find(b => /^transcript$/i.test((b.textContent || '').trim()))  // legacy chip fallback
-                 || all.find(b => /transcript/i.test(b.getAttribute('aria-label') || ''));
-              if (btn) break;
-              await new Promise(r => setTimeout(r, 200));
-            }
-            if (!btn) return post({error: 'no_btn', title});
+            const isManual  = t => t.kind !== 'asr';
+            const isEnglish = t => (t.languageCode || '').startsWith('en');
+            const track = tracks.find(t => isManual(t) && isEnglish(t))
+                       || tracks.find(t => isEnglish(t))
+                       || tracks.find(t => isManual(t))
+                       || tracks[0];
 
-            btn.click();
-
-            // 4. Wait for segments — handles BOTH YouTube UI variants:
-            //    Legacy: ytd-transcript-segment-renderer yt-formatted-string.segment-text
-            //    Modern: transcript-segment-view-model span.ytAttributedStringHost
-            let segs = [];
-            for (let i = 0; i < 60; i++) {
-              await new Promise(r => setTimeout(r, 200));
-              let els = document.querySelectorAll(
-                'ytd-transcript-segment-renderer yt-formatted-string.segment-text'
-              );
-              if (!els.length) {
-                els = document.querySelectorAll(
-                  'transcript-segment-view-model span.ytAttributedStringHost'
-                );
+            post({
+              title:      vd.title || '',
+              captionUrl: track.baseUrl,
+              videoID:    vd.videoId || '',
+              videoDetails: {
+                videoID:          vd.videoId || '',
+                title:            vd.title || '',
+                author:           vd.author || '',
+                lengthSeconds:    parseInt(vd.lengthSeconds || '0', 10),
+                keywords:         vd.keywords || [],
+                shortDescription: (vd.shortDescription || '').slice(0, 2000)
               }
-              if (els.length) {
-                segs = Array.from(els)
-                  .map(e => (e.textContent || '').trim())
-                  .filter(t => t.length > 0);
-                break;
-              }
-            }
-            if (!segs.length) return post({error: 'panel_empty', title});
-            post({title, segments: segs});
+            });
           })();
         })();
         """
@@ -144,9 +138,8 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             }
         }
 
-        // 35-second hard timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 35) { [weak self] in
-            guard let self = self, self.continuation != nil else { return }
+            guard let self, self.continuation != nil else { return }
             self.finish(throwing: FetchError.parseError)
         }
     }
@@ -168,31 +161,60 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         }
 
         if let errKey = dict["error"] as? String {
-            NSLog("[youty] JS error: %@ — %@", errKey, dict.description)
-            switch errKey {
-            case "no_captions", "no_btn":
-                finish(throwing: FetchError.noTranscript)
-            default:
-                finish(throwing: FetchError.parseError)
-            }
+            NSLog("[youty] JS error: %@", errKey)
+            finish(throwing: errKey == "no_captions" ? FetchError.noTranscript : FetchError.parseError)
             return
         }
 
-        guard let title = dict["title"] as? String,
-              let segments = dict["segments"] as? [String],
-              !segments.isEmpty else {
+        guard let title      = dict["title"]      as? String, !title.isEmpty,
+              let captionUrl = dict["captionUrl"]  as? String,
+              let videoID    = dict["videoID"]     as? String,
+              let vdRaw      = dict["videoDetails"] as? [String: Any],
+              let url        = URL(string: captionUrl) else {
             finish(throwing: FetchError.parseError)
             return
         }
 
-        let cleaned = segments.map { decodeHTMLEntities($0) }
-        let markdown = TranscriptFetcher.formatMarkdown(title: title, segments: cleaned)
-        finish(returning: (title, markdown))
+        let videoDetails = VideoDetails(
+            videoID:          videoID,
+            title:            title,
+            author:           vdRaw["author"]           as? String ?? "",
+            lengthSeconds:    vdRaw["lengthSeconds"]    as? Int    ?? 0,
+            keywords:         vdRaw["keywords"]         as? [String] ?? [],
+            shortDescription: vdRaw["shortDescription"] as? String ?? ""
+        )
+
+        // Fetch the caption XML on a background task, then return to MainActor
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let xml = String(data: data, encoding: .utf8) ?? ""
+                let parsed = CaptionXMLParser.parse(xml)
+                guard !parsed.isEmpty else {
+                    self.finish(throwing: FetchError.noTranscript)
+                    return
+                }
+                let segments = parsed.map {
+                    TranscriptSegment(text: $0.text, timestamp: $0.formattedTimestamp)
+                }
+                let markdown = TranscriptFetcher.formatMarkdown(title: title,
+                                                                segments: parsed.map(\.text))
+                self.finish(returning: FetchResult(
+                    videoID:      videoID,
+                    title:        title,
+                    markdown:     markdown,
+                    segments:     segments,
+                    videoDetails: videoDetails
+                ))
+            } catch {
+                self.finish(throwing: FetchError.networkError)
+            }
+        }
     }
 
     // MARK: - Private
 
-    private func finish(returning value: (title: String, markdown: String)) {
+    private func finish(returning value: FetchResult) {
         continuation?.resume(returning: value)
         continuation = nil
     }
@@ -201,13 +223,67 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         continuation?.resume(throwing: error)
         continuation = nil
     }
+}
 
-    private func decodeHTMLEntities(_ s: String) -> String {
-        s.replacingOccurrences(of: "&amp;", with: "&")
-         .replacingOccurrences(of: "&lt;", with: "<")
-         .replacingOccurrences(of: "&gt;", with: ">")
+// MARK: - Caption XML parser
+
+private final class CaptionXMLParser: NSObject, XMLParserDelegate {
+
+    struct Segment {
+        let text: String
+        let startSeconds: Double
+
+        var formattedTimestamp: String {
+            let total = Int(startSeconds)
+            let h = total / 3600
+            let m = (total % 3600) / 60
+            let s = total % 60
+            return h > 0 ? String(format: "%d:%02d:%02d", h, m, s)
+                         : String(format: "%d:%02d", m, s)
+        }
+    }
+
+    private var segments: [Segment] = []
+    private var currentStart: Double = 0
+    private var currentText = ""
+    private var inText = false
+
+    static func parse(_ xml: String) -> [Segment] {
+        let instance = CaptionXMLParser()
+        let parser = XMLParser(data: Data(xml.utf8))
+        parser.delegate = instance
+        parser.parse()
+        return instance.segments
+    }
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?,
+                attributes attributeDict: [String: String] = [:]) {
+        guard elementName == "text" else { return }
+        currentStart = Double(attributeDict["start"] ?? "0") ?? 0
+        currentText = ""
+        inText = true
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard inText else { return }
+        currentText += string
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String,
+                namespaceURI: String?, qualifiedName: String?) {
+        guard elementName == "text" else { return }
+        inText = false
+        let cleaned = decodeEntities(currentText.trimmingCharacters(in: .whitespacesAndNewlines))
+        if !cleaned.isEmpty { segments.append(Segment(text: cleaned, startSeconds: currentStart)) }
+    }
+
+    private func decodeEntities(_ s: String) -> String {
+        s.replacingOccurrences(of: "&amp;",  with: "&")
+         .replacingOccurrences(of: "&lt;",   with: "<")
+         .replacingOccurrences(of: "&gt;",   with: ">")
          .replacingOccurrences(of: "&quot;", with: "\"")
-         .replacingOccurrences(of: "&#39;", with: "'")
+         .replacingOccurrences(of: "&#39;",  with: "'")
          .replacingOccurrences(of: "&#x27;", with: "'")
          .replacingOccurrences(of: "&nbsp;", with: " ")
     }
@@ -251,8 +327,6 @@ enum TranscriptFetcher {
         return lines.joined(separator: "\n")
     }
 }
-
-struct TranscriptSegment { let text: String }
 
 // MARK: - Errors
 

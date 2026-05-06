@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var loader = TranscriptLoader()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
+    @State private var lastResult: FetchResult?
     @State private var showCopied = false
     @FocusState private var inputFocused: Bool
 
@@ -217,9 +218,10 @@ struct ContentView: View {
     private func fetch() async {
         withAnimation(.spring(duration: 0.3)) { state = .loading }
         do {
-            let (title, markdown) = try await loader.fetch(urlString: urlInput)
+            let result = try await loader.fetch(urlString: urlInput)
+            lastResult = result
             withAnimation(.spring(duration: 0.4)) {
-                state = .success(title: title, markdown: markdown)
+                state = .success(title: result.title, markdown: result.markdown)
             }
         } catch {
             withAnimation(.spring(duration: 0.3)) {
