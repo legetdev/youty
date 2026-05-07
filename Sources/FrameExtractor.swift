@@ -8,6 +8,10 @@ struct FrameExtractor {
         let image: NSImage
     }
 
+    // Resolution used for frame extraction. 720p is the default.
+    // AVAssetImageGenerator scales proportionally — portrait/vertical video is handled automatically.
+    static let frameSize = CGSize(width: 1280, height: 720)
+
     static func extract(from videoURL: URL) async throws -> [Frame] {
         let asset = AVURLAsset(url: videoURL)
         let duration = try await asset.load(.duration)
@@ -16,9 +20,11 @@ struct FrameExtractor {
 
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 1280, height: 720)
-        generator.requestedTimeToleranceBefore = CMTimeMakeWithSeconds(1, preferredTimescale: 600)
-        generator.requestedTimeToleranceAfter  = CMTimeMakeWithSeconds(1, preferredTimescale: 600)
+        generator.maximumSize = frameSize
+        // Generous tolerance so AVFoundation can seek to the nearest keyframe quickly
+        // rather than decoding every intermediate frame. Critical for speed on remote URLs.
+        generator.requestedTimeToleranceBefore = CMTimeMakeWithSeconds(2, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter  = CMTimeMakeWithSeconds(2, preferredTimescale: 600)
 
         let nsValues = times.map { NSValue(time: CMTimeMakeWithSeconds($0, preferredTimescale: 600)) }
 
@@ -28,7 +34,6 @@ struct FrameExtractor {
             guard total > 0 else { continuation.resume(returning: []); return }
             var count = 0
 
-            // generateCGImagesAsynchronously calls the handler once per time value, in order.
             generator.generateCGImagesAsynchronously(forTimes: nsValues) { requestedTime, cgImage, _, result, _ in
                 if result == .succeeded, let cgImage {
                     results.append((CMTimeGetSeconds(requestedTime), NSImage(cgImage: cgImage, size: .zero)))
@@ -42,18 +47,12 @@ struct FrameExtractor {
         }
     }
 
-    // Density scales with video length, capped at 100 frames.
+    // ≤100s: 1 frame per second (up to 100 frames)
+    // >100s: exactly 100 frames evenly distributed
     static func frameTimes(duration: TimeInterval) -> [TimeInterval] {
-        let interval: TimeInterval
-        switch duration {
-        case ..<300:     interval = 10   // every 10s for <5 min
-        case 300..<1800: interval = 30   // every 30s for 5–30 min
-        default:         interval = duration / 100
-        }
-        var times: [TimeInterval] = []
-        var t: TimeInterval = 0
-        while t < duration { times.append(t); t += interval }
-        return times
+        let count = duration <= 100 ? max(1, Int(duration)) : 100
+        let interval = duration <= 100 ? 1.0 : duration / 100.0
+        return (0..<count).map { Double($0) * interval }
     }
 }
 

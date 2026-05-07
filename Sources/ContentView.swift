@@ -232,14 +232,7 @@ struct ContentView: View {
                 }
 
                 // Background frame progress
-                if case .downloading(let p) = vault.frameState {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ProgressView(value: p).tint(.accentColor)
-                        Text("Downloading frames \(Int(p * 100))%")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                } else if case .extracting = vault.frameState {
+                if case .extracting = vault.frameState {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
                         Text("Extracting frames…")
@@ -295,8 +288,18 @@ struct ContentView: View {
     }
 
     private func saveToVault() {
-        guard let result = lastResult else { return }
+        guard let result = lastResult else {
+            vaultError = "No transcript loaded."
+            return
+        }
         vaultError = nil
+
+        // No vault configured — prompt the user to choose one first
+        if vault.vaultURL == nil {
+            vault.chooseVault()
+            guard vault.vaultURL != nil else { return }
+        }
+
         let metadata = MetadataEnricher.enrich(from: result)
         do {
             try vault.saveNote(result: result, metadata: metadata)
@@ -304,8 +307,6 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 withAnimation { self.vaultSaved = false }
             }
-            // Kick off background frame extraction if VideoExtractor spike is confirmed.
-            // Wire up here once spike passes: vault.extractFramesInBackground(...)
         } catch {
             vaultError = error.localizedDescription
         }

@@ -6,7 +6,6 @@ final class VaultManager: NSObject, ObservableObject {
 
     enum FrameState: Equatable {
         case idle
-        case downloading(Double)
         case extracting
         case done
         case failed(String)
@@ -35,34 +34,47 @@ final class VaultManager: NSObject, ObservableObject {
         }
     }
 
-    // Writes the .md note instantly. Returns the vault URL for background frame use.
+    // Writes the .md note instantly.
+    // Checks for duplicates first — if this video_id already exists in the vault,
+    // the old note and its frames folder are removed before writing the new one.
+    // Updates manifest.json after writing.
     @discardableResult
     func saveNote(result: FetchResult, metadata: VideoMetadata) throws -> URL {
         guard let vault = vaultURL else { throw VaultError.noVault }
         guard vault.startAccessingSecurityScopedResource() else { throw VaultError.accessDenied }
         defer { vault.stopAccessingSecurityScopedResource() }
 
+        let fm = FileManager.default
+
+        // Write the new note first, then remove any old duplicate.
+        // This order ensures we never lose data if the write fails.
         let noteURL = vault.appendingPathComponent(noteFilename(metadata: metadata))
         try composeNote(metadata: metadata, segments: result.segments)
             .write(to: noteURL, atomically: true, encoding: .utf8)
+
+        // Remove old note for same video_id if it exists under a different filename.
+        if let existing = findExistingEntry(videoID: metadata.videoID, in: vault),
+           existing.file != noteURL.lastPathComponent {
+            let oldNote   = vault.appendingPathComponent(existing.file)
+            let oldFrames = vault.appendingPathComponent(existing.videoID)
+            try? fm.removeItem(at: oldNote)
+            try? fm.removeItem(at: oldFrames)
+        }
+
+        updateManifest(in: vault)
         return vault
     }
 
-    // Fires after saveNote. Downloads video, extracts frames, writes to vault. Fully background.
+    // Fires after saveNote. Extracts frames directly from the stream URL via AVURLAsset —
+    // no full video download. AVFoundation issues HTTP range requests only for the
+    // keyframes near each target timestamp, keeping total data fetched to ~20–50MB
+    // regardless of video length. Runs fully in background; UI updates via frameState.
     func extractFramesInBackground(videoID: String, streamURL: URL) {
-        frameState = .downloading(0)
+        frameState = .extracting
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
             do {
-                let tempVideo = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("\(videoID).mp4")
-
-                try await self.downloadFile(from: streamURL, to: tempVideo) { p in
-                    Task { @MainActor in self.frameState = .downloading(p) }
-                }
-
-                await MainActor.run { self.frameState = .extracting }
-                let frames = try await FrameExtractor.extract(from: tempVideo)
+                let frames = try await FrameExtractor.extract(from: streamURL)
 
                 guard let vault = await self.vaultURL else { return }
                 guard vault.startAccessingSecurityScopedResource() else { return }
@@ -78,7 +90,6 @@ final class VaultManager: NSObject, ObservableObject {
                     }
                 }
 
-                try? FileManager.default.removeItem(at: tempVideo)
                 await MainActor.run { self.frameState = .done }
 
             } catch {
@@ -86,6 +97,102 @@ final class VaultManager: NSObject, ObservableObject {
                 await MainActor.run { self.frameState = .failed(msg) }
             }
         }
+    }
+
+    // MARK: - Manifest
+
+    struct ManifestEntry: Codable {
+        let file:       String
+        let videoID:    String
+        let title:      String
+        let channel:    String
+        let duration:   String
+        let dateSaved:  String
+        let tags:       [String]
+        let url:        String
+
+        enum CodingKeys: String, CodingKey {
+            case file, title, channel, duration, tags, url
+            case videoID   = "video_id"
+            case dateSaved = "date_saved"
+        }
+    }
+
+    // Rebuilds manifest.json from all .md files in the vault.
+    // Called automatically after every saveNote().
+    private func updateManifest(in vault: URL) {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: vault,
+                                                          includingPropertiesForKeys: nil) else { return }
+        var entries: [ManifestEntry] = []
+        for url in contents where url.pathExtension == "md" {
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
+                  let entry = manifestEntry(from: text, filename: url.lastPathComponent) else { continue }
+            entries.append(entry)
+        }
+        entries.sort { $0.dateSaved > $1.dateSaved }  // newest first
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(entries) {
+            try? data.write(to: vault.appendingPathComponent("manifest.json"), options: .atomic)
+        }
+    }
+
+    // Finds an existing manifest entry for a given video_id.
+    // Reads manifest.json if it exists; otherwise scans all .md files.
+    private func findExistingEntry(videoID: String, in vault: URL) -> ManifestEntry? {
+        let manifestURL = vault.appendingPathComponent("manifest.json")
+        if let data = try? Data(contentsOf: manifestURL),
+           let entries = try? JSONDecoder().decode([ManifestEntry].self, from: data) {
+            return entries.first { $0.videoID == videoID }
+        }
+        // Fallback: scan files directly
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(at: vault,
+                                                          includingPropertiesForKeys: nil) else { return nil }
+        for url in contents where url.pathExtension == "md" {
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
+                  let entry = manifestEntry(from: text, filename: url.lastPathComponent),
+                  entry.videoID == videoID else { continue }
+            return entry
+        }
+        return nil
+    }
+
+    // Parses YAML frontmatter from a note file into a ManifestEntry.
+    private func manifestEntry(from text: String, filename: String) -> ManifestEntry? {
+        guard text.hasPrefix("---") else { return nil }
+        let lines = text.components(separatedBy: "\n")
+        guard let closeIdx = lines.dropFirst().firstIndex(of: "---") else { return nil }
+        let frontmatter = lines[1..<closeIdx]
+
+        var kv: [String: String] = [:]
+        for line in frontmatter {
+            let parts = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2 else { continue }
+            kv[parts[0]] = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        }
+
+        guard let videoID = kv["video_id"], !videoID.isEmpty else { return nil }
+
+        // Parse tags: ["tag1", "tag2"] → [String]
+        let tagsRaw = kv["tags"] ?? "[]"
+        let tags = tagsRaw
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+            .filter { !$0.isEmpty }
+
+        return ManifestEntry(
+            file:      filename,
+            videoID:   videoID,
+            title:     kv["title"]      ?? "",
+            channel:   kv["channel"]    ?? "",
+            duration:  kv["duration"]   ?? "",
+            dateSaved: kv["date_saved"] ?? "",
+            tags:      tags,
+            url:       kv["url"]        ?? "https://www.youtube.com/watch?v=\(videoID)"
+        )
     }
 
     // MARK: - Filename
@@ -97,7 +204,6 @@ final class VaultManager: NSObject, ObservableObject {
         return name.isEmpty ? "\(metadata.videoID).md" : "\(name).md"
     }
 
-    // Strip filesystem-unsafe characters, collapse whitespace, truncate to 80 chars.
     private func sanitize(_ s: String) -> String {
         let forbidden = CharacterSet(charactersIn: "/\\:*?\"<>|")
         let cleaned = s.unicodeScalars
@@ -151,25 +257,6 @@ final class VaultManager: NSObject, ObservableObject {
                      : String(format: "%d:%02d", m, sec)
     }
 
-    private func downloadFile(from url: URL, to dest: URL,
-                              progress: @escaping (Double) -> Void) async throws {
-        let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
-        let total = response.expectedContentLength
-        var received: Int64 = 0
-        var buffer = Data()
-
-        for try await byte in asyncBytes {
-            buffer.append(byte)
-            received += 1
-            if buffer.count >= 65536 {
-                try buffer.write(to: dest, options: .atomic)
-                buffer.removeAll(keepingCapacity: true)
-            }
-            if total > 0 { progress(Double(received) / Double(total)) }
-        }
-        if !buffer.isEmpty { try buffer.write(to: dest, options: .atomic) }
-    }
-
     private func saveBookmark() {
         guard let url = vaultURL,
               let data = try? url.bookmarkData(options: .withSecurityScope,
@@ -181,10 +268,22 @@ final class VaultManager: NSObject, ObservableObject {
     private func loadBookmark() {
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return }
         var stale = false
-        vaultURL = try? URL(resolvingBookmarkData: data,
-                            options: .withSecurityScope,
-                            relativeTo: nil,
-                            bookmarkDataIsStale: &stale)
+        guard let url = try? URL(resolvingBookmarkData: data,
+                                 options: .withSecurityScope,
+                                 relativeTo: nil,
+                                 bookmarkDataIsStale: &stale) else {
+            UserDefaults.standard.removeObject(forKey: bookmarkKey)
+            return
+        }
+        // Validate the resolved URL is a real accessible directory, not file:/// or garbage.
+        guard url.path.count > 1,
+              url.startAccessingSecurityScopedResource() else {
+            UserDefaults.standard.removeObject(forKey: bookmarkKey)
+            return
+        }
+        url.stopAccessingSecurityScopedResource()
+        vaultURL = url
+        if stale { saveBookmark() }
     }
 }
 
