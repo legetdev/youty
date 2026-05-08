@@ -235,7 +235,7 @@ struct ContentView: View {
                 // Background frame progress
                 switch vault.frameState {
                 case .capturingStream:
-                    frameStatusRow(text: "Capturing stream…", showSpinner: true)
+                    frameStatusRow(text: "Loading video…", showSpinner: true)
                 case .downloading(let p):
                     VStack(alignment: .leading, spacing: 3) {
                         ProgressView(value: p).tint(.accentColor)
@@ -245,14 +245,14 @@ struct ContentView: View {
                 case .extracting:
                     VStack(alignment: .leading, spacing: 3) {
                         ProgressView(value: frameProgress).tint(.accentColor)
-                        Text("Capturing frames \(Int(frameProgress * 100))%")
+                        Text("Extracting frames \(Int(frameProgress * 100))%")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
-                case .done:
-                    frameStatusRow(text: "Frames saved ✓", showSpinner: false)
+                case .done(let count):
+                    frameStatusRow(text: "\(count) frames saved ✓", showSpinner: false)
                 case .failed(let msg):
                     Text("Frames failed: \(msg)").font(.system(size: 11)).foregroundStyle(.red)
-                case .idle:
+                default:
                     EmptyView()
                 }
             }
@@ -334,28 +334,27 @@ struct ContentView: View {
     private func runFramePipeline(videoID: String, folderURL: URL) async {
         frameProgress = 0
         do {
-            // 1. Load video in WKWebView (authenticated YouTube session)
+            // WKWebView canvas: the only approach that gives 100 correct frames for ALL videos.
+            // The download + AVFoundation approach only works for videos with H.264 720p — many
+            // videos only have H.264 480p which YouTube truncates to the first 50% of content.
             withAnimation { vault.frameState = .capturingStream }
             try await videoExtractor.loadVideo(videoID: videoID)
-
-            // 2. Get duration and compute timestamps
             let duration = await videoExtractor.getVideoDuration()
-            guard duration > 0 else { return }
+            guard duration > 0 else {
+                throw NSError(domain: "youty", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not determine video duration."])
+            }
             let timestamps = FrameExtractor.frameTimes(duration: duration)
-
-            // 3. Seek + snapshot each frame directly from the playing video
             withAnimation { vault.frameState = .extracting }
             let captured = try await videoExtractor.captureFrames(timestamps: timestamps) { p in
-                Task { @MainActor in
-                    withAnimation { self.vault.frameState = .extracting }
-                    self.frameProgress = p
-                }
+                Task { @MainActor in self.frameProgress = p }
             }
-
-            // 4. Write frames into the same bundle folder as video.md
             let frames = captured.map { FrameExtractor.Frame(timestamp: $0.0, image: $0.1) }
+
+            guard !frames.isEmpty else {
+                throw NSError(domain: "youty", code: -1, userInfo: [NSLocalizedDescriptionKey: "Frame extraction produced 0 frames."])
+            }
             try vault.writeFrames(frames, to: folderURL)
-            withAnimation { vault.frameState = .done }
+            withAnimation { vault.frameState = .done(frames.count) }
 
         } catch {
             withAnimation { vault.frameState = .failed(error.localizedDescription) }

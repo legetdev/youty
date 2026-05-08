@@ -19,7 +19,7 @@ final class VaultManager: NSObject, ObservableObject {
         case capturingStream
         case downloading(Double)
         case extracting
-        case done
+        case done(Int)
         case failed(String)
     }
 
