@@ -1,11 +1,23 @@
 import Foundation
 import AppKit
 
+// Bundle structure: each video is a self-contained folder.
+//
+// {vault}/
+//   TED - Do schools kill creativity/
+//     video.md        ← note with frontmatter + transcript (written instantly)
+//     0000.jpg        ← frames added in background
+//     0007.jpg
+//     ...
+//   manifest.json     ← corpus index, updated on every save
+
 @MainActor
 final class VaultManager: NSObject, ObservableObject {
 
     enum FrameState: Equatable {
         case idle
+        case capturingStream
+        case downloading(Double)
         case extracting
         case done
         case failed(String)
@@ -34,10 +46,9 @@ final class VaultManager: NSObject, ObservableObject {
         }
     }
 
-    // Writes the .md note instantly.
-    // Checks for duplicates first — if this video_id already exists in the vault,
-    // the old note and its frames folder are removed before writing the new one.
-    // Updates manifest.json after writing.
+    // Creates the video bundle folder and writes video.md instantly.
+    // Returns the folder URL so frames can be written there later.
+    // Removes any existing bundle for the same video_id first (safe — writes new before deleting old).
     @discardableResult
     func saveNote(result: FetchResult, metadata: VideoMetadata) throws -> URL {
         guard let vault = vaultURL else { throw VaultError.noVault }
@@ -45,56 +56,34 @@ final class VaultManager: NSObject, ObservableObject {
         defer { vault.stopAccessingSecurityScopedResource() }
 
         let fm = FileManager.default
+        let folderName = bundleFolderName(metadata: metadata)
+        let folderURL  = vault.appendingPathComponent(folderName)
 
-        // Write the new note first, then remove any old duplicate.
-        // This order ensures we never lose data if the write fails.
-        let noteURL = vault.appendingPathComponent(noteFilename(metadata: metadata))
+        // Write video.md inside the new folder
+        try fm.createDirectory(at: folderURL, withIntermediateDirectories: true)
         try composeNote(metadata: metadata, segments: result.segments)
-            .write(to: noteURL, atomically: true, encoding: .utf8)
+            .write(to: folderURL.appendingPathComponent("video.md"), atomically: true, encoding: .utf8)
 
-        // Remove old note for same video_id if it exists under a different filename.
+        // Remove any old bundle for the same video_id (different folder name = re-saved with new title)
         if let existing = findExistingEntry(videoID: metadata.videoID, in: vault),
-           existing.file != noteURL.lastPathComponent {
-            let oldNote   = vault.appendingPathComponent(existing.file)
-            let oldFrames = vault.appendingPathComponent(existing.videoID)
-            try? fm.removeItem(at: oldNote)
-            try? fm.removeItem(at: oldFrames)
+           existing.folder != folderName {
+            try? fm.removeItem(at: vault.appendingPathComponent(existing.folder))
         }
 
         updateManifest(in: vault)
-        return vault
+        return folderURL
     }
 
-    // Fires after saveNote. Extracts frames directly from the stream URL via AVURLAsset —
-    // no full video download. AVFoundation issues HTTP range requests only for the
-    // keyframes near each target timestamp, keeping total data fetched to ~20–50MB
-    // regardless of video length. Runs fully in background; UI updates via frameState.
-    func extractFramesInBackground(videoID: String, streamURL: URL) {
-        frameState = .extracting
-        Task.detached(priority: .background) { [weak self] in
-            guard let self else { return }
-            do {
-                let frames = try await FrameExtractor.extract(from: streamURL)
+    // Writes frames into the same bundle folder as video.md.
+    func writeFrames(_ frames: [FrameExtractor.Frame], to folderURL: URL) throws {
+        guard let vault = vaultURL else { throw VaultError.noVault }
+        guard vault.startAccessingSecurityScopedResource() else { throw VaultError.accessDenied }
+        defer { vault.stopAccessingSecurityScopedResource() }
 
-                guard let vault = await self.vaultURL else { return }
-                guard vault.startAccessingSecurityScopedResource() else { return }
-                defer { vault.stopAccessingSecurityScopedResource() }
-
-                let framesDir = vault.appendingPathComponent(videoID)
-                try FileManager.default.createDirectory(at: framesDir,
-                                                        withIntermediateDirectories: true)
-                for frame in frames {
-                    let name = String(format: "%04d.jpg", Int(frame.timestamp))
-                    if let data = frame.image.jpegData(compressionQuality: 0.82) {
-                        try? data.write(to: framesDir.appendingPathComponent(name))
-                    }
-                }
-
-                await MainActor.run { self.frameState = .done }
-
-            } catch {
-                let msg = error.localizedDescription
-                await MainActor.run { self.frameState = .failed(msg) }
+        for frame in frames {
+            let name = String(format: "%04d.jpg", Int(frame.timestamp))
+            if let data = frame.image.jpegData(compressionQuality: 0.82) {
+                try? data.write(to: folderURL.appendingPathComponent(name))
             }
         }
     }
@@ -102,35 +91,36 @@ final class VaultManager: NSObject, ObservableObject {
     // MARK: - Manifest
 
     struct ManifestEntry: Codable {
-        let file:       String
-        let videoID:    String
-        let title:      String
-        let channel:    String
-        let duration:   String
-        let dateSaved:  String
-        let tags:       [String]
-        let url:        String
+        let folder:    String   // e.g. "TED - Do schools kill creativity"
+        let videoID:   String
+        let title:     String
+        let channel:   String
+        let duration:  String
+        let dateSaved: String
+        let tags:      [String]
+        let url:       String
 
         enum CodingKeys: String, CodingKey {
-            case file, title, channel, duration, tags, url
+            case folder, title, channel, duration, tags, url
             case videoID   = "video_id"
             case dateSaved = "date_saved"
         }
     }
 
-    // Rebuilds manifest.json from all .md files in the vault.
-    // Called automatically after every saveNote().
+    // Scans all subfolders for video.md, rebuilds manifest.json.
     private func updateManifest(in vault: URL) {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(at: vault,
-                                                          includingPropertiesForKeys: nil) else { return }
+                                                          includingPropertiesForKeys: [.isDirectoryKey]) else { return }
         var entries: [ManifestEntry] = []
-        for url in contents where url.pathExtension == "md" {
-            guard let text = try? String(contentsOf: url, encoding: .utf8),
-                  let entry = manifestEntry(from: text, filename: url.lastPathComponent) else { continue }
+        for item in contents {
+            guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+            let noteURL = item.appendingPathComponent("video.md")
+            guard let text = try? String(contentsOf: noteURL, encoding: .utf8),
+                  let entry = manifestEntry(from: text, folderName: item.lastPathComponent) else { continue }
             entries.append(entry)
         }
-        entries.sort { $0.dateSaved > $1.dateSaved }  // newest first
+        entries.sort { $0.dateSaved > $1.dateSaved }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? encoder.encode(entries) {
@@ -138,29 +128,28 @@ final class VaultManager: NSObject, ObservableObject {
         }
     }
 
-    // Finds an existing manifest entry for a given video_id.
-    // Reads manifest.json if it exists; otherwise scans all .md files.
+    // Finds an existing manifest entry by video_id. Checks manifest.json first, then scans.
     private func findExistingEntry(videoID: String, in vault: URL) -> ManifestEntry? {
         let manifestURL = vault.appendingPathComponent("manifest.json")
         if let data = try? Data(contentsOf: manifestURL),
            let entries = try? JSONDecoder().decode([ManifestEntry].self, from: data) {
             return entries.first { $0.videoID == videoID }
         }
-        // Fallback: scan files directly
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(at: vault,
-                                                          includingPropertiesForKeys: nil) else { return nil }
-        for url in contents where url.pathExtension == "md" {
-            guard let text = try? String(contentsOf: url, encoding: .utf8),
-                  let entry = manifestEntry(from: text, filename: url.lastPathComponent),
+                                                          includingPropertiesForKeys: [.isDirectoryKey]) else { return nil }
+        for item in contents {
+            guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+            let noteURL = item.appendingPathComponent("video.md")
+            guard let text = try? String(contentsOf: noteURL, encoding: .utf8),
+                  let entry = manifestEntry(from: text, folderName: item.lastPathComponent),
                   entry.videoID == videoID else { continue }
             return entry
         }
         return nil
     }
 
-    // Parses YAML frontmatter from a note file into a ManifestEntry.
-    private func manifestEntry(from text: String, filename: String) -> ManifestEntry? {
+    private func manifestEntry(from text: String, folderName: String) -> ManifestEntry? {
         guard text.hasPrefix("---") else { return nil }
         let lines = text.components(separatedBy: "\n")
         guard let closeIdx = lines.dropFirst().firstIndex(of: "---") else { return nil }
@@ -175,7 +164,6 @@ final class VaultManager: NSObject, ObservableObject {
 
         guard let videoID = kv["video_id"], !videoID.isEmpty else { return nil }
 
-        // Parse tags: ["tag1", "tag2"] → [String]
         let tagsRaw = kv["tags"] ?? "[]"
         let tags = tagsRaw
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
@@ -184,7 +172,7 @@ final class VaultManager: NSObject, ObservableObject {
             .filter { !$0.isEmpty }
 
         return ManifestEntry(
-            file:      filename,
+            folder:    folderName,
             videoID:   videoID,
             title:     kv["title"]      ?? "",
             channel:   kv["channel"]    ?? "",
@@ -195,13 +183,14 @@ final class VaultManager: NSObject, ObservableObject {
         )
     }
 
-    // MARK: - Filename
+    // MARK: - Folder naming
 
-    private func noteFilename(metadata: VideoMetadata) -> String {
+    // Returns the bundle folder name: "Channel - Title" (no extension).
+    private func bundleFolderName(metadata: VideoMetadata) -> String {
         let channel = sanitize(metadata.channel)
         let title   = sanitize(metadata.title)
         let name    = channel.isEmpty ? title : "\(channel) - \(title)"
-        return name.isEmpty ? "\(metadata.videoID).md" : "\(name).md"
+        return name.isEmpty ? metadata.videoID : name
     }
 
     private func sanitize(_ s: String) -> String {
@@ -229,7 +218,6 @@ final class VaultManager: NSObject, ObservableObject {
             "duration: \"\(formatDuration(metadata.durationSeconds))\"",
             "date_saved: \(metadata.dateSaved)",
             "tags: [\(tags)]",
-            "frames_dir: \(metadata.videoID)/",
             "---", ""
         ]
 
@@ -275,7 +263,6 @@ final class VaultManager: NSObject, ObservableObject {
             UserDefaults.standard.removeObject(forKey: bookmarkKey)
             return
         }
-        // Validate the resolved URL is a real accessible directory, not file:/// or garbage.
         guard url.path.count > 1,
               url.startAccessingSecurityScopedResource() else {
             UserDefaults.standard.removeObject(forKey: bookmarkKey)

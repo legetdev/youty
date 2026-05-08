@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var lastResult: FetchResult?
     @State private var vaultSaved = false
     @State private var vaultError: String?
+    @State private var frameProgress: Double = 0
     @State private var showCopied = false
     @FocusState private var inputFocused: Bool
 
@@ -232,21 +233,27 @@ struct ContentView: View {
                 }
 
                 // Background frame progress
-                if case .extracting = vault.frameState {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.mini)
-                        Text("Extracting frames…")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                switch vault.frameState {
+                case .capturingStream:
+                    frameStatusRow(text: "Capturing stream…", showSpinner: true)
+                case .downloading(let p):
+                    VStack(alignment: .leading, spacing: 3) {
+                        ProgressView(value: p).tint(.accentColor)
+                        Text("Downloading video \(Int(p * 100))%")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
-                } else if case .done = vault.frameState {
-                    Text("Frames saved ✓")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                } else if case .failed(let msg) = vault.frameState {
-                    Text("Frames failed: \(msg)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.red)
+                case .extracting:
+                    VStack(alignment: .leading, spacing: 3) {
+                        ProgressView(value: frameProgress).tint(.accentColor)
+                        Text("Capturing frames \(Int(frameProgress * 100))%")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                case .done:
+                    frameStatusRow(text: "Frames saved ✓", showSpinner: false)
+                case .failed(let msg):
+                    Text("Frames failed: \(msg)").font(.system(size: 11)).foregroundStyle(.red)
+                case .idle:
+                    EmptyView()
                 }
             }
             .padding(.horizontal, 24)
@@ -302,13 +309,56 @@ struct ContentView: View {
 
         let metadata = MetadataEnricher.enrich(from: result)
         do {
-            try vault.saveNote(result: result, metadata: metadata)
+            let folderURL = try vault.saveNote(result: result, metadata: metadata)
             withAnimation { vaultSaved = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 withAnimation { self.vaultSaved = false }
             }
+            let videoID = result.videoID
+            Task {
+                await runFramePipeline(videoID: videoID, folderURL: folderURL)
+            }
         } catch {
             vaultError = error.localizedDescription
+        }
+    }
+
+    @ViewBuilder
+    private func frameStatusRow(text: String, showSpinner: Bool) -> some View {
+        HStack(spacing: 6) {
+            if showSpinner { ProgressView().controlSize(.mini) }
+            Text(text).font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+    }
+
+    private func runFramePipeline(videoID: String, folderURL: URL) async {
+        frameProgress = 0
+        do {
+            // 1. Load video in WKWebView (authenticated YouTube session)
+            withAnimation { vault.frameState = .capturingStream }
+            try await videoExtractor.loadVideo(videoID: videoID)
+
+            // 2. Get duration and compute timestamps
+            let duration = await videoExtractor.getVideoDuration()
+            guard duration > 0 else { return }
+            let timestamps = FrameExtractor.frameTimes(duration: duration)
+
+            // 3. Seek + snapshot each frame directly from the playing video
+            withAnimation { vault.frameState = .extracting }
+            let captured = try await videoExtractor.captureFrames(timestamps: timestamps) { p in
+                Task { @MainActor in
+                    withAnimation { self.vault.frameState = .extracting }
+                    self.frameProgress = p
+                }
+            }
+
+            // 4. Write frames into the same bundle folder as video.md
+            let frames = captured.map { FrameExtractor.Frame(timestamp: $0.0, image: $0.1) }
+            try vault.writeFrames(frames, to: folderURL)
+            withAnimation { vault.frameState = .done }
+
+        } catch {
+            withAnimation { vault.frameState = .failed(error.localizedDescription) }
         }
     }
 
