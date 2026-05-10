@@ -138,29 +138,50 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             if (!btn) return post({error: 'no_btn'});
             btn.click();
 
-            // 4. Wait for segments — handles both legacy and modern YouTube UI
-            let segs = [];
+            // 4. Wait for segments — handles both legacy and modern YouTube UI.
+            //    Timestamp extraction uses a multi-selector + regex fallback so
+            //    DOM tweaks on YouTube's side don't silently produce empty `ts`.
+            function extractTimestamp(el) {
+              const sels = [
+                '.segment-timestamp',
+                '[class*="timestamp"]',
+                '[class*="Timestamp"]',
+                'button[aria-label]'
+              ];
+              for (const s of sels) {
+                const node = el.querySelector(s);
+                if (node) {
+                  const t = (node.textContent || '').trim();
+                  if (/^\\d+:\\d+(:\\d+)?$/.test(t)) return t;
+                }
+              }
+              // Last-resort: scan full element text for a leading time pattern
+              const m = (el.textContent || '').match(/(\\d+:\\d+(?::\\d+)?)/);
+              return m ? m[1] : '';
+            }
+
+            const segs = [];
             for (let i = 0; i < 60; i++) {
               await new Promise(r => setTimeout(r, 200));
 
               // Legacy: ytd-transcript-segment-renderer
               const legacyEls = document.querySelectorAll('ytd-transcript-segment-renderer');
               if (legacyEls.length) {
-                segs = Array.from(legacyEls).map(el => ({
-                  text: (el.querySelector('yt-formatted-string.segment-text') || {}).textContent || '',
-                  ts:   ((el.querySelector('.segment-timestamp') || {}).textContent || '').trim()
-                })).filter(s => s.text.trim().length > 0);
-                break;
+                Array.from(legacyEls).forEach(el => {
+                  const text = ((el.querySelector('yt-formatted-string.segment-text') || {}).textContent || '').trim();
+                  if (text.length > 0) segs.push({ text, ts: extractTimestamp(el) });
+                });
+                if (segs.length) break;
               }
 
               // Modern: transcript-segment-view-model
               const modernEls = document.querySelectorAll('transcript-segment-view-model');
               if (modernEls.length) {
-                segs = Array.from(modernEls).map(el => ({
-                  text: (el.querySelector('span.ytAttributedStringHost') || {}).textContent || '',
-                  ts:   (el.querySelector('.segment-timestamp, [class*="timestamp"]') || {}).textContent?.trim() || ''
-                })).filter(s => s.text.trim().length > 0);
-                break;
+                Array.from(modernEls).forEach(el => {
+                  const text = ((el.querySelector('span.ytAttributedStringHost') || {}).textContent || '').trim();
+                  if (text.length > 0) segs.push({ text, ts: extractTimestamp(el) });
+                });
+                if (segs.length) break;
               }
             }
             if (!segs.length) return post({error: 'panel_empty'});

@@ -1,0 +1,15 @@
+# Build artifacts
+youty.app/
+build/
+DerivedData/
+*.xcuserstate
+
+# Xcode
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Debug logs
+.playwright-mcp/
+
+# macOS
+.DS_Store

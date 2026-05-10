@@ -87,15 +87,15 @@ final class VideoExtractor: NSObject, ObservableObject, WKNavigationDelegate, WK
             await seekAndPlay(to: ts)
 
             // 2. Wait for seeked event (Swift timeout — not throttled)
-            await awaitSeeked(timeout: 8)
+            await awaitSeeked(timeout: 5)
 
-            // 3. Poll readyState in Swift until frame data is available (20s for SABR buffering)
-            await waitForFrameData(timeout: 20)
+            // 3. Poll readyState in Swift until frame data is available
+            await waitForFrameData(timeout: 10)
 
             // 4. Small render buffer
-            try await Task.sleep(nanoseconds: 150_000_000)
+            try await Task.sleep(nanoseconds: 80_000_000)
 
-            // 5. Canvas capture — always saves whatever is rendered (no blank skipping)
+            // 5. Canvas capture — drops blank frames (caller absorbs the gap)
             if let image = await captureCanvas() {
                 frames.append((ts, image))
             }
@@ -256,12 +256,13 @@ final class VideoExtractor: NSObject, ObservableObject, WKNavigationDelegate, WK
         }
     }
 
-    // Canvas draw and capture. No blank detection — always captures whatever is rendered.
-    // A dark frame from an unbuffered position is still a valid frame (not skipped).
+    // Canvas draw + 5-pixel blank detection. If all sample points read RGB < 8,
+    // the frame is treated as blank (unbuffered position) and dropped — the
+    // bundle is better with one missing JPEG than a black one.
     private func captureCanvas() async -> NSImage? {
         return await withCheckedContinuation { cont in
             self.captureContinuation = cont
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
                 guard let self, self.captureContinuation != nil else { return }
                 self.captureContinuation?.resume(returning: nil)
                 self.captureContinuation = nil
@@ -282,6 +283,12 @@ final class VideoExtractor: NSObject, ObservableObject, WKNavigationDelegate, WK
               const dw=Math.round(vw*sc),dh=Math.round(vh*sc);
               const dx=Math.round((1280-dw)/2),dy=Math.round((720-dh)/2);
               ctx.drawImage(video,dx,dy,dw,dh);
+              const pts=[[320,180],[640,360],[960,540],[320,540],[960,180]];
+              const blank=pts.every(([x,y])=>{
+                const d=ctx.getImageData(x,y,1,1).data;
+                return d[0]<8&&d[1]<8&&d[2]<8;
+              });
+              if(blank){window.webkit.messageHandlers.youtyFrame.postMessage({});return;}
               const b64=c.toDataURL('image/jpeg',0.85).split(',')[1];
               window.webkit.messageHandlers.youtyFrame.postMessage({frame:b64});
             })()

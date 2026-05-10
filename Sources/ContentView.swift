@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var loader = TranscriptLoader()
     @StateObject private var vault = VaultManager()
     @StateObject private var videoExtractor = VideoExtractor()
+    @StateObject private var playerFetcher = PlayerFetcher()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var lastResult: FetchResult?
@@ -52,6 +53,7 @@ struct ContentView: View {
                     window.backgroundColor = .clear
                     loader.attachToWindow(window)
                     videoExtractor.attach(to: window)
+                    playerFetcher.attach(to: window)
                 }
             }
         }
@@ -333,31 +335,46 @@ struct ContentView: View {
 
     private func runFramePipeline(videoID: String, folderURL: URL) async {
         frameProgress = 0
-        do {
-            // WKWebView canvas: the only approach that gives 100 correct frames for ALL videos.
-            // The download + AVFoundation approach only works for videos with H.264 720p — many
-            // videos only have H.264 480p which YouTube truncates to the first 50% of content.
-            withAnimation { vault.frameState = .capturingStream }
-            try await videoExtractor.loadVideo(videoID: videoID)
-            let duration = await videoExtractor.getVideoDuration()
-            guard duration > 0 else {
-                throw NSError(domain: "youty", code: -1, userInfo: [NSLocalizedDescriptionKey: "Could not determine video duration."])
-            }
-            let timestamps = FrameExtractor.frameTimes(duration: duration)
-            withAnimation { vault.frameState = .extracting }
-            let captured = try await videoExtractor.captureFrames(timestamps: timestamps) { p in
-                Task { @MainActor in self.frameProgress = p }
-            }
-            let frames = captured.map { FrameExtractor.Frame(timestamp: $0.0, image: $0.1) }
 
-            guard !frames.isEmpty else {
-                throw NSError(domain: "youty", code: -1, userInfo: [NSLocalizedDescriptionKey: "Frame extraction produced 0 frames."])
-            }
-            try vault.writeFrames(frames, to: folderURL)
-            withAnimation { vault.frameState = .done(frames.count) }
+        // ACTIVE pipeline: canvas. Reliable across all videos/networks.
+        //
+        // To re-enable the experimental fast path (ANDROID_VR + AVURLAsset
+        // Range streaming), replace the line below with:
+        //
+        //   let pipeline: any FramePipeline = FastFramePipeline(
+        //       canvas: CanvasFramePipeline(canvasExtractor: videoExtractor, vault: vault),
+        //       playerFetcher: playerFetcher,
+        //       vault: vault
+        //   )
+        //
+        // FastFramePipeline falls back to canvas on every failure, so the
+        // worst case stays the same as the canvas-only baseline.
 
-        } catch {
-            withAnimation { vault.frameState = .failed(error.localizedDescription) }
+        let pipeline: any FramePipeline = CanvasFramePipeline(
+            canvasExtractor: videoExtractor,
+            vault: vault
+        )
+
+        let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL) { stage in
+            switch stage {
+            case .loading:
+                withAnimation { self.vault.frameState = .capturingStream }
+                self.frameProgress = 0
+            case .extracting(let p):
+                withAnimation { self.vault.frameState = .extracting }
+                self.frameProgress = p
+            case .writing:
+                withAnimation { self.vault.frameState = .extracting }
+                self.frameProgress = 1.0
+            }
+        }
+
+        switch outcome {
+        case .success(let count, let ms, let mode):
+            NSLog("[youty] \(mode): \(count) frames in \(ms)ms")
+            withAnimation { vault.frameState = .done(count) }
+        case .failed(let msg):
+            withAnimation { vault.frameState = .failed(msg) }
         }
     }
 
