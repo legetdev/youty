@@ -21,6 +21,7 @@
 		A5A27212E838E96609102929 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
 		B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73525BB1298A12906490472 /* FastFramePipeline.swift */; };
+		C197B5F7B683DDB4951CC9BF /* FFmpegSampleTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */; };
 		C8B9333704250B395669467E /* VideoExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07EACD9853587F324A75FFB /* VideoExtractor.swift */; };
 		C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
 		D235DE78DBDF7AED552E8AFB /* ParallelCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */; };
@@ -35,6 +36,7 @@
 		2C2747C12D2CBE36AD416926 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		453A0D43C6693B48BBE4607F /* FFmpegBridging.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FFmpegBridging.h; sourceTree = "<group>"; };
+		47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegSampleTable.swift; sourceTree = "<group>"; };
 		4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastFrameExtractor.swift; sourceTree = "<group>"; };
 		4BB446E58CBBADED63AFD0D2 /* youty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = youty.entitlements; sourceTree = "<group>"; };
 		515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -75,6 +77,7 @@
 				E73525BB1298A12906490472 /* FastFramePipeline.swift */,
 				453A0D43C6693B48BBE4607F /* FFmpegBridging.h */,
 				DD24184554CE6FFF9B2F5E0D /* FFmpegFrameExtractor.swift */,
+				47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */,
 				8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */,
 				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
 				BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */,
@@ -176,6 +179,7 @@
 				7700E341676B9465D4ADD448 /* ContentView.swift in Sources */,
 				1D3B34BB5AC912CB62DDA000 /* DebugLog.swift in Sources */,
 				20693B65CBBC3B960A95A6C6 /* FFmpegFrameExtractor.swift in Sources */,
+				C197B5F7B683DDB4951CC9BF /* FFmpegSampleTable.swift in Sources */,
 				80C925A67998CA3D1A01F1EE /* FFmpegURLSessionIO.swift in Sources */,
 				F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */,
 				B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */,

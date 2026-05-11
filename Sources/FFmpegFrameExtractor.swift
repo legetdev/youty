@@ -5,6 +5,11 @@ import VideoToolbox
 import CoreVideo
 import CoreImage
 
+// Sendable mutable box for hop-out-of-async-context patterns.
+private final class SendableBox<T>: @unchecked Sendable {
+    var value: T! = nil
+}
+
 // FFmpeg get_format callback for VideoToolbox: select AV_PIX_FMT_VIDEOTOOLBOX
 // when offered so frames come back as CVPixelBuffers in data[3].
 private let ffmpeg_get_format_videotoolbox:
@@ -85,14 +90,239 @@ enum FFmpegFrameExtractor {
         maxLongEdge: Int32 = 1920,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> [(timestamp: TimeInterval, image: NSImage)] {
-
-        // Hop off the main thread — libavformat does network I/O.
-        try await Task.detached(priority: .userInitiated) {
+        // Phase G sample-table path is *disabled* in production. It
+        // empirically delivers ~3.6 s for Rick at 1080p (excellent) but only
+        // captures the one keyframe per DASH segment, so multiple requested
+        // timestamps within the same segment collapse to the same frame —
+        // 38 distinct frames out of 100 requested for Rick.
+        //
+        // Delivering 100 distinct frames via the sample-table path requires
+        // per-segment GOP decode (keyframe + intermediate P-frames), which
+        // either fetches the full segment payload (negating bandwidth save)
+        // or needs a manual MP4 sample-table walker built on top of FFmpeg's
+        // index. Both are significant work — left as Phase H follow-up.
+        //
+        // The Sources/FFmpegSampleTable.swift module + buildPlan helper are
+        // retained as proven scaffolding for that work; this entry point
+        // currently goes straight to the software seek loop.
+        return try await Task.detached(priority: .userInitiated) {
             try doExtract(url: url, userAgent: userAgent,
                           timestamps: timestamps,
                           maxLongEdge: maxLongEdge,
                           progress: progress)
         }.value
+    }
+
+    // MARK: - Phase G: sample-table + parallel keyframe fetch + VTDecompressionSession
+
+    private static func extractViaSampleTable(
+        url: URL,
+        userAgent: String,
+        timestamps: [TimeInterval],
+        maxLongEdge: Int32,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [(timestamp: TimeInterval, image: NSImage)] {
+        try await Task.detached(priority: .userInitiated) {
+            try doExtractViaSampleTable(
+                url: url, userAgent: userAgent,
+                timestamps: timestamps, maxLongEdge: maxLongEdge,
+                progress: progress)
+        }.value
+    }
+
+    // Returns the sample-table-derived plan + the raw codec extradata we
+    // need for VT decode. The FFmpeg context is closed as soon as we have
+    // the bytes we need.
+    private struct ExtractionPlan {
+        let targets: [SampleTableTarget]
+        let extradata: Data         // owned copy
+        let width: Int32
+        let height: Int32
+        let codecID: AVCodecID
+    }
+
+    private static func doExtractViaSampleTable(
+        url: URL,
+        userAgent: String,
+        timestamps: [TimeInterval],
+        maxLongEdge: Int32,
+        progress: @escaping @Sendable (Double) -> Void
+    ) throws -> [(timestamp: TimeInterval, image: NSImage)] {
+
+        // ---- 1. Open FFmpeg context just long enough to parse index ----
+        let plan = try buildPlan(url: url, userAgent: userAgent,
+                                  timestamps: timestamps)
+
+        // ---- 2. Parallel-fetch each target's keyframe bytes ----
+        let keyframes: [Data?] = try awaitSync {
+            try await FFmpegSampleTable.fetchKeyframes(
+                targets: plan.targets, url: url, userAgent: userAgent)
+        }
+
+        // Verify all keyframes fetched.
+        let missing = keyframes.enumerated().compactMap { $0.element == nil ? $0.offset : nil }
+        if !missing.isEmpty {
+            throw SampleTableError.keyframeFetchFailed(
+                at: plan.targets[missing[0]].timestamp, underlying: nil)
+        }
+
+        // ---- 3. Decode all keyframes via VTDecompressionSession ----
+        let pixelBuffers: [CVPixelBuffer?] = try plan.extradata.withUnsafeBytes { rawPtr in
+            try FFmpegSampleTable.decodeKeyframes(
+                keyframes: keyframes,
+                extradata: rawPtr.baseAddress!.assumingMemoryBound(to: UInt8.self),
+                extradataLen: rawPtr.count,
+                width: plan.width,
+                height: plan.height,
+                codecID: plan.codecID
+            )
+        }
+
+        let decoded = pixelBuffers.enumerated().compactMap { $0.element == nil ? $0.offset : nil }
+        if !decoded.isEmpty {
+            throw SampleTableError.decodeFailed(-1, at: plan.targets[decoded[0]].timestamp)
+        }
+
+        // ---- 4. Parallel CVPixelBuffer → NSImage conversion ----
+        // Reuse the same conversion approach as the F.2 deferred-path proved.
+        let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+        let queue = DispatchQueue(label: "phaseG.gpu-pull", attributes: .concurrent)
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var converted: [Int: NSImage] = [:]
+        for (i, pbOpt) in pixelBuffers.enumerated() {
+            guard let pb = pbOpt else { continue }
+            group.enter()
+            queue.async {
+                let ci = CIImage(cvPixelBuffer: pb)
+                if let cg = ciContext.createCGImage(ci, from: ci.extent) {
+                    let ns = NSImage(cgImage: cg,
+                                     size: NSSize(width: cg.width, height: cg.height))
+                    lock.lock(); converted[i] = ns; lock.unlock()
+                }
+                group.leave()
+            }
+        }
+        group.wait()
+
+        var out: [(TimeInterval, NSImage)] = []
+        for (i, t) in plan.targets.enumerated() {
+            guard let img = converted[i] else {
+                throw SampleTableError.decodeFailed(-2, at: t.timestamp)
+            }
+            out.append((t.timestamp, img))
+            progress(Double(i + 1) / Double(plan.targets.count))
+        }
+        return out
+    }
+
+    /// Open FFmpeg's demuxer, populate index, copy extradata + targets, close.
+    private static func buildPlan(url: URL, userAgent: String,
+                                   timestamps: [TimeInterval]) throws -> ExtractionPlan {
+        let io = FFmpegURLSessionIO(url: url, userAgent: userAgent)
+        let ioUnmanaged = Unmanaged.passRetained(io)
+        let bufSize = 64 * 1024
+        let ioBuffer = av_malloc(bufSize)!.assumingMemoryBound(to: UInt8.self)
+
+        let readCB: @convention(c) (UnsafeMutableRawPointer?,
+                                    UnsafeMutablePointer<UInt8>?,
+                                    Int32) -> Int32 = { opaque, buf, size in
+            guard let opaque, let buf else { return -1 }
+            let io = Unmanaged<FFmpegURLSessionIO>.fromOpaque(opaque).takeUnretainedValue()
+            return Int32(io.read(buffer: buf, size: Int(size)))
+        }
+        let seekCB: @convention(c) (UnsafeMutableRawPointer?, Int64, Int32) -> Int64 = { opaque, offset, whence in
+            guard let opaque else { return -1 }
+            let io = Unmanaged<FFmpegURLSessionIO>.fromOpaque(opaque).takeUnretainedValue()
+            return io.seek(offset: offset, whence: whence)
+        }
+        let avioCtx = avio_alloc_context(ioBuffer, Int32(bufSize), 0,
+                                          ioUnmanaged.toOpaque(),
+                                          readCB, nil, seekCB)
+        defer {
+            if let avioCtx { av_freep(UnsafeMutableRawPointer(mutating: avioCtx)) }
+            ioUnmanaged.release()
+        }
+
+        var fmtCtxOpt: UnsafeMutablePointer<AVFormatContext>? = avformat_alloc_context()
+        defer {
+            if let ptr = fmtCtxOpt {
+                var mutable: UnsafeMutablePointer<AVFormatContext>? = ptr
+                avformat_close_input(&mutable)
+            }
+        }
+        fmtCtxOpt?.pointee.pb = avioCtx
+
+        guard avformat_open_input(&fmtCtxOpt, nil, nil, nil) == 0,
+              let fmtCtx = fmtCtxOpt else {
+            throw FFmpegError.openInputFailed(-1)
+        }
+        guard avformat_find_stream_info(fmtCtx, nil) >= 0 else {
+            throw FFmpegError.streamInfoFailed(-1)
+        }
+        guard let streamsPtr = fmtCtx.pointee.streams else {
+            throw FFmpegError.noVideoStream
+        }
+        var videoStream: UnsafeMutablePointer<AVStream>? = nil
+        var videoStreamIndex: Int32 = -1
+        for i in 0..<Int(fmtCtx.pointee.nb_streams) {
+            if let s = streamsPtr[i],
+               let par = s.pointee.codecpar,
+               par.pointee.codec_type == AVMEDIA_TYPE_VIDEO {
+                videoStream = s
+                videoStreamIndex = Int32(i)
+                break
+            }
+        }
+        guard let stream = videoStream,
+              videoStreamIndex >= 0,
+              let codecPar = stream.pointee.codecpar else {
+            throw FFmpegError.noVideoStream
+        }
+
+        // For DASH-fragmented MP4s, FFmpeg's index_entries are lazy-loaded:
+        // only one keyframe is registered until segments are touched. We
+        // trigger a seek per target so FFmpeg parses the relevant moof
+        // boxes and registers their sync samples in the index. Each seek
+        // costs only the moof metadata bytes (a few KB), not the full
+        // segment payload — much cheaper than decoding.
+        let timeBase = stream.pointee.time_base
+        for ts in timestamps {
+            let pts = Int64(ts * Double(timeBase.den) / Double(timeBase.num))
+            _ = av_seek_frame(fmtCtx, videoStreamIndex, pts, AVSEEK_FLAG_BACKWARD)
+        }
+
+        let targets = try FFmpegSampleTable.buildTargets(stream: stream,
+                                                          timestamps: timestamps)
+        // Copy extradata so it survives after we close the context.
+        let extLen = Int(codecPar.pointee.extradata_size)
+        guard extLen > 0, let extPtr = codecPar.pointee.extradata else {
+            throw SampleTableError.formatDescriptionFailed
+        }
+        let extData = Data(bytes: extPtr, count: extLen)
+
+        return ExtractionPlan(
+            targets: targets,
+            extradata: extData,
+            width: codecPar.pointee.width,
+            height: codecPar.pointee.height,
+            codecID: codecPar.pointee.codec_id
+        )
+    }
+
+    // Run an async closure synchronously from a non-async context. Used to
+    // call FFmpegSampleTable.fetchKeyframes from doExtractViaSampleTable
+    // (which runs on a detached task).
+    private static func awaitSync<T: Sendable>(_ op: @escaping @Sendable () async throws -> T) throws -> T {
+        let sem = DispatchSemaphore(value: 0)
+        let resultBox = SendableBox<Result<T, Error>?>()
+        Task.detached {
+            do { resultBox.value = .success(try await op()) }
+            catch { resultBox.value = .failure(error) }
+            sem.signal()
+        }
+        sem.wait()
+        return try resultBox.value!.get()
     }
 
     // MARK: - Implementation
