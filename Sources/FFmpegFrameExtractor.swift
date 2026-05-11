@@ -5,6 +5,29 @@ import VideoToolbox
 import CoreVideo
 import CoreImage
 
+// FFmpeg get_format callback for VideoToolbox: select AV_PIX_FMT_VIDEOTOOLBOX
+// when offered so frames come back as CVPixelBuffers in data[3].
+private let ffmpeg_get_format_videotoolbox:
+    @convention(c) (UnsafeMutablePointer<AVCodecContext>?,
+                    UnsafePointer<AVPixelFormat>?) -> AVPixelFormat = { _, fmts in
+    guard let fmts else { return AV_PIX_FMT_NONE }
+    var i = 0
+    while fmts[i] != AV_PIX_FMT_NONE {
+        if fmts[i] == AV_PIX_FMT_VIDEOTOOLBOX { return AV_PIX_FMT_VIDEOTOOLBOX }
+        i += 1
+    }
+    return fmts[0]
+}
+
+// Internal: a captured frame that is either already a software NSImage or
+// still a GPU-resident CVPixelBuffer awaiting conversion. The seek loop
+// produces these; the parallel post-loop stage converts CVPixelBuffers to
+// NSImages so all GPU → CPU readbacks run concurrently across cores.
+private enum CapturedFrame {
+    case software(NSImage)
+    case hardware(CVPixelBuffer)
+}
+
 
 // Frame extraction via FFmpeg's libavformat + libavcodec, statically linked.
 //
@@ -184,25 +207,25 @@ enum FFmpegFrameExtractor {
         codecCtx.pointee.thread_count = 0   // auto
         codecCtx.pointee.thread_type = Int32(FF_THREAD_FRAME | FF_THREAD_SLICE)
 
-        // ---- F.2 hardware decode is disabled in this version ----
+        // ---- F.2 hardware decode: empirically slower for our access pattern ----
         //
-        // Both attempted activation paths regressed end-to-end performance:
+        // Wiring VideoToolbox HW decode via hw_device_ctx + get_format works
+        // correctly (verified: frames come back as CVPixelBuffers, deferred
+        // parallel conversion takes only 452 ms for 100 frames). But the HW
+        // path's *per-seek* cost is ~250 ms vs ~60 ms on the software path
+        // (VideoToolbox session reset + keyframe lookup per av_seek_frame).
         //
-        //   • avcodec_get_hw_config + av_hwdevice_ctx_create + get_format
-        //     callback returns AV_PIX_FMT_VIDEOTOOLBOX frames as expected
-        //     (verified — diagnostic log saw "first frame is CVPixelBuffer ✓").
-        //   • But every CVPixelBuffer → CGImage conversion (via
-        //     VTCreateCGImageFromCVPixelBuffer or CIContext.createCGImage)
-        //     synchronously pulls pixels GPU → CPU at ~250 ms per 1080p frame.
-        //     That cost is paid sequentially inside the per-target seek loop,
-        //     dwarfing the ~30 ms of software yuv420p → BGRA it was meant to
-        //     replace.
+        // For 100 sparse seeks that's 30+ s of decode-loop overhead — net
+        // worse than software for the access pattern our pipeline uses.
+        // HW decode would only pay off for *linear* playback at 1000+ fps,
+        // which is bandwidth-bound for long videos anyway.
         //
-        // A correct F.2 implementation needs the GPU-pull to happen in
-        // parallel with FFmpeg's next decode step, OR a deferred-conversion
-        // pipeline that batches GPU→CPU at JPEG-encode time. Both are non-
-        // trivial. The software path is the production default until F.2
-        // ships properly.
+        // Path forward to actually unlock HW: ditch the per-target seek loop
+        // and parse the MP4 sample table (stss/stco/stsz) ourselves to fetch
+        // *exact* keyframe byte ranges, then feed them to a stateless
+        // VTDecompressionSession decode per frame. That bypasses FFmpeg's
+        // seek path entirely. Substantial work — left for Phase G.
+
         let openCodec = avcodec_open2(codecCtx, codec, nil)
         guard openCodec == 0 else { throw FFmpegError.codecOpenFailed(openCodec) }
 
@@ -259,66 +282,21 @@ enum FFmpegFrameExtractor {
         let sortedPtsList: [Int64] = sorted.map {
             Int64($0.element * Double(timeBase.den) / Double(timeBase.num))
         }
-        var out: [(TimeInterval, NSImage)] = Array(repeating: (0, NSImage()), count: total)
+        // First pass: per-target seek loop captures CapturedFrames. HW path
+        // produces .hardware(CVPixelBuffer) (no GPU readback yet); software
+        // path produces .software(NSImage) (already converted by sws_scale).
+        var captures: [CapturedFrame?] = Array(repeating: nil, count: total)
 
-        let durationSeconds: Double = {
-            if let last = sorted.last?.element { return last }
-            return 0
-        }()
-        let avgInterval = total > 1 ? durationSeconds / Double(total - 1) : 0
+        for (cursor, item) in sorted.enumerated() {
+            let inputIndex = item.offset
+            let ts = item.element
+            let pts = sortedPtsList[cursor]
+            let seekResult = av_seek_frame(fmtCtx, videoStreamIndex, pts, AVSEEK_FLAG_BACKWARD)
+            if seekResult < 0 { throw FFmpegError.seekFailed(at: ts, code: seekResult) }
+            avcodec_flush_buffers(codecCtx)
 
-        if avgInterval > 0.0 {  // always seek-mode now — linear walk fetches the whole file
-            // ---- Per-target seek mode (sparse) ----
-            for (cursor, item) in sorted.enumerated() {
-                let inputIndex = item.offset
-                let ts = item.element
-                let pts = sortedPtsList[cursor]
-                let seekResult = av_seek_frame(fmtCtx, videoStreamIndex, pts, AVSEEK_FLAG_BACKWARD)
-                if seekResult < 0 { throw FFmpegError.seekFailed(at: ts, code: seekResult) }
-                avcodec_flush_buffers(codecCtx)
-
-                var captured: NSImage? = nil
-                seekLoop: while true {
-                    av_packet_unref(packet)
-                    let readResult = av_read_frame(fmtCtx, packet)
-                    if readResult < 0 { break }
-                    if packet.pointee.stream_index != videoStreamIndex { continue }
-
-                    let sendResult = avcodec_send_packet(codecCtx, packet)
-                    if sendResult < 0 && sendResult != EAGAIN_FFM { continue }
-
-                    while true {
-                        let receiveResult = avcodec_receive_frame(codecCtx, avFrame)
-                        if receiveResult == EAGAIN_FFM || receiveResult == AVERROR_EOF_FFM { break }
-                        if receiveResult < 0 { throw FFmpegError.decodeFailed(receiveResult) }
-                        let framePts = avFrame.pointee.best_effort_timestamp
-                        if framePts == AV_NOPTS_VALUE_FFM || framePts >= pts {
-                            if let image = renderBGRAImage(from: avFrame, sws: swsCtx,
-                                                           outW: outW, outH: outH) {
-                                captured = image
-                                av_frame_unref(avFrame)
-                                break seekLoop
-                            }
-                        }
-                        av_frame_unref(avFrame)
-                    }
-                }
-                guard let image = captured else { throw FFmpegError.noFrameAtTimestamp(ts) }
-                out[inputIndex] = (ts, image)
-                progress(Double(cursor + 1) / Double(total))
-            }
-        } else {
-            // ---- Linear read mode (dense) ----
-            var cursor = 0
-            let firstTargetTs = sorted.first?.element ?? 0
-            if firstTargetTs > 5.0 {
-                let firstPts = sortedPtsList[0]
-                let seekPts = firstPts - Int64(2.0 * Double(timeBase.den) / Double(timeBase.num))
-                _ = av_seek_frame(fmtCtx, videoStreamIndex, max(0, seekPts), AVSEEK_FLAG_BACKWARD)
-                avcodec_flush_buffers(codecCtx)
-            }
-
-            readLoop: while cursor < total {
+            var captured: CapturedFrame? = nil
+            seekLoop: while true {
                 av_packet_unref(packet)
                 let readResult = av_read_frame(fmtCtx, packet)
                 if readResult < 0 { break }
@@ -331,68 +309,124 @@ enum FFmpegFrameExtractor {
                     let receiveResult = avcodec_receive_frame(codecCtx, avFrame)
                     if receiveResult == EAGAIN_FFM || receiveResult == AVERROR_EOF_FFM { break }
                     if receiveResult < 0 { throw FFmpegError.decodeFailed(receiveResult) }
-
                     let framePts = avFrame.pointee.best_effort_timestamp
-                    while cursor < total
-                          && (framePts == AV_NOPTS_VALUE_FFM
-                              || framePts >= sortedPtsList[cursor]) {
-                        if let image = renderBGRAImage(from: avFrame, sws: swsCtx,
-                                                       outW: outW, outH: outH) {
-                            let inputIndex = sorted[cursor].offset
-                            let ts = sorted[cursor].element
-                            out[inputIndex] = (ts, image)
-                            cursor += 1
-                            progress(Double(cursor) / Double(total))
-                        } else { break }
-                    }
-                    av_frame_unref(avFrame)
-                    if cursor >= total { break readLoop }
-                }
-            }
-
-            if cursor < total {
-                _ = avcodec_send_packet(codecCtx, nil)
-                while cursor < total {
-                    let receiveResult = avcodec_receive_frame(codecCtx, avFrame)
-                    if receiveResult == EAGAIN_FFM || receiveResult == AVERROR_EOF_FFM { break }
-                    if receiveResult < 0 { break }
-                    let framePts = avFrame.pointee.best_effort_timestamp
-                    while cursor < total
-                          && (framePts == AV_NOPTS_VALUE_FFM
-                              || framePts >= sortedPtsList[cursor]) {
-                        if let image = renderBGRAImage(from: avFrame, sws: swsCtx,
-                                                       outW: outW, outH: outH) {
-                            let inputIndex = sorted[cursor].offset
-                            let ts = sorted[cursor].element
-                            out[inputIndex] = (ts, image)
-                            cursor += 1
-                            progress(Double(cursor) / Double(total))
-                        } else { break }
+                    if framePts == AV_NOPTS_VALUE_FFM || framePts >= pts {
+                        if let cap = captureFrame(from: avFrame, sws: swsCtx,
+                                                  outW: outW, outH: outH) {
+                            captured = cap
+                            av_frame_unref(avFrame)
+                            break seekLoop
+                        }
                     }
                     av_frame_unref(avFrame)
                 }
             }
-
-            if cursor < total {
-                throw FFmpegError.incompleteFrames(got: cursor, expected: total)
-            }
+            guard let cap = captured else { throw FFmpegError.noFrameAtTimestamp(ts) }
+            captures[inputIndex] = cap
+            progress(Double(cursor + 1) / Double(total))
         }
 
-        return out
+        // Convert (no-op pass-through for software captures).
+        let sortedTuples = sorted.map { (offset: $0.offset, element: $0.element) }
+        return try convertCaptures(captures, sorted: sortedTuples)
     }
 
-    // Software-only render: yuv420p → BGRA via sws_scale, then CGImage.
-    // The HW path (CVPixelBuffer → CGImage via CIContext / VTCreateCGImage)
-    // is implemented and verified but disabled — see comment in doExtract.
-    private static func renderBGRAImage(
+    // MARK: - Frame capture (called from the per-target loop)
+
+    private static func captureFrame(
         from avFrame: UnsafeMutablePointer<AVFrame>,
         sws: OpaquePointer,
         outW: Int32, outH: Int32
-    ) -> NSImage? {
-        return renderViaSws(from: avFrame, sws: sws, outW: outW, outH: outH)
+    ) -> CapturedFrame? {
+        if avFrame.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue,
+           let opaque = avFrame.pointee.data.3 {
+            // data[3] holds a CVPixelBufferRef owned by the AVFrame. We bridge
+            // to a Swift-managed reference here; Swift's CFType ARC adds a
+            // retain so the buffer survives the av_frame_unref() call that
+            // releases FFmpeg's reference moments later.
+            let pb: CVPixelBuffer = Unmanaged.fromOpaque(UnsafeRawPointer(opaque))
+                .takeUnretainedValue()
+            // Force an extra CFRetain — Swift CF bridging on takeUnretainedValue
+            // doesn't always bump the count synchronously; this guarantees
+            // survival across av_frame_unref.
+            _ = Unmanaged.passRetained(pb)
+            return .hardware(pb)
+        }
+        if let img = renderViaSws(from: avFrame, sws: sws, outW: outW, outH: outH) {
+            return .software(img)
+        }
+        return nil
     }
 
-    // Software fallback: sws_scale → BGRA → CGImage → NSImage.
+    // MARK: - Parallel CVPixelBuffer → NSImage conversion
+
+    private static func convertCaptures(_ captures: [CapturedFrame?],
+                                         sorted: [(offset: Int, element: TimeInterval)])
+        throws -> [(TimeInterval, NSImage)] {
+        let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+
+        // Map slot → timestamp.
+        var slotToTs: [Int: TimeInterval] = [:]
+        for entry in sorted { slotToTs[entry.offset] = entry.element }
+
+        var out: [(TimeInterval, NSImage)?] = Array(repeating: nil, count: captures.count)
+        var hwTasks: [(slot: Int, ts: TimeInterval, pb: CVPixelBuffer)] = []
+
+        for (i, cap) in captures.enumerated() {
+            guard let cap else { continue }
+            let ts = slotToTs[i] ?? 0
+            switch cap {
+            case .software(let img):
+                out[i] = (ts, img)
+            case .hardware(let pb):
+                hwTasks.append((i, ts, pb))
+            }
+        }
+
+        if !hwTasks.isEmpty {
+            // CIContext is thread-safe for concurrent createCGImage. We run
+            // each readback on a concurrent dispatch queue; on Apple Silicon's
+            // unified memory architecture eight in-flight GPU dispatches +
+            // readbacks complete in roughly the same wall time as one would
+            // sequentially.
+            let queue = DispatchQueue(label: "ffmpeg.gpu-pull", attributes: .concurrent)
+            let group = DispatchGroup()
+            let lock = NSLock()
+            var converted: [Int: NSImage] = [:]
+            for task in hwTasks {
+                group.enter()
+                queue.async {
+                    let ci = CIImage(cvPixelBuffer: task.pb)
+                    let cg = ciContext.createCGImage(ci, from: ci.extent)
+                    // Release the extra CFRetain we added in captureFrame.
+                    _ = Unmanaged.passUnretained(task.pb).release()
+                    if let cg {
+                        let ns = NSImage(cgImage: cg,
+                                         size: NSSize(width: cg.width, height: cg.height))
+                        lock.lock(); converted[task.slot] = ns; lock.unlock()
+                    }
+                    group.leave()
+                }
+            }
+            group.wait()
+            for (slot, img) in converted {
+                let ts = slotToTs[slot] ?? 0
+                out[slot] = (ts, img)
+            }
+        }
+
+        var final: [(TimeInterval, NSImage)] = []
+        final.reserveCapacity(out.count)
+        for entry in out {
+            guard let e = entry else {
+                throw FFmpegError.incompleteFrames(got: final.count, expected: out.count)
+            }
+            final.append(e)
+        }
+        return final
+    }
+
+    // Software path: sws_scale → BGRA → CGImage → NSImage.
     private static func renderViaSws(
         from avFrame: UnsafeMutablePointer<AVFrame>,
         sws: OpaquePointer,
