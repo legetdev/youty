@@ -1,6 +1,22 @@
 import Foundation
 import AppKit
 import CoreGraphics
+import VideoToolbox
+import CoreVideo
+
+// FFmpeg's get_format callback for VideoToolbox HW decode. Picks
+// AV_PIX_FMT_VIDEOTOOLBOX if offered so frames come back as CVPixelBuffers.
+private let ffmpeg_get_format_videotoolbox:
+    @convention(c) (UnsafeMutablePointer<AVCodecContext>?,
+                    UnsafePointer<AVPixelFormat>?) -> AVPixelFormat = { _, fmts in
+    guard let fmts else { return AV_PIX_FMT_NONE }
+    var i = 0
+    while fmts[i] != AV_PIX_FMT_NONE {
+        if fmts[i] == AV_PIX_FMT_VIDEOTOOLBOX { return AV_PIX_FMT_VIDEOTOOLBOX }
+        i += 1
+    }
+    return fmts[0]
+}
 
 // Frame extraction via FFmpeg's libavformat + libavcodec, statically linked.
 //
@@ -244,7 +260,7 @@ enum FFmpegFrameExtractor {
         }()
         let avgInterval = total > 1 ? durationSeconds / Double(total - 1) : 0
 
-        if avgInterval > 5.0 {
+        if avgInterval > 0.0 {  // always seek-mode now — linear walk fetches the whole file
             // ---- Per-target seek mode (sparse) ----
             for (cursor, item) in sorted.enumerated() {
                 let inputIndex = item.offset
@@ -358,8 +374,33 @@ enum FFmpegFrameExtractor {
         return out
     }
 
-    // sws_scale → BGRA buffer → CGImage → NSImage.
+    // Renders an AVFrame to NSImage. Two paths:
+    //   - VideoToolbox hardware path: avFrame holds a CVPixelBuffer in
+    //     data[3]; we hand it directly to VTCreateCGImageFromCVPixelBuffer.
+    //     No CPU pixel touch.
+    //   - Software path: yuv420p → BGRA via sws_scale, then CGImage from
+    //     the buffer.
     private static func renderBGRAImage(
+        from avFrame: UnsafeMutablePointer<AVFrame>,
+        sws: OpaquePointer,
+        outW: Int32, outH: Int32
+    ) -> NSImage? {
+
+        if avFrame.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue,
+           let opaque = avFrame.pointee.data.3 {
+            // data[3] holds an unretained CVPixelBuffer pointer.
+            let pixelBuffer = Unmanaged<CVPixelBuffer>.fromOpaque(UnsafeRawPointer(opaque))
+                .takeUnretainedValue()
+            var cgOut: CGImage?
+            VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgOut)
+            guard let cg = cgOut else { return nil }
+            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        }
+        return renderViaSws(from: avFrame, sws: sws, outW: outW, outH: outH)
+    }
+
+    // Software fallback: sws_scale → BGRA → CGImage → NSImage.
+    private static func renderViaSws(
         from avFrame: UnsafeMutablePointer<AVFrame>,
         sws: OpaquePointer,
         outW: Int32, outH: Int32

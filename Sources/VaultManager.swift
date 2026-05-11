@@ -83,12 +83,28 @@ final class VaultManager: NSObject, ObservableObject {
         // Filenames are the timestamp in milliseconds, zero-padded to 8 digits
         // (covers ≤ 27 hours). AI consumers resolve [M:SS] timestamps by
         // parsing to ms and matching the numerically closest stem.
+        //
+        // JPEG encoding is CPU-heavy at 1080p (~10 ms per frame). Encode all
+        // frames in parallel via a concurrent dispatch group, then write
+        // sequentially (file-system writes serialize anyway on a single SSD).
+        let queue = DispatchQueue(label: "youty.jpeg-encode", attributes: .concurrent)
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var encoded: [(name: String, data: Data)] = []
         for frame in frames {
-            let ms = Int(frame.timestamp * 1000)
-            let name = String(format: "%08d.jpg", ms)
-            if let data = frame.image.jpegData(compressionQuality: 0.85) {
-                try? data.write(to: folderURL.appendingPathComponent(name))
+            group.enter()
+            queue.async {
+                let ms = Int(frame.timestamp * 1000)
+                let name = String(format: "%08d.jpg", ms)
+                if let data = frame.image.jpegData(compressionQuality: 0.85) {
+                    lock.lock(); encoded.append((name, data)); lock.unlock()
+                }
+                group.leave()
             }
+        }
+        group.wait()
+        for (name, data) in encoded {
+            try? data.write(to: folderURL.appendingPathComponent(name))
         }
     }
 
