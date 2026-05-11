@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var loader = TranscriptLoader()
     @StateObject private var vault = VaultManager()
     @StateObject private var videoExtractor = VideoExtractor()
+    @StateObject private var parallelCapture = ParallelCapture(count: 4)
     @StateObject private var playerFetcher = PlayerFetcher()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
@@ -19,8 +20,16 @@ struct ContentView: View {
     @State private var vaultSaved = false
     @State private var vaultError: String?
     @State private var frameProgress: Double = 0
+    @State private var downloadProgress: Double = 0
     @State private var showCopied = false
+    @State private var fastFailure: FastFailure?
     @FocusState private var inputFocused: Bool
+
+    private struct FastFailure: Equatable {
+        let reason: String
+        let videoID: String
+        let folderURL: URL
+    }
 
     private var isValidURL: Bool {
         TranscriptFetcher.extractVideoID(from: urlInput) != nil
@@ -33,15 +42,15 @@ struct ContentView: View {
 
             VStack(spacing: 0) {
                 header
-                    .padding(.top, 32)
-                    .padding(.bottom, 28)
+                    .padding(.top, 14)
+                    .padding(.bottom, 14)
 
                 inputSection
                     .padding(.horizontal, 24)
 
                 resultSection
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 16)
         }
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
@@ -53,6 +62,7 @@ struct ContentView: View {
                     window.backgroundColor = .clear
                     loader.attachToWindow(window)
                     videoExtractor.attach(to: window)
+                    parallelCapture.attach(to: window)
                     playerFetcher.attach(to: window)
                 }
             }
@@ -62,14 +72,13 @@ struct ContentView: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(spacing: 6) {
-            Text("youty")
-                .font(.system(size: 28, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
-            Text("Paste a YouTube link. Get the transcript.")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.secondary)
-        }
+        Image("HeaderLogo")
+            .resizable()
+            .interpolation(.high)
+            .antialiased(true)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 96, height: 96)
+            .accessibilityLabel("youty")
     }
 
     // MARK: - Input
@@ -234,10 +243,50 @@ struct ContentView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.3), lineWidth: 1))
                 }
 
+                // Fast-path failure banner + fallback button
+                if let failure = fastFailure {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red)
+                                .font(.system(size: 11))
+                            Text("Fast extraction failed — \(failure.reason)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                        }
+                        Button {
+                            fastFailure = nil
+                            Task {
+                                await runCanvasFallback(videoID: failure.videoID,
+                                                        folderURL: failure.folderURL)
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "tortoise.fill").font(.system(size: 11))
+                                Text("Use fallback approach (slower)")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 7)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(Color.accentColor)
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 9)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.35), lineWidth: 1))
+                    .transition(.opacity)
+                }
+
                 // Background frame progress
                 switch vault.frameState {
                 case .capturingStream:
-                    frameStatusRow(text: "Loading video…", showSpinner: true)
+                    frameStatusRow(text: "Reaching YouTube…", showSpinner: true)
                 case .downloading(let p):
                     VStack(alignment: .leading, spacing: 3) {
                         ProgressView(value: p).tint(.accentColor)
@@ -335,46 +384,66 @@ struct ContentView: View {
 
     private func runFramePipeline(videoID: String, folderURL: URL) async {
         frameProgress = 0
+        downloadProgress = 0
+        fastFailure = nil
 
-        // ACTIVE pipeline: canvas. Reliable across all videos/networks.
-        //
-        // To re-enable the experimental fast path (ANDROID_VR + AVURLAsset
-        // Range streaming), replace the line below with:
-        //
-        //   let pipeline: any FramePipeline = FastFramePipeline(
-        //       canvas: CanvasFramePipeline(canvasExtractor: videoExtractor, vault: vault),
-        //       playerFetcher: playerFetcher,
-        //       vault: vault
-        //   )
-        //
-        // FastFramePipeline falls back to canvas on every failure, so the
-        // worst case stays the same as the canvas-only baseline.
+        let pipeline: any FramePipeline = FastFramePipeline(
+            playerFetcher: playerFetcher,
+            parallelCapture: parallelCapture,
+            vault: vault
+        )
+        let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL) { stage in
+            applyStage(stage)
+        }
+        applyOutcome(outcome, videoID: videoID, folderURL: folderURL)
+    }
 
+    private func runCanvasFallback(videoID: String, folderURL: URL) async {
+        frameProgress = 0
+        withAnimation { vault.frameState = .capturingStream }
         let pipeline: any FramePipeline = CanvasFramePipeline(
             canvasExtractor: videoExtractor,
             vault: vault
         )
-
         let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL) { stage in
-            switch stage {
-            case .loading:
-                withAnimation { self.vault.frameState = .capturingStream }
-                self.frameProgress = 0
-            case .extracting(let p):
-                withAnimation { self.vault.frameState = .extracting }
-                self.frameProgress = p
-            case .writing:
-                withAnimation { self.vault.frameState = .extracting }
-                self.frameProgress = 1.0
-            }
+            applyStage(stage)
         }
+        applyOutcome(outcome, videoID: videoID, folderURL: folderURL)
+    }
 
+    private func applyStage(_ stage: FrameStage) {
+        switch stage {
+        case .loading:
+            withAnimation { self.vault.frameState = .capturingStream }
+            self.frameProgress = 0
+        case .downloading(let p):
+            self.downloadProgress = p
+            withAnimation { self.vault.frameState = .downloading(p) }
+        case .extracting(let p):
+            withAnimation { self.vault.frameState = .extracting }
+            self.frameProgress = p
+        case .writing:
+            withAnimation { self.vault.frameState = .extracting }
+            self.frameProgress = 1.0
+        }
+    }
+
+    private func applyOutcome(_ outcome: FramePipelineOutcome,
+                              videoID: String,
+                              folderURL: URL) {
         switch outcome {
         case .success(let count, let ms, let mode):
             NSLog("[youty] \(mode): \(count) frames in \(ms)ms")
             withAnimation { vault.frameState = .done(count) }
-        case .failed(let msg):
-            withAnimation { vault.frameState = .failed(msg) }
+        case .failed(let reason, let canFallback):
+            if canFallback {
+                withAnimation {
+                    vault.frameState = .idle
+                    fastFailure = FastFailure(reason: reason, videoID: videoID, folderURL: folderURL)
+                }
+            } else {
+                withAnimation { vault.frameState = .failed(reason) }
+            }
         }
     }
 

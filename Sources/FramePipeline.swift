@@ -8,13 +8,16 @@ import Foundation
 
 enum FrameStage {
     case loading              // initial setup (page load for canvas, format fetch for fast)
+    case downloading(Double)  // fast-path MP4 download (0..1)
     case extracting(Double)   // capturing/streaming frames, progress 0..1
     case writing              // writing JPEGs to vault folder
 }
 
 enum FramePipelineOutcome {
     case success(framesWritten: Int, durationMs: Int, mode: String)
-    case failed(String)
+    // canFallback=true means UI should offer the canvas fallback button.
+    // canFallback=false means we already tried everything and there's no recourse.
+    case failed(reason: String, canFallback: Bool)
 }
 
 @MainActor

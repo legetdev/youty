@@ -1,47 +1,43 @@
 import Foundation
 import AppKit
-import AVFoundation
 
-// SIDELINED — not currently wired into ContentView.
+// Fast frame extraction pipeline.
 //
-// To re-enable, in ContentView.runFramePipeline replace
-//   CanvasFramePipeline(canvasExtractor:..., vault:...)
-// with
-//   FastFramePipeline(canvas: CanvasFramePipeline(...), playerFetcher:..., vault:...)
+// Stages:
+//   1. ANDROID_VR InnerTube → list of formats (~250ms, 3s timeout)
+//   2. Pick H.264 720p+ stream (<1ms)
+//   3. Sequential 8MB Range download of full MP4 to temp file
+//      (~1–10s, bandwidth-bound; first chunk has 5s timeout for instant fail)
+//   4. Load the local file in a hidden WKWebView (~500ms)
+//   5. Canvas-capture 100 frames with local seeks (~3–10s)
+//   6. Write JPEGs to vault (~300ms)
+//   7. Delete temp file
 //
-// What it does:
-//   1. ANDROID_VR InnerTube → signed H.264 720p stream URL (~500 ms)
-//   2. AVURLAsset(url: streamURL) with ANDROID_VR User-Agent — no download
-//   3. AVAssetImageGenerator.generateCGImagesAsynchronously with ±2s tolerance
-//   4. AVFoundation issues HTTP Range requests for keyframe bytes only
-//      (~20–50 MB total regardless of video length)
-//   5. On any failure → delegates to the wrapped CanvasFramePipeline
+// Why WKWebView canvas on a local file instead of AVFoundation:
+//   We verified that AVAssetImageGenerator, AVAssetReader, and
+//   AVAssetExportSession all fail past the midpoint on YouTube's DASH-
+//   fragmented H.264 streams (silent placeholder frames). WebKit's H.264
+//   decoder handles these streams correctly — it's the same path YouTube.com
+//   itself uses to play the video. Pointing it at a local file removes the
+//   SABR network-seek bottleneck that makes the YouTube-canvas pipeline slow.
 //
-// Why sidelined (2026-05-10):
-//   AVURLAsset against googlevideo signed URLs hangs on duration load even
-//   with the correct ANDROID_VR User-Agent. Symptom: TLS handshake completes,
-//   no body bytes ever arrive, request stalls indefinitely (20s timeout fires).
-//   Root cause unknown — could be regional throttling, signed-URL handling
-//   in CoreMedia, or anti-abuse on googlevideo. Needs further investigation
-//   before it can be the default path.
+// On ANY failure: no fallback. Returns .failed(canFallback: true) so the
+// caller can offer the canvas-on-YouTube fallback button to the user.
 
 @MainActor
 final class FastFramePipeline: FramePipeline {
 
-    private let canvas: CanvasFramePipeline
     private let playerFetcher: PlayerFetcher
+    private let parallelCapture: ParallelCapture
     private let vault: VaultManager
 
-    // Holds the active stage callback for the duration of one extract() call.
-    // Stored on this @MainActor object so @Sendable inner closures can hop
-    // back to main and call it without capturing a non-Sendable value.
     private var currentStage: ((FrameStage) -> Void)?
 
-    init(canvas: CanvasFramePipeline,
-         playerFetcher: PlayerFetcher,
+    init(playerFetcher: PlayerFetcher,
+         parallelCapture: ParallelCapture,
          vault: VaultManager) {
-        self.canvas = canvas
         self.playerFetcher = playerFetcher
+        self.parallelCapture = parallelCapture
         self.vault = vault
     }
 
@@ -55,88 +51,171 @@ final class FastFramePipeline: FramePipeline {
         defer { currentStage = nil }
 
         let started = Date()
-        DebugLog.log("fast pipeline: \(videoID)")
+        var tempFileURL: URL?
+        defer {
+            if let url = tempFileURL {
+                try? FileManager.default.removeItem(at: url)
+                let html = url.deletingLastPathComponent().appendingPathComponent("player.html")
+                try? FileManager.default.removeItem(at: html)
+            }
+        }
+
+        DebugLog.log("=== FAST PATH START === videoID=\(videoID)")
 
         do {
             emit(.loading)
 
-            // 1. Stream URL
-            DebugLog.log("fast: fetching formats")
-            let formats = try await fetchFormatsWithFallback(videoID: videoID)
-            let stream  = try StreamFetcher.selectFastPathStream(from: formats)
-            DebugLog.log("fast: selected \(stream.codec) \(stream.quality), \(stream.contentLength / 1_000_000)MB")
+            // ---- Stage 1: format fetch ----
+            let formatsStart = Date()
+            let formatList = try await fetchFormatsWithFastFail(videoID: videoID)
+            let formatsMs = Int(Date().timeIntervalSince(formatsStart) * 1000)
+            DebugLog.log("fast: formats fetched in \(formatsMs)ms (n=\(formatList.formats.count), progressive=\(formatList.progressiveCount))")
 
-            // 2. Load remote asset (with timeout)
-            emit(.extracting(0))
-            let asset = FastFrameExtractor.makeAsset(url: stream.url)
-            let durationCM: CMTime
-            do {
-                durationCM = try await withTimeout(seconds: 20) {
-                    try await asset.load(.duration)
-                }
-            } catch {
-                DebugLog.log("fast: duration load timed out — \(error.localizedDescription)")
-                throw FastPathError.networkUnreachable
+            // ---- Stage 2: select stream ----
+            let stream = try StreamFetcher.selectFastPathStream(
+                from: formatList.formats,
+                progressiveCount: formatList.progressiveCount)
+            DebugLog.log("fast: selected codec=\(stream.codec) quality=\(stream.quality) size=\(stream.contentLength / 1_000_000)MB")
+
+            // ---- Stage 3: download ----
+            let ext = stream.mimeType.contains("webm") ? "webm" : "mp4"
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("youty-\(videoID)-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let tempURL = tempDir.appendingPathComponent("video.\(ext)")
+            tempFileURL = tempURL
+            DebugLog.log("fast: download → \(tempURL.lastPathComponent)")
+
+            let dlStart = Date()
+            try await Downloader.download(stream: stream, to: tempURL) { p in
+                Task { @MainActor [weak self] in self?.emit(.downloading(p)) }
             }
-            let duration = CMTimeGetSeconds(durationCM)
-            guard duration > 0 else { throw FastPathError.networkUnreachable }
+            let dlMs = Int(Date().timeIntervalSince(dlStart) * 1000)
 
-            // 3. Extract frames via Range-streamed AVFoundation
-            let timestamps = FrameExtractor.frameTimes(duration: duration)
-            DebugLog.log("fast: extracting \(timestamps.count) frames")
+            // ---- Stage 4: load local file into N parallel WKWebViews ----
+            emit(.extracting(0))
+            let loadStart = Date()
+            try await parallelCapture.loadAllLocal(localURL: tempURL)
+            let loadMs = Int(Date().timeIntervalSince(loadStart) * 1000)
+
+            let trueDuration = formatList.lengthSeconds
+            guard trueDuration > 0 else {
+                throw FastPipelineError.videoLoadFailed
+            }
+            let timestamps = FrameExtractor.frameTimes(duration: trueDuration)
+            DebugLog.log("fast: loaded \(parallelCapture.extractors.count) webviews in \(loadMs)ms, trueDuration=\(String(format: "%.1f", trueDuration))s, requesting \(timestamps.count) frames")
+
+            // ---- Stage 5: parallel canvas capture ----
             let exStart = Date()
-            let frames = try await FastFrameExtractor.extract(from: stream.url,
-                                                              timestamps: timestamps) { p in
+            let capturedTuples = try await parallelCapture.captureFrames(timestamps: timestamps) { p in
                 Task { @MainActor [weak self] in self?.emit(.extracting(p)) }
             }
-            DebugLog.log("fast: \(frames.count) frames in \(Int(Date().timeIntervalSince(exStart) * 1000))ms")
+            let exMs = Int(Date().timeIntervalSince(exStart) * 1000)
+            DebugLog.log("fast: captured \(capturedTuples.count)/\(timestamps.count) frames in \(exMs)ms (parallelism=\(parallelCapture.extractors.count))")
+            let captured = capturedTuples
 
-            // Underdelivery check
-            let expected = timestamps.count
-            if Double(frames.count) < FastFrameExtractor.underdeliveryThreshold * Double(expected) {
-                throw FastPathError.underdelivered
+            guard captured.count == timestamps.count else {
+                throw FastPipelineError.incompleteCapture(got: captured.count, expected: timestamps.count)
             }
 
+            // ---- Stage 6: write ----
             emit(.writing)
+            let frames = captured.map { FrameExtractor.Frame(timestamp: $0.0, image: $0.1) }
+            let wrStart = Date()
             try vault.writeFrames(frames, to: folderURL)
-            let ms = Int(Date().timeIntervalSince(started) * 1000)
-            DebugLog.log("fast COMPLETE: \(frames.count) frames in \(ms)ms")
-            return .success(framesWritten: frames.count, durationMs: ms, mode: "fast")
+            let wrMs = Int(Date().timeIntervalSince(wrStart) * 1000)
+
+            let totalMs = Int(Date().timeIntervalSince(started) * 1000)
+            DebugLog.log("=== FAST PATH SUCCESS === videoID=\(videoID) frames=\(frames.count) total=\(totalMs)ms (formats=\(formatsMs)ms download=\(dlMs)ms load=\(loadMs)ms capture=\(exMs)ms write=\(wrMs)ms)")
+
+            return .success(framesWritten: frames.count, durationMs: totalMs, mode: "fast")
 
         } catch {
-            DebugLog.log("fast failed: \(error.localizedDescription) — delegating to canvas")
-            return await canvas.extract(videoID: videoID, folderURL: folderURL, stage: stage)
+            let totalMs = Int(Date().timeIntervalSince(started) * 1000)
+            let reason  = userMessage(for: error)
+            DebugLog.log("=== FAST PATH FAILED === videoID=\(videoID) reason=\"\(reason)\" elapsed=\(totalMs)ms (raw: \(error))")
+            return .failed(reason: reason, canFallback: true)
         }
     }
 
-    // MARK: - Internals
+    // MARK: - Errors
 
-    private enum FastPathError: LocalizedError {
-        case networkUnreachable
-        case underdelivered
+    private enum FastPipelineError: LocalizedError {
+        case videoLoadFailed
+        case incompleteCapture(got: Int, expected: Int)
 
         var errorDescription: String? {
             switch self {
-            case .networkUnreachable: return "Could not reach stream URL."
-            case .underdelivered:     return "Fast path delivered too few frames."
+            case .videoLoadFailed:
+                return "Could not load video in extraction engine."
+            case .incompleteCapture(let g, let e):
+                return "Captured only \(g) of \(e) frames."
             }
         }
     }
 
-    private func fetchFormatsWithFallback(videoID: String) async throws -> [[String: Any]] {
-        var visitorData = try await StreamFetcher.getVisitorData()
+    // MARK: - Format fetch with fast-fail timeouts
+
+    private func fetchFormatsWithFastFail(videoID: String) async throws -> StreamFetcher.FormatList {
+        let visitorData = try await StreamFetcher.getVisitorData()
         do {
             return try await StreamFetcher.fetchFormats(videoID: videoID, visitorData: visitorData)
         } catch StreamFetchError.visitorDataInvalid {
+            DebugLog.log("fast: visitor data invalid → refresh + retry")
             StreamFetcher.invalidateVisitorData()
-            visitorData = try await StreamFetcher.getVisitorData()
+            let fresh = try await StreamFetcher.getVisitorData()
             do {
-                return try await StreamFetcher.fetchFormats(videoID: videoID, visitorData: visitorData)
+                return try await StreamFetcher.fetchFormats(videoID: videoID, visitorData: fresh)
             } catch StreamFetchError.restrictedVideo {
+                DebugLog.log("fast: restricted → trying PlayerFetcher (cookied retry)")
                 return try await playerFetcher.fetchFormats(videoID: videoID)
             }
         } catch StreamFetchError.restrictedVideo {
+            DebugLog.log("fast: restricted → trying PlayerFetcher (cookied retry)")
             return try await playerFetcher.fetchFormats(videoID: videoID)
         }
+    }
+
+    // MARK: - User-facing error messages
+
+    private func userMessage(for error: Error) -> String {
+        if let e = error as? StreamFetchError {
+            switch e {
+            case .noFastPathAvailable:
+                return "Old or unusual upload — no H.264 720p stream available."
+            case .restrictedVideo:
+                return "Age-restricted or unavailable video."
+            case .visitorDataInvalid:
+                return "YouTube session expired."
+            case .networkError(let code):
+                if code == 401 || code == 403 {
+                    return "YouTube client signature broken — fast path needs an update."
+                }
+                if code == 0 {
+                    return "Network timeout reaching YouTube."
+                }
+                return "YouTube returned HTTP \(code)."
+            case .parseError:
+                return "Could not parse YouTube response."
+            }
+        }
+        if let e = error as? DownloadError {
+            switch e {
+            case .firstChunkTimeout:
+                return "Stream URL unreachable — client signature may be broken."
+            case .httpError(let code):
+                if code == 403 { return "Video blocked by YouTube (signature broken or geo-restricted)." }
+                return "Download failed (HTTP \(code))."
+            case .chunkTimeout(let mb):
+                return "Video download stalled at \(mb) MB."
+            case .zeroBytes:
+                return "googlevideo returned an empty response."
+            case .cancelled:
+                return "Cancelled."
+            }
+        }
+        if let e = error as? FastPipelineError { return e.localizedDescription }
+        if error is TimeoutError                { return "Fast path timed out." }
+        return error.localizedDescription
     }
 }

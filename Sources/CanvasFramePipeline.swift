@@ -32,7 +32,7 @@ final class CanvasFramePipeline: FramePipeline {
 
             let duration = await canvasExtractor.getVideoDuration()
             guard duration > 0 else {
-                return .failed("Could not determine video duration.")
+                return .failed(reason: "Could not determine video duration.", canFallback: false)
             }
 
             let timestamps = FrameExtractor.frameTimes(duration: duration)
@@ -44,7 +44,7 @@ final class CanvasFramePipeline: FramePipeline {
             let frames = captured.map { FrameExtractor.Frame(timestamp: $0.0, image: $0.1) }
 
             guard !frames.isEmpty else {
-                return .failed("Canvas extraction produced 0 frames.")
+                return .failed(reason: "Canvas extraction produced 0 frames.", canFallback: false)
             }
 
             stage(.writing)
@@ -56,7 +56,7 @@ final class CanvasFramePipeline: FramePipeline {
 
         } catch {
             DebugLog.log("canvas FAILED: \(error.localizedDescription)")
-            return .failed(error.localizedDescription)
+            return .failed(reason: error.localizedDescription, canFallback: false)
         }
     }
 }

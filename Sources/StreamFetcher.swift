@@ -15,8 +15,8 @@ import Foundation
 struct VideoStream {
     let url: URL
     let quality: String      // "720p", "1080p", "1440p", "2160p"
-    let codec: String        // "H264" only for fast path
-    let contentLength: Int   // total bytes — required for parallel download
+    let codec: String        // "H264" or "VP9"
+    let contentLength: Int   // total bytes — required for sequential download
     let mimeType: String
 }
 
@@ -45,11 +45,13 @@ enum StreamFetcher {
     private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     static let androidVRUA = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
-    // Fast-path quality ladder. 720p is preferred — it's typically 3–4× smaller
-    // than 1080p, downloads in seconds rather than tens of seconds, and is
-    // visually identical for AI frame analysis. We fall up to higher resolutions
-    // only when 720p isn't available for this video.
-    static let fastPathQualities = ["720p", "1080p", "1440p", "2160p"]
+    // Fast-path quality ladder. 720p preferred (typical sweet spot of size +
+    // quality). 1080p+ used only when smaller isn't available. 480p/360p/240p
+    // accepted as a last resort — the canvas extractor upscales to 1280×720
+    // regardless of source resolution, so a lower source is still usable.
+    static let fastPathQualities = [
+        "720p", "1080p", "480p", "360p", "1440p", "2160p", "240p", "144p"
+    ]
 
     // MARK: - Visitor data caching
 
@@ -87,6 +89,7 @@ enum StreamFetcher {
         var req = URLRequest(url: URL(string: "https://www.youtube.com/")!)
         req.setValue(webUA, forHTTPHeaderField: "User-Agent")
         req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+        req.timeoutInterval = 3
         let (data, _) = try await URLSession.shared.data(for: req)
         let html = String(data: data, encoding: .utf8) ?? ""
         if let range = html.range(of: "\"VISITOR_DATA\":\""),
@@ -98,8 +101,17 @@ enum StreamFetcher {
 
     // MARK: - InnerTube format fetch
 
+    struct FormatList {
+        let formats: [[String: Any]]      // progressive first, then adaptive
+        let progressiveCount: Int
+        // True video length in seconds, from videoDetails.lengthSeconds.
+        // The file's MP4 mvhd / WebKit <video>.duration can disagree with
+        // this value for DASH-fragmented streams; this is the ground truth.
+        let lengthSeconds: TimeInterval
+    }
+
     static func fetchFormats(videoID: String,
-                             visitorData: String) async throws -> [[String: Any]] {
+                             visitorData: String) async throws -> FormatList {
         var req = URLRequest(url: URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -131,6 +143,7 @@ enum StreamFetcher {
             "contentCheckOk": true
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 3
 
         let (data, response) = try await URLSession.shared.data(for: req)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -144,46 +157,94 @@ enum StreamFetcher {
         let playability = (json["playabilityStatus"] as? [String: Any])?["status"] as? String ?? ""
         guard playability == "OK" else { throw StreamFetchError.restrictedVideo }
 
-        return (json["streamingData"] as? [String: Any])?["adaptiveFormats"] as? [[String: Any]] ?? []
+        let sd = json["streamingData"] as? [String: Any]
+        let progressive = sd?["formats"] as? [[String: Any]] ?? []
+        let adaptive    = sd?["adaptiveFormats"] as? [[String: Any]] ?? []
+
+        // Ground-truth length from videoDetails. Falls back to longest
+        // approxDurationMs if videoDetails.lengthSeconds is missing.
+        let vd = json["videoDetails"] as? [String: Any]
+        let lengthSecondsStr = vd?["lengthSeconds"] as? String ?? ""
+        let lengthFromDetails = TimeInterval(lengthSecondsStr) ?? 0
+        let lengthFromFormats: TimeInterval = {
+            let maxMs = (progressive + adaptive)
+                .compactMap { $0["approxDurationMs"] as? Int }.max() ?? 0
+            return TimeInterval(maxMs) / 1000.0
+        }()
+        let length = lengthFromDetails > 0 ? lengthFromDetails : lengthFromFormats
+
+        return FormatList(formats: progressive + adaptive,
+                          progressiveCount: progressive.count,
+                          lengthSeconds: length)
     }
 
     // MARK: - Format selection
 
-    // Selects an H.264 720p+ stream, preferring 720p for smallest file size.
-    // Why H.264-only: AVFoundation's hardware AV01 decoder doesn't exist on Intel Macs;
-    //                 H.264 is universally decodable.
-    // Why 720p+ only: at 480p, H.264 DASH keyframes are every ~20s, which limits
-    //                 AVAssetImageGenerator to ~50 frames per video.
-    // Why 720p preferred: ~3–4× smaller than 1080p, downloads in 1/3 the time,
-    //                     visually identical for AI frame analysis.
-    static func selectFastPathStream(from formats: [[String: Any]]) throws -> VideoStream {
+    // Selects an H.264 stream the fast path can decode reliably.
+    //
+    // ANDROID_VR returns two arrays:
+    //   - formats[]: progressive (video+audio in one file, moov at start,
+    //     single contiguous H.264 stream)
+    //   - adaptiveFormats[]: DASH-fragmented (moof+mdat segments). YouTube's
+    //     DASH H.264 streams switch codec configuration at the midpoint, and
+    //     AVFoundation's H.264 decoder — which both AVAssetImageGenerator and
+    //     WebKit's <video> element use under the hood on macOS — silently
+    //     fails on the second half. We've verified this with every random-
+    //     access and linear API in AVFoundation.
+    //
+    // Therefore: ONLY progressive H.264 is viable for the fast path. We pick
+    // the highest-quality progressive available (typically itag 22 at 720p,
+    // or itag 18 at 360p). When progressive isn't available, the fast path
+    // fails and we let the user choose canvas-on-YouTube fallback.
+    //
+    // Why no VP9/AV1: VP9 ships in WebM which AVFoundation cannot open. AV1
+    // hardware decode is M3+ only; software decode is too slow.
+    static func selectFastPathStream(from formats: [[String: Any]],
+                                     progressiveCount: Int) throws -> VideoStream {
+        guard formats.count >= progressiveCount else { throw StreamFetchError.noFastPathAvailable }
+
+        // True video length = longest approxDurationMs across all formats.
+        let maxDurMs = formats.compactMap { $0["approxDurationMs"] as? Int }.max() ?? 0
+
+        // Consider adaptive AND progressive H.264 — both decode correctly when
+        // played by WebKit's <video> element against a local file. We prefer
+        // 720p+ adaptive for actual 720p detail, and only drop to lower
+        // resolutions when nothing else exists.
         let h264 = formats.filter { f in
             guard let mime = f["mimeType"] as? String,
                   let urlStr = f["url"] as? String, !urlStr.isEmpty,
-                  f["qualityLabel"] != nil,
-                  f["contentLength"] != nil else { return false }
-            return mime.contains("video/mp4") && mime.contains("avc1")
+                  f["qualityLabel"] != nil else { return false }
+            if !mime.contains("avc1") { return false }
+            // Reject streams whose duration is < 90 % of the true video
+            // length — those are truncated previews.
+            if maxDurMs > 0,
+               let durMs = f["approxDurationMs"] as? Int,
+               Double(durMs) < 0.9 * Double(maxDurMs) {
+                return false
+            }
+            return true
         }
         guard !h264.isEmpty else { throw StreamFetchError.noFastPathAvailable }
 
-        // Try 720p first; fall up only if 720p isn't available for this video.
         for quality in fastPathQualities {
             if let f = h264.first(where: { ($0["qualityLabel"] as? String) == quality }) {
-                return try makeStream(from: f)
+                return try makeStream(from: f, codec: "H264")
             }
         }
-        throw StreamFetchError.noFastPathAvailable
+        return try makeStream(from: h264[0], codec: "H264")
     }
 
-    private static func makeStream(from f: [String: Any]) throws -> VideoStream {
+    private static func makeStream(from f: [String: Any], codec: String) throws -> VideoStream {
         guard let urlStr = f["url"] as? String, let streamURL = URL(string: urlStr) else {
             throw StreamFetchError.parseError
         }
         let mime   = f["mimeType"] as? String ?? ""
         let quality = f["qualityLabel"] as? String ?? "720p"
+        // contentLength is sometimes absent for progressive formats. Use 0 as
+        // "unknown" — the downloader treats it as "download until server
+        // returns a short chunk".
         let length = Int(f["contentLength"] as? String ?? "0") ?? 0
-        guard length > 0 else { throw StreamFetchError.parseError }
-        return VideoStream(url: streamURL, quality: quality, codec: "H264",
+        return VideoStream(url: streamURL, quality: quality, codec: codec,
                            contentLength: length, mimeType: mime)
     }
 }

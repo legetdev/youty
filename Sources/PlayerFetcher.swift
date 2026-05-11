@@ -33,14 +33,21 @@ final class PlayerFetcher: NSObject, ObservableObject, WKNavigationDelegate, WKS
         webView.load(URLRequest(url: URL(string: "https://www.youtube.com/")!))
     }
 
-    func fetchFormats(videoID: String) async throws -> [[String: Any]] {
+    func fetchFormats(videoID: String) async throws -> StreamFetcher.FormatList {
         let data = try await fetchRawPlayerData(videoID: videoID)
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw StreamFetchError.parseError
         }
         let playability = (json["playabilityStatus"] as? [String: Any])?["status"] as? String ?? ""
         guard playability == "OK" else { throw StreamFetchError.restrictedVideo }
-        return (json["streamingData"] as? [String: Any])?["adaptiveFormats"] as? [[String: Any]] ?? []
+        let sd = json["streamingData"] as? [String: Any]
+        let progressive = sd?["formats"] as? [[String: Any]] ?? []
+        let adaptive    = sd?["adaptiveFormats"] as? [[String: Any]] ?? []
+        let vd = json["videoDetails"] as? [String: Any]
+        let length = TimeInterval(vd?["lengthSeconds"] as? String ?? "") ?? 0
+        return StreamFetcher.FormatList(formats: progressive + adaptive,
+                                        progressiveCount: progressive.count,
+                                        lengthSeconds: length)
     }
 
     private func fetchRawPlayerData(videoID: String) async throws -> Data {
@@ -70,7 +77,7 @@ final class PlayerFetcher: NSObject, ObservableObject, WKNavigationDelegate, WKS
                     self.resultContinuation = nil
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
                 guard let self, self.resultContinuation != nil else { return }
                 self.resultContinuation?.resume(throwing: StreamFetchError.networkError(0))
                 self.resultContinuation = nil
