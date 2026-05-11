@@ -20,22 +20,9 @@ final class VideoExtractor: NSObject, ObservableObject, WKNavigationDelegate, WK
     private var seekContinuation: CheckedContinuation<Void, Never>?
     private var captureContinuation: CheckedContinuation<NSImage?, Never>?
     private var attachedWindow: NSWindow?
-    private var streamProxy: StreamProxyHandler?
 
     override init() {
         super.init()
-        rebuildWebView()
-    }
-
-    func attach(to window: NSWindow) {
-        attachedWindow = window
-        guard webView.superview == nil, let cv = window.contentView else { return }
-        cv.addSubview(webView)
-    }
-
-    private func rebuildWebView(proxy: StreamProxyHandler? = nil) {
-        let oldFrame = webView?.frame ?? CGRect(x: -2000, y: 0, width: 1280, height: 800)
-        webView?.removeFromSuperview()
         let config = WKWebViewConfiguration()
         config.mediaTypesRequiringUserActionForPlayback = []
         let controller = WKUserContentController()
@@ -43,15 +30,15 @@ final class VideoExtractor: NSObject, ObservableObject, WKNavigationDelegate, WK
         controller.add(self, name: "youtySeek")
         controller.add(self, name: "youtyFrame")
         config.userContentController = controller
-        if let proxy {
-            config.setURLSchemeHandler(proxy, forURLScheme: "youty-stream")
-            streamProxy = proxy
-        }
-        webView = WKWebView(frame: oldFrame, configuration: config)
+        webView = WKWebView(frame: CGRect(x: -2000, y: 0, width: 1280, height: 800),
+                            configuration: config)
         webView.navigationDelegate = self
-        if let cv = attachedWindow?.contentView {
-            cv.addSubview(webView)
-        }
+    }
+
+    func attach(to window: NSWindow) {
+        attachedWindow = window
+        guard webView.superview == nil, let cv = window.contentView else { return }
+        cv.addSubview(webView)
     }
 
     // MARK: - Public API
@@ -73,47 +60,11 @@ final class VideoExtractor: NSObject, ObservableObject, WKNavigationDelegate, WK
     // No local download required — WebKit's <video> element issues HTTP Range
     // requests internally as we seek, fetching only the bytes needed for
     // each requested frame.
-    // Loads a remote video URL via a WKURLSchemeHandler proxy. WebKit's <video>
-    // element sees a same-origin "youty-stream://video" URL; the proxy fetches
-    // bytes from googlevideo with the proper User-Agent and passes them
-    // through. WebKit issues HTTP Range requests as it seeks, so only the
-    // bytes needed for each requested frame are fetched. No file is written
-    // to disk at any point.
-    //
-    // Same-origin via the custom scheme avoids canvas tainting that would
-    // otherwise block frame snapshot capture for cross-origin <video> sources.
-    func loadProxiedRemote(streamURL: URL, userAgent: String) async throws {
-        let proxy = StreamProxyHandler(upstreamURL: streamURL, userAgent: userAgent)
-        rebuildWebView(proxy: proxy)
-        webView.customUserAgent = userAgent
-
-        let html = """
-        <!doctype html><html><body style="margin:0;background:#000">
-        <video id="v" autoplay muted playsinline preload="auto"
-               width="1280" height="720"
-               src="youty-stream://video"></video>
-        </body></html>
-        """
-        let dataString = "data:text/html;base64,\(Data(html.utf8).base64EncodedString())"
-        guard let pageURL = URL(string: dataString) else { throw VideoError.networkError }
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            self.loadContinuation = cont
-            webView.load(URLRequest(url: pageURL))
-            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
-                guard let self, self.loadContinuation != nil else { return }
-                self.loadContinuation?.resume(throwing: VideoError.streamTimeout)
-                self.loadContinuation = nil
-            }
-        }
-    }
-
-    // Loads a remote video URL directly via a hidden <video> element in WKWebView.
-    // No file is downloaded to disk — WebKit's media engine issues HTTP Range
-    // requests internally as we seek, fetching only the bytes needed for each
-    // requested frame.
-    //
-    // crossorigin attribute is NOT set — forcing CORS triggers an OPTIONS
-    // pre-flight that googlevideo rejects, causing a load failure.
+    // Loads a remote video URL directly via a hidden <video> element. Used
+    // by the parallel-canvas fallback when FFmpeg can't reach a video (e.g.
+    // PoToken-gated content). WebKit's media engine handles seeking via HTTP
+    // Range. takeSnapshot is used for capture to avoid canvas-tainting on
+    // cross-origin sources.
     func loadRemoteVideo(streamURL: URL, userAgent: String) async throws {
         webView.customUserAgent = userAgent
         let safeURL = streamURL.absoluteString

@@ -12,7 +12,6 @@ struct ContentView: View {
     @StateObject private var loader = TranscriptLoader()
     @StateObject private var vault = VaultManager()
     @StateObject private var videoExtractor = VideoExtractor()
-    @StateObject private var parallelCapture = ParallelCapture(count: 4)
     @StateObject private var playerFetcher = PlayerFetcher()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
@@ -62,7 +61,6 @@ struct ContentView: View {
                     window.backgroundColor = .clear
                     loader.attachToWindow(window)
                     videoExtractor.attach(to: window)
-                    parallelCapture.attach(to: window)
                     playerFetcher.attach(to: window)
                 }
             }
@@ -389,7 +387,6 @@ struct ContentView: View {
 
         let pipeline: any FramePipeline = FastFramePipeline(
             playerFetcher: playerFetcher,
-            parallelCapture: parallelCapture,
             vault: vault
         )
         let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL) { stage in

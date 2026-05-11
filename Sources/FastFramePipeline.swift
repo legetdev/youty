@@ -1,43 +1,33 @@
 import Foundation
 import AppKit
 
-// Fast frame extraction pipeline.
+// Fast frame extraction pipeline (Phase D — FFmpeg + custom AVIO).
 //
-// Stages:
-//   1. ANDROID_VR InnerTube → list of formats (~250ms, 3s timeout)
-//   2. Pick H.264 720p+ stream (<1ms)
-//   3. Sequential 8MB Range download of full MP4 to temp file
-//      (~1–10s, bandwidth-bound; first chunk has 5s timeout for instant fail)
-//   4. Load the local file in a hidden WKWebView (~500ms)
-//   5. Canvas-capture 100 frames with local seeks (~3–10s)
-//   6. Write JPEGs to vault (~300ms)
-//   7. Delete temp file
+// 1. ANDROID_VR InnerTube → stream URL  (~300 ms, 3 s timeout)
+// 2. Pick H.264 / VP9 / AV1 at 1080p (or highest available)  (<1 ms)
+// 3. FFmpeg byte-range fetches + decodes via libavformat / libavcodec
+//    through a URLSession-backed AVIOContext (HTTP Range via URLSession's
+//    HTTP/2 stack — fast on googlevideo, no file written to disk).
+//    For dense targets (≤ 5 s apart on average): one linear pass.
+//    For sparse targets: per-target seek + decode-the-keyframe.
+// 4. Write JPEGs to vault (timestamp-in-ms filenames)
 //
-// Why WKWebView canvas on a local file instead of AVFoundation:
-//   We verified that AVAssetImageGenerator, AVAssetReader, and
-//   AVAssetExportSession all fail past the midpoint on YouTube's DASH-
-//   fragmented H.264 streams (silent placeholder frames). WebKit's H.264
-//   decoder handles these streams correctly — it's the same path YouTube.com
-//   itself uses to play the video. Pointing it at a local file removes the
-//   SABR network-seek bottleneck that makes the YouTube-canvas pipeline slow.
-//
-// On ANY failure: no fallback. Returns .failed(canFallback: true) so the
-// caller can offer the canvas-on-YouTube fallback button to the user.
+// On PoToken / age-restricted detection: returns .failed(canFallback: true)
+// so ContentView routes to canvas-on-YouTube (existing ParallelCapture
+// pointed at the YouTube watch URL). The slow canvas path is the safety
+// net for the ~1 % of videos FFmpeg-via-ANDROID_VR can't reach.
 
 @MainActor
 final class FastFramePipeline: FramePipeline {
 
     private let playerFetcher: PlayerFetcher
-    private let parallelCapture: ParallelCapture
     private let vault: VaultManager
 
     private var currentStage: ((FrameStage) -> Void)?
 
     init(playerFetcher: PlayerFetcher,
-         parallelCapture: ParallelCapture,
          vault: VaultManager) {
         self.playerFetcher = playerFetcher
-        self.parallelCapture = parallelCapture
         self.vault = vault
     }
 
@@ -51,16 +41,7 @@ final class FastFramePipeline: FramePipeline {
         defer { currentStage = nil }
 
         let started = Date()
-        var tempFileURL: URL?
-        defer {
-            if let url = tempFileURL {
-                try? FileManager.default.removeItem(at: url)
-                let html = url.deletingLastPathComponent().appendingPathComponent("player.html")
-                try? FileManager.default.removeItem(at: html)
-            }
-        }
-
-        DebugLog.log("=== FAST PATH START === videoID=\(videoID)")
+        DebugLog.log("=== FAST PATH START (ffmpeg) === videoID=\(videoID)")
 
         do {
             emit(.loading)
@@ -69,7 +50,7 @@ final class FastFramePipeline: FramePipeline {
             let formatsStart = Date()
             let formatList = try await fetchFormatsWithFastFail(videoID: videoID)
             let formatsMs = Int(Date().timeIntervalSince(formatsStart) * 1000)
-            DebugLog.log("fast: formats fetched in \(formatsMs)ms (n=\(formatList.formats.count), progressive=\(formatList.progressiveCount))")
+            DebugLog.log("fast: formats fetched in \(formatsMs)ms (n=\(formatList.formats.count), progressive=\(formatList.progressiveCount), length=\(formatList.lengthSeconds)s)")
 
             // ---- Stage 2: select stream ----
             let stream = try StreamFetcher.selectFastPathStream(
@@ -77,56 +58,41 @@ final class FastFramePipeline: FramePipeline {
                 progressiveCount: formatList.progressiveCount)
             DebugLog.log("fast: selected codec=\(stream.codec) quality=\(stream.quality) size=\(stream.contentLength / 1_000_000)MB")
 
-            // ---- Stage 3: download ----
-            let ext = stream.mimeType.contains("webm") ? "webm" : "mp4"
-            let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("youty-\(videoID)-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            let tempURL = tempDir.appendingPathComponent("video.\(ext)")
-            tempFileURL = tempURL
-            DebugLog.log("fast: download → \(tempURL.lastPathComponent)")
-
-            let dlStart = Date()
-            try await Downloader.download(stream: stream, to: tempURL) { p in
-                Task { @MainActor [weak self] in self?.emit(.downloading(p)) }
-            }
-            let dlMs = Int(Date().timeIntervalSince(dlStart) * 1000)
-
-            // ---- Stage 4: load local file into N parallel WKWebViews ----
-            emit(.extracting(0))
-            let loadStart = Date()
-            try await parallelCapture.loadAllLocal(localURL: tempURL)
-            let loadMs = Int(Date().timeIntervalSince(loadStart) * 1000)
-
+            // ---- Stage 3: extract frames via FFmpeg ----
             let trueDuration = formatList.lengthSeconds
-            guard trueDuration > 0 else {
-                throw FastPipelineError.videoLoadFailed
-            }
+            guard trueDuration > 0 else { throw FastPipelineError.noDuration }
             let timestamps = FrameExtractor.frameTimes(duration: trueDuration)
-            DebugLog.log("fast: loaded \(parallelCapture.extractors.count) webviews in \(loadMs)ms, trueDuration=\(String(format: "%.1f", trueDuration))s, requesting \(timestamps.count) frames")
+            DebugLog.log("fast: requesting \(timestamps.count) frames over \(String(format: "%.1f", trueDuration))s")
 
-            // ---- Stage 5: parallel canvas capture ----
+            emit(.extracting(0))
             let exStart = Date()
-            let capturedTuples = try await parallelCapture.captureFrames(timestamps: timestamps) { p in
-                Task { @MainActor [weak self] in self?.emit(.extracting(p)) }
-            }
+            let frames = try await FFmpegFrameExtractor.extract(
+                url: stream.url,
+                userAgent: StreamFetcher.androidVRUA,
+                timestamps: timestamps,
+                maxLongEdge: maxEdgeFor(quality: stream.quality),
+                progress: { p in
+                    Task { @MainActor [weak self] in self?.emit(.extracting(p)) }
+                }
+            )
             let exMs = Int(Date().timeIntervalSince(exStart) * 1000)
-            DebugLog.log("fast: captured \(capturedTuples.count)/\(timestamps.count) frames in \(exMs)ms (parallelism=\(parallelCapture.extractors.count))")
-            let captured = capturedTuples
+            DebugLog.log("fast: ffmpeg extracted \(frames.count)/\(timestamps.count) frames in \(exMs)ms")
 
-            guard captured.count == timestamps.count else {
-                throw FastPipelineError.incompleteCapture(got: captured.count, expected: timestamps.count)
+            guard frames.count == timestamps.count else {
+                throw FastPipelineError.incompleteCapture(got: frames.count, expected: timestamps.count)
             }
 
-            // ---- Stage 6: write ----
+            // ---- Stage 4: write ----
             emit(.writing)
-            let frames = captured.map { FrameExtractor.Frame(timestamp: $0.0, image: $0.1) }
+            let extractorFrames = frames.map {
+                FrameExtractor.Frame(timestamp: $0.timestamp, image: $0.image)
+            }
             let wrStart = Date()
-            try vault.writeFrames(frames, to: folderURL)
+            try vault.writeFrames(extractorFrames, to: folderURL)
             let wrMs = Int(Date().timeIntervalSince(wrStart) * 1000)
 
             let totalMs = Int(Date().timeIntervalSince(started) * 1000)
-            DebugLog.log("=== FAST PATH SUCCESS === videoID=\(videoID) frames=\(frames.count) total=\(totalMs)ms (formats=\(formatsMs)ms download=\(dlMs)ms load=\(loadMs)ms capture=\(exMs)ms write=\(wrMs)ms)")
+            DebugLog.log("=== FAST PATH SUCCESS === videoID=\(videoID) frames=\(frames.count) total=\(totalMs)ms (formats=\(formatsMs)ms ffmpeg=\(exMs)ms write=\(wrMs)ms)")
 
             return .success(framesWritten: frames.count, durationMs: totalMs, mode: "fast")
 
@@ -138,16 +104,35 @@ final class FastFramePipeline: FramePipeline {
         }
     }
 
+    // MARK: - Resolution policy
+
+    // maxLongEdge for FFmpeg's BGRA output. We cap at the chosen quality's
+    // long edge to avoid wasted memory / pixels, but always save at the
+    // chosen source's native resolution — no upscaling.
+    private func maxEdgeFor(quality: String) -> Int32 {
+        switch quality {
+        case "2160p": return 3840
+        case "1440p": return 2560
+        case "1080p": return 1920
+        case "720p":  return 1280
+        case "480p":  return 854
+        case "360p":  return 640
+        case "240p":  return 426
+        case "144p":  return 256
+        default:      return 1920
+        }
+    }
+
     // MARK: - Errors
 
     private enum FastPipelineError: LocalizedError {
-        case videoLoadFailed
+        case noDuration
         case incompleteCapture(got: Int, expected: Int)
 
         var errorDescription: String? {
             switch self {
-            case .videoLoadFailed:
-                return "Could not load video in extraction engine."
+            case .noDuration:
+                return "Video duration unknown — cannot compute frame timestamps."
             case .incompleteCapture(let g, let e):
                 return "Captured only \(g) of \(e) frames."
             }
@@ -182,9 +167,9 @@ final class FastFramePipeline: FramePipeline {
         if let e = error as? StreamFetchError {
             switch e {
             case .noFastPathAvailable:
-                return "Old or unusual upload — no H.264 720p stream available."
+                return "No supported codec found for this video."
             case .restrictedVideo:
-                return "Age-restricted or unavailable video."
+                return "Age-restricted, members-only, or PoToken-gated video."
             case .visitorDataInvalid:
                 return "YouTube session expired."
             case .networkError(let code):
@@ -199,23 +184,9 @@ final class FastFramePipeline: FramePipeline {
                 return "Could not parse YouTube response."
             }
         }
-        if let e = error as? DownloadError {
-            switch e {
-            case .firstChunkTimeout:
-                return "Stream URL unreachable — client signature may be broken."
-            case .httpError(let code):
-                if code == 403 { return "Video blocked by YouTube (signature broken or geo-restricted)." }
-                return "Download failed (HTTP \(code))."
-            case .chunkTimeout(let mb):
-                return "Video download stalled at \(mb) MB."
-            case .zeroBytes:
-                return "googlevideo returned an empty response."
-            case .cancelled:
-                return "Cancelled."
-            }
-        }
+        if let e = error as? FFmpegError { return e.localizedDescription }
         if let e = error as? FastPipelineError { return e.localizedDescription }
-        if error is TimeoutError                { return "Fast path timed out." }
+        if error is TimeoutError { return "Fast path timed out." }
         return error.localizedDescription
     }
 }

@@ -1,7 +1,11 @@
 import AppKit
 
-// Frame model and timestamp computation used by the WKWebView canvas pipeline.
-// AVFoundation-based extraction is archived in legacy_fast.md.
+// Frame model and timestamp computation.
+//
+// Density (per spec, 2025-05): cap 100 frames AND 2 fps.
+//   count = min(countCap, max(1, floor(duration * fpsCap)))
+//   interval = duration / count (evenly distributed across the full video)
+// Future: countCap and fpsCap will be exposed as UI sliders.
 
 struct FrameExtractor {
 
@@ -10,11 +14,16 @@ struct FrameExtractor {
         let image: NSImage
     }
 
-    // ≤100s: 1 frame per second (up to 100 frames)
-    // >100s: exactly 100 frames evenly distributed
-    static func frameTimes(duration: TimeInterval) -> [TimeInterval] {
-        let count = duration <= 100 ? max(1, Int(duration)) : 100
-        let interval = duration <= 100 ? 1.0 : duration / 100.0
+    static let defaultCountCap: Int = 100
+    static let defaultFpsCap: Double = 2.0
+
+    static func frameTimes(duration: TimeInterval,
+                            countCap: Int = defaultCountCap,
+                            fpsCap: Double = defaultFpsCap) -> [TimeInterval] {
+        guard duration > 0 else { return [] }
+        let raw = Int(floor(duration * fpsCap))
+        let count = min(countCap, max(1, raw))
+        let interval = duration / Double(count)
         return (0..<count).map { Double($0) * interval }
     }
 }

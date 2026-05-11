@@ -80,9 +80,13 @@ final class VaultManager: NSObject, ObservableObject {
         guard vault.startAccessingSecurityScopedResource() else { throw VaultError.accessDenied }
         defer { vault.stopAccessingSecurityScopedResource() }
 
+        // Filenames are the timestamp in milliseconds, zero-padded to 8 digits
+        // (covers ≤ 27 hours). AI consumers resolve [M:SS] timestamps by
+        // parsing to ms and matching the numerically closest stem.
         for frame in frames {
-            let name = String(format: "%04d.jpg", Int(frame.timestamp))
-            if let data = frame.image.jpegData(compressionQuality: 0.82) {
+            let ms = Int(frame.timestamp * 1000)
+            let name = String(format: "%08d.jpg", ms)
+            if let data = frame.image.jpegData(compressionQuality: 0.85) {
                 try? data.write(to: folderURL.appendingPathComponent(name))
             }
         }

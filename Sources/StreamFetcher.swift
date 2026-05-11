@@ -45,12 +45,13 @@ enum StreamFetcher {
     private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     static let androidVRUA = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
-    // Fast-path quality ladder. 720p preferred (typical sweet spot of size +
-    // quality). 1080p+ used only when smaller isn't available. 480p/360p/240p
-    // accepted as a last resort — the canvas extractor upscales to 1280×720
-    // regardless of source resolution, so a lower source is still usable.
+    // Resolution priority for the FFmpeg fast path. 1080p preferred per spec
+    // (real source-resolution frames). 1440p/2160p considered next (they're
+    // strict supersets of 1080p). Below 1080p we fall to 720p, then lower
+    // tiers only when nothing higher is available. We never upscale — a 360p
+    // source is saved at 360p.
     static let fastPathQualities = [
-        "720p", "1080p", "480p", "360p", "1440p", "2160p", "240p", "144p"
+        "1080p", "1440p", "2160p", "720p", "480p", "360p", "240p", "144p"
     ]
 
     // MARK: - Visitor data caching
@@ -206,17 +207,19 @@ enum StreamFetcher {
         // True video length = longest approxDurationMs across all formats.
         let maxDurMs = formats.compactMap { $0["approxDurationMs"] as? Int }.max() ?? 0
 
-        // Consider adaptive AND progressive H.264 — both decode correctly when
-        // played by WebKit's <video> element against a local file. We prefer
-        // 720p+ adaptive for actual 720p detail, and only drop to lower
-        // resolutions when nothing else exists.
-        let h264 = formats.filter { f in
+        // FFmpeg handles every codec YouTube ships — H.264, VP9, AV1 — so we
+        // don't filter by codec, only by resolution. The selector groups by
+        // qualityLabel and within each group prefers H.264 (hardware-decoded
+        // everywhere) over VP9 (Apple-Silicon HW only) over AV1 (M3+ HW
+        // only, software elsewhere).
+        let codecPriority: [(String, String)] = [
+            ("H264", "avc1"), ("VP9", "vp9"), ("AV1", "av01"),
+        ]
+        let candidates = formats.filter { f in
             guard let mime = f["mimeType"] as? String,
                   let urlStr = f["url"] as? String, !urlStr.isEmpty,
                   f["qualityLabel"] != nil else { return false }
-            if !mime.contains("avc1") { return false }
-            // Reject streams whose duration is < 90 % of the true video
-            // length — those are truncated previews.
+            if !codecPriority.contains(where: { mime.contains($0.1) }) { return false }
             if maxDurMs > 0,
                let durMs = f["approxDurationMs"] as? Int,
                Double(durMs) < 0.9 * Double(maxDurMs) {
@@ -224,14 +227,19 @@ enum StreamFetcher {
             }
             return true
         }
-        guard !h264.isEmpty else { throw StreamFetchError.noFastPathAvailable }
+        guard !candidates.isEmpty else { throw StreamFetchError.noFastPathAvailable }
 
         for quality in fastPathQualities {
-            if let f = h264.first(where: { ($0["qualityLabel"] as? String) == quality }) {
-                return try makeStream(from: f, codec: "H264")
+            for (codecName, mimeMarker) in codecPriority {
+                if let f = candidates.first(where: {
+                    ($0["qualityLabel"] as? String) == quality
+                    && ($0["mimeType"] as? String)?.contains(mimeMarker) == true
+                }) {
+                    return try makeStream(from: f, codec: codecName)
+                }
             }
         }
-        return try makeStream(from: h264[0], codec: "H264")
+        return try makeStream(from: candidates[0], codec: "H264")
     }
 
     private static func makeStream(from f: [String: Any], codec: String) throws -> VideoStream {

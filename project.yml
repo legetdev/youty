@@ -25,6 +25,10 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Sources/youty.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/FFmpegBridging.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/lib
+        OTHER_LDFLAGS: "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox"
     entitlements:
       path: Sources/youty.entitlements
       properties:
