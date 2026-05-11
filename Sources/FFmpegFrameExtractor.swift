@@ -3,20 +3,8 @@ import AppKit
 import CoreGraphics
 import VideoToolbox
 import CoreVideo
+import CoreImage
 
-// FFmpeg's get_format callback for VideoToolbox HW decode. Picks
-// AV_PIX_FMT_VIDEOTOOLBOX if offered so frames come back as CVPixelBuffers.
-private let ffmpeg_get_format_videotoolbox:
-    @convention(c) (UnsafeMutablePointer<AVCodecContext>?,
-                    UnsafePointer<AVPixelFormat>?) -> AVPixelFormat = { _, fmts in
-    guard let fmts else { return AV_PIX_FMT_NONE }
-    var i = 0
-    while fmts[i] != AV_PIX_FMT_NONE {
-        if fmts[i] == AV_PIX_FMT_VIDEOTOOLBOX { return AV_PIX_FMT_VIDEOTOOLBOX }
-        i += 1
-    }
-    return fmts[0]
-}
 
 // Frame extraction via FFmpeg's libavformat + libavcodec, statically linked.
 //
@@ -196,6 +184,25 @@ enum FFmpegFrameExtractor {
         codecCtx.pointee.thread_count = 0   // auto
         codecCtx.pointee.thread_type = Int32(FF_THREAD_FRAME | FF_THREAD_SLICE)
 
+        // ---- F.2 hardware decode is disabled in this version ----
+        //
+        // Both attempted activation paths regressed end-to-end performance:
+        //
+        //   • avcodec_get_hw_config + av_hwdevice_ctx_create + get_format
+        //     callback returns AV_PIX_FMT_VIDEOTOOLBOX frames as expected
+        //     (verified — diagnostic log saw "first frame is CVPixelBuffer ✓").
+        //   • But every CVPixelBuffer → CGImage conversion (via
+        //     VTCreateCGImageFromCVPixelBuffer or CIContext.createCGImage)
+        //     synchronously pulls pixels GPU → CPU at ~250 ms per 1080p frame.
+        //     That cost is paid sequentially inside the per-target seek loop,
+        //     dwarfing the ~30 ms of software yuv420p → BGRA it was meant to
+        //     replace.
+        //
+        // A correct F.2 implementation needs the GPU-pull to happen in
+        // parallel with FFmpeg's next decode step, OR a deferred-conversion
+        // pipeline that batches GPU→CPU at JPEG-encode time. Both are non-
+        // trivial. The software path is the production default until F.2
+        // ships properly.
         let openCodec = avcodec_open2(codecCtx, codec, nil)
         guard openCodec == 0 else { throw FFmpegError.codecOpenFailed(openCodec) }
 
@@ -374,28 +381,14 @@ enum FFmpegFrameExtractor {
         return out
     }
 
-    // Renders an AVFrame to NSImage. Two paths:
-    //   - VideoToolbox hardware path: avFrame holds a CVPixelBuffer in
-    //     data[3]; we hand it directly to VTCreateCGImageFromCVPixelBuffer.
-    //     No CPU pixel touch.
-    //   - Software path: yuv420p → BGRA via sws_scale, then CGImage from
-    //     the buffer.
+    // Software-only render: yuv420p → BGRA via sws_scale, then CGImage.
+    // The HW path (CVPixelBuffer → CGImage via CIContext / VTCreateCGImage)
+    // is implemented and verified but disabled — see comment in doExtract.
     private static func renderBGRAImage(
         from avFrame: UnsafeMutablePointer<AVFrame>,
         sws: OpaquePointer,
         outW: Int32, outH: Int32
     ) -> NSImage? {
-
-        if avFrame.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue,
-           let opaque = avFrame.pointee.data.3 {
-            // data[3] holds an unretained CVPixelBuffer pointer.
-            let pixelBuffer = Unmanaged<CVPixelBuffer>.fromOpaque(UnsafeRawPointer(opaque))
-                .takeUnretainedValue()
-            var cgOut: CGImage?
-            VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgOut)
-            guard let cg = cgOut else { return nil }
-            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-        }
         return renderViaSws(from: avFrame, sws: sws, outW: outW, outH: outH)
     }
 
