@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8C64BEE7581B939A220E62 /* SidxParser.swift */; };
 		1D3B34BB5AC912CB62DDA000 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7071A2233262A50751C78C /* DebugLog.swift */; };
 		20693B65CBBC3B960A95A6C6 /* FFmpegFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD24184554CE6FFF9B2F5E0D /* FFmpegFrameExtractor.swift */; };
 		21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */; };
@@ -42,6 +43,7 @@
 		515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		57CDA26D3414E63EDB216766 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegURLSessionIO.swift; sourceTree = "<group>"; };
+		8C8C64BEE7581B939A220E62 /* SidxParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidxParser.swift; sourceTree = "<group>"; };
 		BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePipeline.swift; sourceTree = "<group>"; };
 		CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasFramePipeline.swift; sourceTree = "<group>"; };
 		D07EACD9853587F324A75FFB /* VideoExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExtractor.swift; sourceTree = "<group>"; };
@@ -85,6 +87,7 @@
 				FB6708940A3424B502A6232E /* MetadataEnricher.swift */,
 				28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */,
 				FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */,
+				8C8C64BEE7581B939A220E62 /* SidxParser.swift */,
 				E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */,
 				2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */,
 				3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */,
@@ -188,6 +191,7 @@
 				348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */,
 				D235DE78DBDF7AED552E8AFB /* ParallelCapture.swift in Sources */,
 				9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */,
+				1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */,
 				9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */,
 				21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */,
 				C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */,
