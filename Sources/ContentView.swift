@@ -98,35 +98,13 @@ struct ContentView: View {
     // MARK: - Header
 
     private var header: some View {
-        ZStack {
-            // Logo stays centered exactly where it was; the gear floats in
-            // the top-right corner of the same row so the layout doesn't
-            // shift.
-            Image("HeaderLogo")
-                .resizable()
-                .interpolation(.high)
-                .antialiased(true)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 96, height: 96)
-                .accessibilityLabel("youty")
-            HStack {
-                Spacer()
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(8)
-                        .background(.regularMaterial, in: Circle())
-                        .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .help("Settings")
-            }
-            .padding(.trailing, 16)
-        }
+        Image("HeaderLogo")
+            .resizable()
+            .interpolation(.high)
+            .antialiased(true)
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 96, height: 96)
+            .accessibilityLabel("youty")
     }
 
     // MARK: - Input
@@ -134,34 +112,63 @@ struct ContentView: View {
     private var inputSection: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                TextField("Paste a YouTube, TikTok or Instagram URL…", text: $urlInput)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .focused($inputFocused)
-                    .onSubmit { if isValidURL { Task { await fetch() } } }
+                HStack(spacing: 10) {
+                    TextField("Paste a YouTube, TikTok or Instagram URL…", text: $urlInput)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14))
+                        .focused($inputFocused)
+                        .onSubmit { if isValidURL { Task { await fetch() } } }
 
-                if !urlInput.isEmpty {
-                    Button {
-                        urlInput = ""
-                        state = .idle
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
+                    if !urlInput.isEmpty {
+                        Button {
+                            urlInput = ""
+                            state = .idle
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.opacity)
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity)
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                )
+
+                settingsPill
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-            )
 
             fetchButton
         }
+    }
+
+    /// Small liquid-glass pill that opens the Settings sheet. Uses the same
+    /// vertical-padding scheme as the URL bar so both align perfectly in the
+    /// HStack (the URL bar's intrinsic height drives the row height; the
+    /// pill matches by sharing identical padding + line-height).
+    private var settingsPill: some View {
+        Button {
+            showSettings = true
+        } label: {
+            Image(systemName: "gearshape.fill")
+                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+                .frame(width: 18, height: 18)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Settings")
     }
 
     private var fetchButton: some View {

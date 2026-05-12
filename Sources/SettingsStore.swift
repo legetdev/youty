@@ -24,14 +24,14 @@ final class SettingsStore: ObservableObject {
 
     /// Maximum sampling rate in frames per second. Stored as Double so it
     /// can be passed straight into FrameExtractor.frameTimes without casts.
-    @AppStorage("fpsCap") var fpsCapStored: Double = 2.0
+    @AppStorage("fpsCap") var fpsCapStored: Double = 1.0
 
     /// Wrapper that clamps the stored value to the four supported options
     /// in case UserDefaults got hand-edited or migrated from another version.
     var fpsCap: Double {
         get {
             let allowed = Self.fpsOptions.map(\.value)
-            return allowed.contains(fpsCapStored) ? fpsCapStored : 2.0
+            return allowed.contains(fpsCapStored) ? fpsCapStored : 1.0
         }
         set { fpsCapStored = newValue }
     }
