@@ -14,12 +14,14 @@ struct ContentView: View {
     @StateObject private var videoExtractor = VideoExtractor()
     @StateObject private var playerFetcher = PlayerFetcher()
     @StateObject private var shortForm: ShortFormPipelineHolder = ShortFormPipelineHolder()
+    @StateObject private var settings = SettingsStore()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var lastResult: FetchResult?
     @State private var shortFormPreview: ShortFormPreview?
     @State private var showInstagramLogin = false
     @State private var pendingInstagramURL: URL?
+    @State private var showSettings = false
     @State private var vaultSaved = false
     @State private var vaultError: String?
     @State private var frameProgress: Double = 0
@@ -72,7 +74,7 @@ struct ContentView: View {
                     loader.attachToWindow(window)
                     videoExtractor.attach(to: window)
                     playerFetcher.attach(to: window)
-                    shortForm.pipeline(vault: vault).attach(to: window)
+                    shortForm.pipeline(vault: vault, settings: settings).attach(to: window)
                 }
             }
         }
@@ -86,18 +88,45 @@ struct ContentView: View {
                 pendingInstagramURL = nil
             }
         }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(settings: settings,
+                          vault: vault,
+                          onDismiss: { showSettings = false })
+        }
     }
 
     // MARK: - Header
 
     private var header: some View {
-        Image("HeaderLogo")
-            .resizable()
-            .interpolation(.high)
-            .antialiased(true)
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 96, height: 96)
-            .accessibilityLabel("youty")
+        ZStack {
+            // Logo stays centered exactly where it was; the gear floats in
+            // the top-right corner of the same row so the layout doesn't
+            // shift.
+            Image("HeaderLogo")
+                .resizable()
+                .interpolation(.high)
+                .antialiased(true)
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 96, height: 96)
+                .accessibilityLabel("youty")
+            HStack {
+                Spacer()
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                        .background(.regularMaterial, in: Circle())
+                        .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("Settings")
+            }
+            .padding(.trailing, 16)
+        }
     }
 
     // MARK: - Input
@@ -377,7 +406,7 @@ struct ContentView: View {
                 return
             }
             do {
-                let pipeline = shortForm.pipeline(vault: vault)
+                let pipeline = shortForm.pipeline(vault: vault, settings: settings)
                 let preview = try await pipeline.preview(url: url)
                 shortFormPreview = preview
                 withAnimation(.spring(duration: 0.4)) {
@@ -413,7 +442,7 @@ struct ContentView: View {
                 withAnimation { self.vaultSaved = false }
             }
             Task { @MainActor in
-                let pipeline = shortForm.pipeline(vault: vault)
+                let pipeline = shortForm.pipeline(vault: vault, settings: settings)
                 do {
                     let stageHandler: @Sendable (FrameStage) -> Void = { stage in
                         Task { @MainActor in self.applyStage(stage) }
@@ -469,7 +498,8 @@ struct ContentView: View {
 
         let pipeline: any FramePipeline = FastFramePipeline(
             playerFetcher: playerFetcher,
-            vault: vault
+            vault: vault,
+            settings: settings
         )
         let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL) { stage in
             applyStage(stage)

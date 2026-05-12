@@ -22,13 +22,16 @@ final class FastFramePipeline: FramePipeline {
 
     private let playerFetcher: PlayerFetcher
     private let vault: VaultManager
+    private let settings: SettingsStore
 
     private var currentStage: ((FrameStage) -> Void)?
 
     init(playerFetcher: PlayerFetcher,
-         vault: VaultManager) {
+         vault: VaultManager,
+         settings: SettingsStore) {
         self.playerFetcher = playerFetcher
         self.vault = vault
+        self.settings = settings
     }
 
     private func emit(_ s: FrameStage) { currentStage?(s) }
@@ -61,8 +64,12 @@ final class FastFramePipeline: FramePipeline {
             // ---- Stage 3: extract frames via FFmpeg ----
             let trueDuration = formatList.lengthSeconds
             guard trueDuration > 0 else { throw FastPipelineError.noDuration }
-            let timestamps = FrameExtractor.frameTimes(duration: trueDuration)
-            DebugLog.log("fast: requesting \(timestamps.count) frames over \(String(format: "%.1f", trueDuration))s")
+            let timestamps = FrameExtractor.frameTimes(
+                duration: trueDuration,
+                countCap: settings.frameCountCap,
+                fpsCap: settings.fpsCap
+            )
+            DebugLog.log("fast: requesting \(timestamps.count) frames over \(String(format: "%.1f", trueDuration))s (cap=\(settings.frameCountCap) fps=\(settings.fpsCap))")
 
             emit(.extracting(0))
             let exStart = Date()

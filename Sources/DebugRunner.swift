@@ -454,7 +454,7 @@ enum DebugRunner {
                 let started = Date()
                 let vm = VaultManager()
                 vm.vaultURL = vault
-                let pipeline = ShortFormPipeline(vault: vm)
+                let pipeline = ShortFormPipeline(vault: vm, settings: SettingsStore())
                 let preview = try await pipeline.preview(url: url)
                 print("PREVIEW author=\(preview.author) duration=\(preview.duration)")
                 let stageHandler: @Sendable (FrameStage) -> Void = { stage in

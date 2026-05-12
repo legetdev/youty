@@ -254,6 +254,19 @@ final class InstagramExtractor: NSObject, WKNavigationDelegate, WKScriptMessageH
             // we can tell "no payload" from "page didn't hydrate".
             const total = document.querySelectorAll('script[type="application/json"]').length;
             const titleEl = document.querySelector('title');
+
+            // Heuristic: session expired / not authenticated. Instagram
+            // sometimes serves a "log in to view" stub *without* redirecting
+            // to /accounts/login. Look for any visible "Log in" button or
+            // a stale-session-style heading.
+            const bodyText = (document.body && document.body.innerText) || '';
+            const looksLikeAuthWall =
+                /\b(log in|sign up|please sign in|log into instagram)\b/i.test(bodyText)
+                || !!document.querySelector('a[href^="/accounts/login"], button[type="submit"][name="username"]');
+            if (looksLikeAuthWall) {
+              return post({error: 'login_required'});
+            }
+
             return post({
               error: 'no_json_payload',
               detail: 'scripts=' + total + ' title=' + (titleEl?.textContent || '?') +

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		090209CA9B05E0C2E4924947 /* SpeechTranscriptionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */; };
 		1032CEABD5436FC124C83529 /* PlatformRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */; };
+		1164AB2D5DD0A4C678A2122E /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F403150ACD28D7C5A9F18C /* SettingsStore.swift */; };
 		1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8C64BEE7581B939A220E62 /* SidxParser.swift */; };
 		1BA5CC8ADA3E531A38B36F7A /* AuthLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39676C399FF505D0F90D141F /* AuthLoginView.swift */; };
 		1D3B34BB5AC912CB62DDA000 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7071A2233262A50751C78C /* DebugLog.swift */; };
@@ -36,6 +37,7 @@
 		C8B9333704250B395669467E /* VideoExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07EACD9853587F324A75FFB /* VideoExtractor.swift */; };
 		C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
 		D235DE78DBDF7AED552E8AFB /* ParallelCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */; };
+		E3165888D2C54EB8455B0EAE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0A56EE058438A3D7841601 /* SettingsView.swift */; };
 		ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2C2747C12D2CBE36AD416926 /* Assets.xcassets */; };
 		F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
 		FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12465B44FC685B0D846EA0E /* DebugRunner.swift */; };
@@ -58,7 +60,9 @@
 		515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		57CDA26D3414E63EDB216766 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionPipeline.swift; sourceTree = "<group>"; };
+		61F403150ACD28D7C5A9F18C /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortFormPipeline.swift; sourceTree = "<group>"; };
+		7F0A56EE058438A3D7841601 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegURLSessionIO.swift; sourceTree = "<group>"; };
 		8C8C64BEE7581B939A220E62 /* SidxParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidxParser.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
@@ -117,6 +121,8 @@
 				F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */,
 				0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */,
 				FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */,
+				61F403150ACD28D7C5A9F18C /* SettingsStore.swift */,
+				7F0A56EE058438A3D7841601 /* SettingsView.swift */,
 				637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */,
 				8C8C64BEE7581B939A220E62 /* SidxParser.swift */,
 				57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */,
@@ -232,6 +238,8 @@
 				9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */,
 				1032CEABD5436FC124C83529 /* PlatformRouter.swift in Sources */,
 				9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */,
+				1164AB2D5DD0A4C678A2122E /* SettingsStore.swift in Sources */,
+				E3165888D2C54EB8455B0EAE /* SettingsView.swift in Sources */,
 				2E95A4B3792989B8DC2AA8C5 /* ShortFormPipeline.swift in Sources */,
 				1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */,
 				090209CA9B05E0C2E4924947 /* SpeechTranscriptionPipeline.swift in Sources */,

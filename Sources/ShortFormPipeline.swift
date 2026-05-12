@@ -85,9 +85,11 @@ final class ShortFormPipeline {
 
     private let vault: VaultManager
     private let instagram: InstagramExtractor
+    private let settings: SettingsStore
 
-    init(vault: VaultManager) {
+    init(vault: VaultManager, settings: SettingsStore) {
         self.vault = vault
+        self.settings = settings
         self.instagram = InstagramExtractor()
     }
 
@@ -232,8 +234,12 @@ final class ShortFormPipeline {
 
         // 4. In parallel: frames + (if needed) ASR transcript.
         stage(.extracting(0))
-        let frameTimes = FrameExtractor.frameTimes(duration: trueDuration)
-        DebugLog.log("shortform: requesting \(frameTimes.count) frames")
+        let frameTimes = FrameExtractor.frameTimes(
+            duration: trueDuration,
+            countCap: settings.frameCountCap,
+            fpsCap: settings.fpsCap
+        )
+        DebugLog.log("shortform: requesting \(frameTimes.count) frames (cap=\(settings.frameCountCap) fps=\(settings.fpsCap))")
 
         let maxEdge = Self.maxLongEdge(for: preview)
         let fileBox = SendableURL(tempFileURL)
@@ -252,10 +258,14 @@ final class ShortFormPipeline {
         }()
 
         // ASR only when there are no prefetched captions.
+        let chosenLocale = settings.resolvedTranscriptionLocale()
         async let transcriptTask: [TranscriptSegment]? = {
             if let pre = preview.prefetchedTranscript { return pre }
             do {
-                let segs = try await SpeechTranscriptionPipeline.transcribe(audioURL: fileBox.value)
+                let segs = try await SpeechTranscriptionPipeline.transcribe(
+                    audioURL: fileBox.value,
+                    locale: chosenLocale
+                )
                 return segs
             } catch {
                 DebugLog.log("shortform: ASR failed (\(error.localizedDescription)) — note will save without transcript")
@@ -614,9 +624,9 @@ final class SendableURL: @unchecked Sendable {
 @MainActor
 final class ShortFormPipelineHolder: ObservableObject {
     private var _pipeline: ShortFormPipeline?
-    func pipeline(vault: VaultManager) -> ShortFormPipeline {
+    func pipeline(vault: VaultManager, settings: SettingsStore) -> ShortFormPipeline {
         if let p = _pipeline { return p }
-        let p = ShortFormPipeline(vault: vault)
+        let p = ShortFormPipeline(vault: vault, settings: settings)
         _pipeline = p
         return p
     }
