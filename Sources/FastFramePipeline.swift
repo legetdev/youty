@@ -66,17 +66,52 @@ final class FastFramePipeline: FramePipeline {
 
             emit(.extracting(0))
             let exStart = Date()
-            let frames = try await FFmpegFrameExtractor.extract(
-                url: stream.url,
-                userAgent: StreamFetcher.androidVRUA,
-                timestamps: timestamps,
-                maxLongEdge: maxEdgeFor(quality: stream.quality),
-                progress: { p in
-                    Task { @MainActor [weak self] in self?.emit(.extracting(p)) }
+            let progressEmit: @Sendable (Double) -> Void = { [weak self] p in
+                Task { @MainActor [weak self] in self?.emit(.extracting(p)) }
+            }
+            // Phase I: sample-precise byte fetch + stateless VTDecompressionSession.
+            // Empirically:
+            //  - long videos (≥ 8 min)        : ~2× faster than F.1.
+            //  - large streams (≥ 40 MB)      : 1.1–1.2× faster.
+            //  - small low-bitrate clips      : F.1 wins (its chunked LRU is
+            //    more efficient when every DASH segment must be touched anyway).
+            // The gate below preempts the loss case before paying Phase I's
+            // setup cost. On any error Phase I throws → caller falls back.
+            let usePhaseI = shouldTryPhaseI(stream: stream, duration: trueDuration)
+            let frames: [(timestamp: TimeInterval, image: NSImage)]
+            if usePhaseI {
+                do {
+                    frames = try await PhaseIFrameExtractor.extract(
+                        url: stream.url,
+                        userAgent: StreamFetcher.androidVRUA,
+                        timestamps: timestamps,
+                        maxLongEdge: maxEdgeFor(quality: stream.quality),
+                        progress: progressEmit
+                    )
+                    DebugLog.log("fast: phase-I extracted \(frames.count)/\(timestamps.count) frames")
+                } catch {
+                    DebugLog.log("fast: phase-I failed (\(error.localizedDescription)) — falling back to F.1")
+                    frames = try await FFmpegFrameExtractor.extract(
+                        url: stream.url,
+                        userAgent: StreamFetcher.androidVRUA,
+                        timestamps: timestamps,
+                        maxLongEdge: maxEdgeFor(quality: stream.quality),
+                        progress: progressEmit
+                    )
+                    DebugLog.log("fast: F.1 fallback extracted \(frames.count)/\(timestamps.count) frames")
                 }
-            )
+            } else {
+                DebugLog.log("fast: small stream (\(stream.contentLength / 1_000_000)MB / \(Int(trueDuration))s) — using F.1 directly")
+                frames = try await FFmpegFrameExtractor.extract(
+                    url: stream.url,
+                    userAgent: StreamFetcher.androidVRUA,
+                    timestamps: timestamps,
+                    maxLongEdge: maxEdgeFor(quality: stream.quality),
+                    progress: progressEmit
+                )
+            }
             let exMs = Int(Date().timeIntervalSince(exStart) * 1000)
-            DebugLog.log("fast: ffmpeg extracted \(frames.count)/\(timestamps.count) frames in \(exMs)ms")
+            DebugLog.log("fast: extract phase \(exMs)ms")
 
             guard frames.count == timestamps.count else {
                 throw FastPipelineError.incompleteCapture(got: frames.count, expected: timestamps.count)
@@ -102,6 +137,31 @@ final class FastFramePipeline: FramePipeline {
             DebugLog.log("=== FAST PATH FAILED === videoID=\(videoID) reason=\"\(reason)\" elapsed=\(totalMs)ms (raw: \(error))")
             return .failed(reason: reason, canFallback: true)
         }
+    }
+
+    // MARK: - Phase I gate
+
+    // Returns true when Phase I is expected to beat F.1. Empirically:
+    //  - Phase I wins on long + low-bitrate content (Karpathy 220 MB / 116 min,
+    //    1080p, 31 KB/s → 23 s F.1 vs 11 s Phase I).
+    //  - Phase I loses on high-bitrate content where every touched segment is
+    //    large (Freerunning 1.4 GB / 36 min, 1080p60, 653 KB/s → 20 s F.1 vs
+    //    26 s Phase I). F.1's chunked LRU batches large contiguous reads more
+    //    efficiently than Phase I's per-segment two-step fetch.
+    //  - Phase I loses on small/dense content where every segment is touched
+    //    anyway (the 22 MB / 5 min / 75 KB/s case).
+    private func shouldTryPhaseI(stream: VideoStream, duration: TimeInterval) -> Bool {
+        // Small / short clips: F.1's contiguous chunked path wins.
+        if duration < 480 && stream.contentLength < 40_000_000 { return false }
+        // High-bitrate streams (1080p60 HFR, 4K, dense action footage): F.1
+        // also wins. Threshold derived from Rick (375 KB/s) and Gangnam
+        // (428 KB/s) where Phase I was marginally better vs Freerunning
+        // (653 KB/s) where Phase I lost by 5 s.
+        if duration > 0 {
+            let bitrate = Double(stream.contentLength) / duration
+            if bitrate > 500_000 { return false }
+        }
+        return true
     }
 
     // MARK: - Resolution policy

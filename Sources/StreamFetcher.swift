@@ -45,14 +45,12 @@ enum StreamFetcher {
     private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     static let androidVRUA = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
-    // Resolution priority for the FFmpeg fast path. 1080p preferred per spec
-    // (real source-resolution frames). 1440p/2160p considered next (they're
-    // strict supersets of 1080p). Below 1080p we fall to 720p, then lower
-    // tiers only when nothing higher is available. We never upscale — a 360p
-    // source is saved at 360p.
-    static let fastPathQualities = [
-        "1080p", "1440p", "2160p", "720p", "480p", "360p", "240p", "144p"
-    ]
+    // Resolution priority for the FFmpeg fast path, expressed as the long-edge
+    // pixel count. We match qualityLabel by its leading digits, so "1080p",
+    // "1080p60", "1080p HFR" all bucket as 1080. 1080 preferred per spec
+    // (real source-resolution frames). 1440 / 2160 next (strict supersets of
+    // 1080). Below 1080 we step down. Never upscale — a 360p source saves at 360.
+    static let fastPathHeights: [Int] = [1080, 1440, 2160, 720, 480, 360, 240, 144]
 
     // MARK: - Visitor data caching
 
@@ -229,17 +227,48 @@ enum StreamFetcher {
         }
         guard !candidates.isEmpty else { throw StreamFetchError.noFastPathAvailable }
 
-        for quality in fastPathQualities {
-            for (codecName, mimeMarker) in codecPriority {
-                if let f = candidates.first(where: {
-                    ($0["qualityLabel"] as? String) == quality
-                    && ($0["mimeType"] as? String)?.contains(mimeMarker) == true
-                }) {
-                    return try makeStream(from: f, codec: codecName)
+        // Diagnostic: log every candidate's qualityLabel + codec. Helped catch
+        // the original "1080p60" mismatch — keep so future regressions in the
+        // selection logic are visible without re-instrumenting.
+        let summary = candidates.prefix(20).compactMap { c -> String? in
+            let q = (c["qualityLabel"] as? String) ?? "?"
+            let m = (c["mimeType"] as? String) ?? "?"
+            let codec = m.contains("avc1") ? "H264" : m.contains("vp9") ? "VP9" : m.contains("av01") ? "AV1" : "?"
+            return "\(q)/\(codec)"
+        }.joined(separator: " ")
+        DebugLog.log("stream-select: candidates=\(candidates.count) [\(summary)]")
+
+        // Match by parsed long-edge height. "1080p", "1080p60", "1080p HFR"
+        // all bucket as 1080. Within a bucket, prefer non-HFR over HFR (same
+        // visual quality, lower bitrate → faster fetch). Within (height, hfr)
+        // prefer H.264 → VP9 → AV1.
+        for height in fastPathHeights {
+            for hfrPreference in [false, true] {
+                for (codecName, mimeMarker) in codecPriority {
+                    if let f = candidates.first(where: { c in
+                        guard let q = c["qualityLabel"] as? String,
+                              let m = c["mimeType"] as? String,
+                              parsedHeight(of: q) == height else { return false }
+                        let isHfr = q.contains("60") || q.contains("HFR")
+                        return isHfr == hfrPreference && m.contains(mimeMarker)
+                    }) {
+                        return try makeStream(from: f, codec: codecName)
+                    }
                 }
             }
         }
         return try makeStream(from: candidates[0], codec: "H264")
+    }
+
+    // Extracts the long-edge height from a YouTube qualityLabel like "1080p",
+    // "1080p60", or "1080p HFR". Returns 0 if no digits are found.
+    private static func parsedHeight(of label: String) -> Int {
+        var digits = ""
+        for ch in label {
+            if ch.isNumber { digits.append(ch) }
+            else if !digits.isEmpty { break }
+        }
+        return Int(digits) ?? 0
     }
 
     private static func makeStream(from f: [String: Any], codec: String) throws -> VideoStream {

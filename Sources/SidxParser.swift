@@ -11,6 +11,7 @@ import Foundation
 
 struct SidxSegment {
     let pos: Int64        // byte offset of the segment's first moof box
+    let size: Int64       // segment size in bytes (moof + mdat for this fragment)
     let pts: Int64        // PTS (in stream timebase) of the segment's first sample
     let duration: Int64   // duration of the segment in PTS units
 }
@@ -109,7 +110,8 @@ enum SidxParser {
             // (reference_type bit not relevant for our use)
             let subsegmentDuration = Int64(readUInt32BE(data, p)); p += 4
             p += 4   // skip SAP flags
-            segments.append(SidxSegment(pos: segPos, pts: segPts,
+            segments.append(SidxSegment(pos: segPos, size: referencedSize,
+                                         pts: segPts,
                                          duration: subsegmentDuration))
             segPos += referencedSize
             segPts += subsegmentDuration
