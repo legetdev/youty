@@ -77,8 +77,8 @@ final class VaultManager: NSObject, ObservableObject {
     // Writes frames into the same bundle folder as video.md.
     func writeFrames(_ frames: [FrameExtractor.Frame], to folderURL: URL) throws {
         guard let vault = vaultURL else { throw VaultError.noVault }
-        guard vault.startAccessingSecurityScopedResource() else { throw VaultError.accessDenied }
-        defer { vault.stopAccessingSecurityScopedResource() }
+        let acquired = vault.startAccessingSecurityScopedResource()
+        defer { if acquired { vault.stopAccessingSecurityScopedResource() } }
 
         // Filenames are the timestamp in milliseconds, zero-padded to 8 digits
         // (covers ≤ 27 hours). AI consumers resolve [M:SS] timestamps by
@@ -119,12 +119,22 @@ final class VaultManager: NSObject, ObservableObject {
         let dateSaved: String
         let tags:      [String]
         let url:       String
+        let platform:  String   // "youtube", "tiktok", "instagram"
 
         enum CodingKeys: String, CodingKey {
-            case folder, title, channel, duration, tags, url
+            case folder, title, channel, duration, tags, url, platform
             case videoID   = "video_id"
             case dateSaved = "date_saved"
         }
+    }
+
+    /// Public manifest refresh. Called by ShortFormPipeline after writing
+    /// a new IG / TikTok bundle so the corpus index picks it up immediately.
+    func regenerateManifest() {
+        guard let vault = vaultURL else { return }
+        guard vault.startAccessingSecurityScopedResource() else { return }
+        defer { vault.stopAccessingSecurityScopedResource() }
+        updateManifest(in: vault)
     }
 
     // Scans all subfolders for video.md, rebuilds manifest.json.
@@ -182,24 +192,46 @@ final class VaultManager: NSObject, ObservableObject {
             kv[parts[0]] = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         }
 
-        guard let videoID = kv["video_id"], !videoID.isEmpty else { return nil }
+        // Accept either YouTube's `video_id` or short-form's `post_id`. Both
+        // are universal-ish identifiers and the parser doesn't care which.
+        let id = kv["video_id"] ?? kv["post_id"] ?? ""
+        guard !id.isEmpty else { return nil }
 
-        let tagsRaw = kv["tags"] ?? "[]"
+        // Platform: explicit when set (IG/TikTok), else default to youtube
+        // for the historical entries that predate this field.
+        let platform = kv["platform"] ?? "youtube"
+
+        // Tags / hashtags — accept either key. Hashtags from IG/TikTok serve
+        // the same "topical labels" role as YouTube tags.
+        let tagsRaw = kv["tags"] ?? kv["hashtags"] ?? "[]"
         let tags = tagsRaw
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
             .components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
             .filter { !$0.isEmpty }
 
+        // "channel" is the canonical author label across all platforms.
+        // YouTube uses `channel`, IG/TikTok use `author` / `author_display_name`.
+        let channel = kv["channel"] ?? kv["author_display_name"] ?? kv["author"] ?? ""
+
+        // url fallback varies per platform.
+        let urlFallback: String
+        switch platform {
+        case "tiktok":   urlFallback = "https://www.tiktok.com/"
+        case "instagram":urlFallback = "https://www.instagram.com/p/\(id)/"
+        default:         urlFallback = "https://www.youtube.com/watch?v=\(id)"
+        }
+
         return ManifestEntry(
             folder:    folderName,
-            videoID:   videoID,
+            videoID:   id,
             title:     kv["title"]      ?? "",
-            channel:   kv["channel"]    ?? "",
+            channel:   channel,
             duration:  kv["duration"]   ?? "",
             dateSaved: kv["date_saved"] ?? "",
             tags:      tags,
-            url:       kv["url"]        ?? "https://www.youtube.com/watch?v=\(videoID)"
+            url:       kv["url"]        ?? urlFallback,
+            platform:  platform
         )
     }
 
@@ -232,6 +264,7 @@ final class VaultManager: NSObject, ObservableObject {
         var lines: [String] = [
             "---",
             "title: \"\(metadata.title)\"",
+            "platform: youtube",
             "video_id: \(metadata.videoID)",
             "url: https://www.youtube.com/watch?v=\(metadata.videoID)",
             "channel: \"\(metadata.channel)\"",

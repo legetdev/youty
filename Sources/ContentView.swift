@@ -13,9 +13,13 @@ struct ContentView: View {
     @StateObject private var vault = VaultManager()
     @StateObject private var videoExtractor = VideoExtractor()
     @StateObject private var playerFetcher = PlayerFetcher()
+    @StateObject private var shortForm: ShortFormPipelineHolder = ShortFormPipelineHolder()
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var lastResult: FetchResult?
+    @State private var shortFormPreview: ShortFormPreview?
+    @State private var showInstagramLogin = false
+    @State private var pendingInstagramURL: URL?
     @State private var vaultSaved = false
     @State private var vaultError: String?
     @State private var frameProgress: Double = 0
@@ -31,7 +35,13 @@ struct ContentView: View {
     }
 
     private var isValidURL: Bool {
-        TranscriptFetcher.extractVideoID(from: urlInput) != nil
+        if TranscriptFetcher.extractVideoID(from: urlInput) != nil { return true }
+        return PlatformRouter.platform(for: urlInput) != nil
+    }
+
+    private var detectedPlatform: Platform {
+        if let p = PlatformRouter.platform(for: urlInput) { return p }
+        return .youtube   // safe default when string isn't classifiable yet
     }
 
     var body: some View {
@@ -62,7 +72,18 @@ struct ContentView: View {
                     loader.attachToWindow(window)
                     videoExtractor.attach(to: window)
                     playerFetcher.attach(to: window)
+                    shortForm.pipeline(vault: vault).attach(to: window)
                 }
+            }
+        }
+        .sheet(isPresented: $showInstagramLogin) {
+            AuthLoginView(config: .instagram) { result in
+                showInstagramLogin = false
+                if case .success = result, let url = pendingInstagramURL {
+                    urlInput = url.absoluteString
+                    Task { await fetch() }
+                }
+                pendingInstagramURL = nil
             }
         }
     }
@@ -84,7 +105,7 @@ struct ContentView: View {
     private var inputSection: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                TextField("https://youtube.com/watch?v=...", text: $urlInput)
+                TextField("Paste a YouTube, TikTok or Instagram URL…", text: $urlInput)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .focused($inputFocused)
@@ -146,7 +167,11 @@ struct ContentView: View {
 
     private var buttonLabel: String {
         if case .loading = state { return "Fetching…" }
-        return "Get Transcript"
+        switch detectedPlatform {
+        case .tiktok:    return "Load TikTok"
+        case .instagram: return "Load Reel"
+        case .youtube:   return "Get Transcript"
+        }
     }
 
     // MARK: - Result
@@ -330,24 +355,49 @@ struct ContentView: View {
 
     private func fetch() async {
         withAnimation(.spring(duration: 0.3)) { state = .loading }
-        do {
-            let result = try await loader.fetch(urlString: urlInput)
-            lastResult = result
-            withAnimation(.spring(duration: 0.4)) {
-                state = .success(title: result.title, markdown: result.markdown)
+        // Reset cross-platform state on every new fetch.
+        shortFormPreview = nil
+        lastResult = nil
+        switch detectedPlatform {
+        case .youtube:
+            do {
+                let result = try await loader.fetch(urlString: urlInput)
+                lastResult = result
+                withAnimation(.spring(duration: 0.4)) {
+                    state = .success(title: result.title, markdown: result.markdown)
+                }
+            } catch {
+                withAnimation(.spring(duration: 0.3)) {
+                    state = .error(error.localizedDescription)
+                }
             }
-        } catch {
-            withAnimation(.spring(duration: 0.3)) {
-                state = .error(error.localizedDescription)
+        case .tiktok, .instagram:
+            guard let url = URL(string: urlInput) else {
+                state = .error("Invalid URL.")
+                return
+            }
+            do {
+                let pipeline = shortForm.pipeline(vault: vault)
+                let preview = try await pipeline.preview(url: url)
+                shortFormPreview = preview
+                withAnimation(.spring(duration: 0.4)) {
+                    state = .success(title: preview.title,
+                                      markdown: ShortFormMarkdownPreview.build(preview))
+                }
+            } catch let e as InstagramExtractorError where e.errorDescription?.contains("Sign in") == true {
+                // Not logged in → present in-app login. Re-fetch on success.
+                pendingInstagramURL = url
+                showInstagramLogin = true
+                withAnimation { state = .idle }
+            } catch {
+                withAnimation(.spring(duration: 0.3)) {
+                    state = .error(error.localizedDescription)
+                }
             }
         }
     }
 
     private func saveToVault() {
-        guard let result = lastResult else {
-            vaultError = "No transcript loaded."
-            return
-        }
         vaultError = nil
 
         // No vault configured — prompt the user to choose one first
@@ -356,6 +406,38 @@ struct ContentView: View {
             guard vault.vaultURL != nil else { return }
         }
 
+        // Short-form (Instagram / TikTok) path.
+        if let preview = shortFormPreview {
+            withAnimation { vaultSaved = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                withAnimation { self.vaultSaved = false }
+            }
+            Task { @MainActor in
+                let pipeline = shortForm.pipeline(vault: vault)
+                do {
+                    let stageHandler: @Sendable (FrameStage) -> Void = { stage in
+                        Task { @MainActor in self.applyStage(stage) }
+                    }
+                    let outcome = try await pipeline.save(preview: preview, stage: stageHandler)
+                    applyOutcome(.success(framesWritten: outcome.framesWritten,
+                                            durationMs: outcome.totalMs,
+                                            mode: preview.platform.rawValue),
+                                 videoID: preview.tikTokMetadata?.videoID
+                                       ?? preview.instagramMetadata?.shortcode
+                                       ?? "post",
+                                 folderURL: outcome.folder)
+                } catch {
+                    vaultError = error.localizedDescription
+                }
+            }
+            return
+        }
+
+        // YouTube path (unchanged).
+        guard let result = lastResult else {
+            vaultError = "No transcript loaded."
+            return
+        }
         let metadata = MetadataEnricher.enrich(from: result)
         do {
             let folderURL = try vault.saveNote(result: result, metadata: metadata)

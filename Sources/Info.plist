@@ -21,10 +21,12 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>15.0</string>
+	<string>26.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Youty transcribes the audio of saved Instagram and TikTok videos entirely on your device to produce timestamped captions in the vault note. Audio never leaves your Mac.</string>
 </dict>
 </plist>

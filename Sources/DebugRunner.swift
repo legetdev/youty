@@ -37,13 +37,33 @@ enum DebugRunner {
 
     static func shouldRun() -> Bool {
         CommandLine.arguments.contains("--extract")
+            || CommandLine.arguments.contains("--tiktok-probe")
+            || CommandLine.arguments.contains("--instagram-probe")
+            || CommandLine.arguments.contains("--speech-probe")
+            || CommandLine.arguments.contains("--shortform-save")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
     // Calls exit() — never returns.
     static func run() -> Never {
-        // Parse args.
         let args = CommandLine.arguments
+
+        // Per-platform probes that bypass the YouTube-only flow above.
+        if let probeURL = stringArg(args, key: "--tiktok-probe") {
+            runTikTokProbe(urlString: probeURL)   // never returns
+        }
+        if let probeURL = stringArg(args, key: "--instagram-probe") {
+            runInstagramProbe(urlString: probeURL)
+        }
+        if let audio = stringArg(args, key: "--speech-probe") {
+            runSpeechProbe(audioPath: audio)
+        }
+        if let saveURL = stringArg(args, key: "--shortform-save") {
+            runShortFormSaveProbe(urlString: saveURL,
+                                   vaultPath: stringArg(args, key: "--vault"))
+        }
+
+        // Parse args for the YouTube-only --extract flow.
         let url = stringArg(args, key: "--extract") ?? ""
         let count = intArg(args, key: "--count") ?? 100
         let outArg = stringArg(args, key: "--out")
@@ -251,10 +271,217 @@ enum DebugRunner {
         return 0
     }
 
+    // MARK: - Platform probes
+
+    private static func runTikTokProbe(urlString: String) -> Never {
+        guard let url = URL(string: urlString) else {
+            FileHandle.standardError.write("error: invalid URL\n".data(using: .utf8)!)
+            exit(2)
+        }
+        let fullPipeline = CommandLine.arguments.contains("--full")
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            do {
+                let t0 = Date()
+                let r = try await TikTokExtractor.extract(url: url)
+                let extractMs = Int(Date().timeIntervalSince(t0) * 1000)
+                print("EXTRACT ms=\(extractMs)")
+                print("video_id=\(r.metadata.videoID)")
+                print("author=\(r.metadata.author)  (\(r.metadata.authorDisplayName))")
+                print("description=\(r.metadata.description.prefix(160))")
+                print("duration_s=\(r.metadata.duration)  res=\(r.metadata.width)x\(r.metadata.height)")
+                print("stats plays=\(r.metadata.plays ?? -1) likes=\(r.metadata.likes ?? -1) comments=\(r.metadata.comments ?? -1) shares=\(r.metadata.shares ?? -1) saves=\(r.metadata.saves ?? -1)")
+                print("music=\(r.metadata.musicTitle ?? "?") — \(r.metadata.musicAuthor ?? "?")")
+                print("hashtags=\(r.metadata.hashtags.joined(separator: ","))")
+                print("posted_at=\(r.metadata.postedAt.map(ISO8601DateFormatter().string(from:)) ?? "?")")
+                print("video_cdn_url=\(r.videoCDNURL.absoluteString)")
+                if let caps = r.captions {
+                    print("captions count=\(caps.count) first=\"\(caps.first?.text.prefix(80) ?? "")\" timestamp=\(caps.first?.timestamp ?? "?")")
+                } else {
+                    print("captions=none (would fall back to SpeechTranscriber)")
+                }
+
+                if !fullPipeline {
+                    box.code = 0
+                    return
+                }
+
+                // Full pipeline: download → frames + transcript in parallel.
+                let dlStart = Date()
+                let fileURL = try await MediaDownloader.download(
+                    url: r.videoCDNURL,
+                    headers: r.videoDownloadHeaders,
+                    progress: nil
+                )
+                let dlMs = Int(Date().timeIntervalSince(dlStart) * 1000)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+                let size = (attrs?[.size] as? Int) ?? 0
+                print("DOWNLOAD ms=\(dlMs) bytes=\(size) path=\(fileURL.lastPathComponent)")
+
+                // Compute frame timestamps.
+                let frameTimes = FrameExtractor.frameTimes(duration: r.metadata.duration)
+                print("FRAMES_REQUESTED=\(frameTimes.count) over \(r.metadata.duration)s")
+
+                async let framesTask: [(timestamp: TimeInterval, image: NSImage)] = {
+                    try await LocalFrameExtractor.extract(
+                        fileURL: fileURL,
+                        timestamps: frameTimes,
+                        maxLongEdge: 1920,
+                        progress: { _ in })
+                }()
+
+                async let transcriptTask: [TranscriptSegment]? = {
+                    if let caps = r.captions { return caps }
+                    do {
+                        return try await SpeechTranscriptionPipeline.transcribe(audioURL: fileURL)
+                    } catch {
+                        print("SPEECH_ERROR=\(error.localizedDescription)")
+                        return nil
+                    }
+                }()
+
+                let frames = try await framesTask
+                let trans = await transcriptTask
+
+                let frameMs = Int(Date().timeIntervalSince(dlStart) * 1000) - dlMs
+                print("FRAMES_RETURNED=\(frames.count) frame_phase_ms=\(frameMs)")
+                if let trans { print("TRANSCRIPT_SEGS=\(trans.count) first=\"\((trans.first?.text ?? "").prefix(100))\"") }
+
+                let totalMs = Int(Date().timeIntervalSince(t0) * 1000)
+                print("TOTAL_MS=\(totalMs)")
+
+                MediaDownloader.remove(fileURL)
+                box.code = 0
+            } catch {
+                print("ERROR=\(error.localizedDescription)")
+                box.code = 3
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
+    private static func runInstagramProbe(urlString: String) -> Never {
+        guard let url = URL(string: urlString) else {
+            FileHandle.standardError.write("error: invalid URL\n".data(using: .utf8)!)
+            exit(2)
+        }
+        Task { @MainActor in
+            let box = ExitBox()
+            do {
+                let signedIn = await InstagramExtractor.isSignedIn()
+                print("SIGNED_IN=\(signedIn)")
+                let extractor = InstagramExtractor()
+                let r = try await extractor.extract(url: url)
+                print("OK shortcode=\(r.metadata.shortcode) author=\(r.metadata.author)")
+                print("caption_chars=\(r.metadata.caption.count)")
+                print("duration_s=\(r.metadata.duration) res=\(r.metadata.width)x\(r.metadata.height)")
+                print("video_cdn_url=\(r.videoCDNURL.absoluteString)")
+                box.code = 0
+            } catch {
+                print("ERROR=\(error.localizedDescription)")
+                if let e = error as? InstagramExtractorError, case .notLoggedIn = e {
+                    print("HINT=expected for sandboxed test without prior in-app login")
+                }
+                box.code = 3
+            }
+            exit(box.code)
+        }
+        dispatchMain()
+    }
+
+    private static func runShortFormSaveProbe(urlString: String, vaultPath: String?) -> Never {
+        guard let url = URL(string: urlString) else {
+            FileHandle.standardError.write("error: invalid URL\n".data(using: .utf8)!)
+            exit(2)
+        }
+        let vaultURL: URL = {
+            if let p = vaultPath {
+                let u = URL(fileURLWithPath: p, isDirectory: true)
+                try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
+                return u
+            }
+            let tmp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+                .appendingPathComponent("youty-vault-test", isDirectory: true)
+            try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            return tmp
+        }()
+
+        // Use dispatchMain() to pump the main runloop so @MainActor work can
+        // dispatch. The Task exits the process when done.
+        Task { @MainActor in
+            let box = ExitBox()
+            await box.runShortFormSave(url: url, vault: vaultURL)
+            exit(box.code)
+        }
+        dispatchMain()
+    }
+
+    private static func runSpeechProbe(audioPath: String) -> Never {
+        let url = URL(fileURLWithPath: audioPath)
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            do {
+                let t0 = Date()
+                let segs = try await SpeechTranscriptionPipeline.transcribe(audioURL: url)
+                let dt = Int(Date().timeIntervalSince(t0) * 1000)
+                print("OK ms=\(dt) segments=\(segs.count)")
+                for s in segs.prefix(8) {
+                    print("[\(s.timestamp)] \(s.text)")
+                }
+                box.code = 0
+            } catch {
+                print("ERROR=\(error.localizedDescription)")
+                box.code = 3
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
     // MARK: - Box for cross-Task mutable state
 
     private final class ExitBox: @unchecked Sendable {
         var code: Int32 = 3
+
+        @MainActor
+        func runShortFormSave(url: URL, vault: URL) async {
+            do {
+                let started = Date()
+                let vm = VaultManager()
+                vm.vaultURL = vault
+                let pipeline = ShortFormPipeline(vault: vm)
+                let preview = try await pipeline.preview(url: url)
+                print("PREVIEW author=\(preview.author) duration=\(preview.duration)")
+                let stageHandler: @Sendable (FrameStage) -> Void = { stage in
+                    switch stage {
+                    case .loading: print("STAGE=loading")
+                    case .downloading(let p): print("STAGE=downloading \(Int(p * 100))%")
+                    case .extracting(let p):  print("STAGE=extracting \(Int(p * 100))%")
+                    case .writing: print("STAGE=writing")
+                    }
+                }
+                let result = try await pipeline.save(preview: preview, stage: stageHandler)
+                let total = Int(Date().timeIntervalSince(started) * 1000)
+                print("SAVE folder=\(result.folder.path) frames=\(result.framesWritten) transcript=\(result.transcriptSegments) total_ms=\(total)")
+                let mdPath = result.folder.appendingPathComponent("video.md")
+                if let txt = try? String(contentsOf: mdPath, encoding: .utf8) {
+                    print("VIDEOMD chars=\(txt.count) head:")
+                    print(String(txt.prefix(500)))
+                }
+                let jpegs = (try? FileManager.default.contentsOfDirectory(atPath: result.folder.path))?
+                    .filter { $0.hasSuffix(".jpg") }.count ?? 0
+                print("JPEGS_ON_DISK=\(jpegs)")
+                code = 0
+            } catch {
+                print("ERROR=\(error.localizedDescription)")
+                code = 3
+            }
+        }
     }
 
     // MARK: - Arg parsing
