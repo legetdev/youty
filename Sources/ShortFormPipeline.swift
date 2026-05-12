@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import AVFoundation
 
 // End-to-end pipeline for Instagram Reels + TikTok videos. Mirrors the
 // shape of YouTube's TranscriptLoader → MetadataEnricher → VaultManager →
@@ -107,7 +108,11 @@ final class ShortFormPipeline {
         switch platform {
         case .tiktok:
             let r = try await TikTokExtractor.extract(url: url)
-            let title = ShortFormPipeline.titleFromDescription(r.metadata.description)
+            let title = Self.displayTitle(
+                caption: r.metadata.description,
+                platform: .tiktok,
+                author: r.metadata.author
+            )
             return ShortFormPreview(
                 platform: .tiktok,
                 title: title,
@@ -126,7 +131,11 @@ final class ShortFormPipeline {
             )
         case .instagram:
             let r = try await instagram.extract(url: url)
-            let title = ShortFormPipeline.titleFromDescription(r.metadata.caption)
+            let title = Self.displayTitle(
+                caption: r.metadata.caption,
+                platform: .instagram,
+                author: r.metadata.author
+            )
             return ShortFormPreview(
                 platform: .instagram,
                 title: title,
@@ -162,8 +171,13 @@ final class ShortFormPipeline {
 
         // 1. Compute folder name + initial markdown (frontmatter + caption +
         //    transcript-if-already-present, else placeholder).
+        //    Path: {vault}/{platform}/{bundle}. Matches the per-platform
+        //    layout the YouTube path now also uses, so the vault has one
+        //    tree per platform — easier for humans and AI consumers to
+        //    filter, no cross-platform name collisions.
         let folderName = Self.bundleFolderName(for: preview)
-        let folderURL = vaultURL.appendingPathComponent(folderName)
+        let platformFolder = vaultURL.appendingPathComponent(preview.platform.rawValue)
+        let folderURL = platformFolder.appendingPathComponent(folderName)
         // Try to acquire security-scoped access (required for user-chosen
         // folders persisted via bookmark). For paths that are already
         // accessible (e.g. the app container's temp dir during tests), this
@@ -173,6 +187,7 @@ final class ShortFormPipeline {
         defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
 
         do {
+            try FileManager.default.createDirectory(at: platformFolder, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         } catch {
             throw ShortFormPipelineError.writeFailed(error)
@@ -204,9 +219,21 @@ final class ShortFormPipeline {
         let dlMs = Int(Date().timeIntervalSince(downloadStart) * 1000)
         DebugLog.log("shortform: download done in \(dlMs)ms file=\(tempFileURL.lastPathComponent)")
 
-        // 3. In parallel: frames + (if needed) ASR transcript.
+        // 3. Reconcile duration from the downloaded file. Instagram's JSON
+        //    often omits `video_duration` for Reels (their REST API has
+        //    inconsistent population); reading it from the actual MP4 via
+        //    AVURLAsset is the source of truth. Use the larger of (preview,
+        //    file) so we never under-count frames.
+        let trueDuration = await Self.resolveDuration(
+            previewDuration: preview.duration,
+            fileURL: tempFileURL
+        )
+        DebugLog.log("shortform: duration resolved preview=\(preview.duration)s file=\(trueDuration)s")
+
+        // 4. In parallel: frames + (if needed) ASR transcript.
         stage(.extracting(0))
-        let frameTimes = FrameExtractor.frameTimes(duration: preview.duration)
+        let frameTimes = FrameExtractor.frameTimes(duration: trueDuration)
+        DebugLog.log("shortform: requesting \(frameTimes.count) frames")
 
         let maxEdge = Self.maxLongEdge(for: preview)
         let fileBox = SendableURL(tempFileURL)
@@ -251,7 +278,8 @@ final class ShortFormPipeline {
         DebugLog.log("shortform: \(frames.count) frames, \(transcript?.count ?? 0) transcript segments")
 
         // 4. Re-write video.md now that we have the real transcript.
-        let finalMd = Self.composeMarkdown(preview: preview, transcript: transcript)
+        let finalMd = Self.composeMarkdown(preview: preview, transcript: transcript,
+                                            durationOverride: trueDuration)
         do {
             try finalMd.write(to: videoMdURL, atomically: true, encoding: .utf8)
         } catch {
@@ -286,25 +314,118 @@ final class ShortFormPipeline {
 
     // MARK: - Title selection
 
-    /// First-line-of-caption, trimmed to ~80 chars. Empty when the caption
-    /// itself is empty (rare).
-    private static func titleFromDescription(_ s: String) -> String {
-        let first = s.components(separatedBy: .newlines)
-            .first?
-            .trimmingCharacters(in: .whitespaces) ?? ""
-        if first.isEmpty { return "" }
-        return String(first.prefix(80))
+    /// Display title shown to the user in the UI preview and written into
+    /// `video.md`'s `title:` frontmatter field. Three-step heuristic:
+    ///   1. First non-empty line of the caption, stripped of *boundary*
+    ///      hashtags / mentions (preserves mid-sentence ones).
+    ///   2. First sentence of the flattened caption, same stripping.
+    ///   3. "{Platform} by {author}" fallback for hashtag-only or empty
+    ///      captions.
+    /// Truncated to ~80 chars at a word boundary.
+    private static func displayTitle(caption: String,
+                                      platform: Platform,
+                                      author: String) -> String {
+        if let clean = cleanCaptionFirstSlice(caption), !clean.isEmpty {
+            return clean
+        }
+        let platformName: String
+        switch platform {
+        case .tiktok:    platformName = "TikTok"
+        case .instagram: platformName = "Reel"
+        case .youtube:   platformName = "Video"
+        }
+        return author.isEmpty ? platformName : "\(platformName) by \(author)"
+    }
+
+    /// Folder-name title slice. Uses the same caption heuristic but the
+    /// empty-caption fallback is the post id — without that, every
+    /// caption-less Reel would land in `{author} - Reel by @{author}/`
+    /// which duplicates the author.
+    private static func folderTitle(caption: String, postID: String) -> String {
+        if let clean = cleanCaptionFirstSlice(caption), !clean.isEmpty {
+            return clean
+        }
+        return postID
+    }
+
+    /// Returns a clean title-ish slice of the caption, or nil when there's
+    /// nothing useful (hashtag-only, empty, etc.). Shared by `displayTitle`
+    /// and `folderTitle`.
+    private static func cleanCaptionFirstSlice(_ caption: String) -> String? {
+        let trimmed = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // 1. First non-empty line with boundary hashtags/mentions removed.
+        if let firstLine = trimmed.components(separatedBy: .newlines)
+            .lazy.map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { !$0.isEmpty }) {
+            let cleaned = stripBoundaryTagsAndMentions(firstLine)
+            if !cleaned.isEmpty { return truncateAtWordBoundary(cleaned, max: 80) }
+        }
+
+        // 2. First sentence of the flattened caption (handles the
+        //    "single-line stream of consciousness" shape).
+        let flat = trimmed.replacingOccurrences(of: "\n", with: " ")
+        let cleanedAll = stripBoundaryTagsAndMentions(flat)
+        if let firstSentence = cleanedAll.components(separatedBy: CharacterSet(charactersIn: ".!?"))
+            .lazy.map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { !$0.isEmpty }) {
+            return truncateAtWordBoundary(firstSentence, max: 80)
+        }
+        return nil
+    }
+
+    /// Removes leading and trailing tokens that begin with `#` or `@`.
+    /// Mid-sentence tags are preserved — they're often semantically part
+    /// of the caption ("10 reasons #productivity matters").
+    private static func stripBoundaryTagsAndMentions(_ s: String) -> String {
+        var tokens = s.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        while let first = tokens.first,
+              first.hasPrefix("#") || first.hasPrefix("@") {
+            tokens.removeFirst()
+        }
+        while let last = tokens.last,
+              last.hasPrefix("#") || last.hasPrefix("@") {
+            tokens.removeLast()
+        }
+        return tokens.joined(separator: " ")
+    }
+
+    /// Truncates to at most `max` characters; prefers a word boundary cut
+    /// when one exists in the back half of the string.
+    private static func truncateAtWordBoundary(_ s: String, max maxLen: Int) -> String {
+        if s.count <= maxLen { return s }
+        let head = String(s.prefix(maxLen))
+        if let lastSpace = head.lastIndex(of: " ") {
+            let pos = head.distance(from: head.startIndex, to: lastSpace)
+            if pos >= maxLen / 2 {
+                return String(head[..<lastSpace])
+            }
+        }
+        return head
     }
 
     // MARK: - Folder naming
 
-    /// Folder is `{Author} - {Title}` sanitised, just like YouTube. Falls
-    /// back to the post id when no author / title is available.
+    /// Folder is `{Author} - {Title}` sanitised, just like YouTube. When the
+    /// caption is empty or hashtag-only the title falls back to the post id
+    /// (rather than "Reel by @{author}", which would duplicate the author).
     private static func bundleFolderName(for p: ShortFormPreview) -> String {
         let authorBare = p.author.hasPrefix("@") ? String(p.author.dropFirst()) : p.author
-        let title = p.title.isEmpty
-            ? (p.tikTokMetadata?.videoID ?? p.instagramMetadata?.shortcode ?? "post")
-            : p.title
+        let caption: String
+        let postID: String
+        switch p.platform {
+        case .tiktok:
+            caption = p.tikTokMetadata?.description ?? ""
+            postID  = p.tikTokMetadata?.videoID ?? "post"
+        case .instagram:
+            caption = p.instagramMetadata?.caption ?? ""
+            postID  = p.instagramMetadata?.shortcode ?? "post"
+        case .youtube:
+            caption = p.descriptionText
+            postID  = "post"
+        }
+        let title = folderTitle(caption: caption, postID: postID)
         let combined = authorBare.isEmpty ? title : "\(authorBare) - \(title)"
         return sanitize(combined)
     }
@@ -328,17 +449,43 @@ final class ShortFormPipeline {
         return 1920
     }
 
+    // MARK: - Duration resolution
+
+    /// Reads the actual playable duration from a downloaded media file using
+    /// AVURLAsset. Instagram's REST response often omits `video_duration` for
+    /// Reels, so we treat the file as the source of truth. Returns the larger
+    /// of (preview, file) to avoid ever under-counting frames; falls back to
+    /// the preview value if the asset can't be loaded.
+    private static func resolveDuration(previewDuration: TimeInterval,
+                                         fileURL: URL) async -> TimeInterval {
+        let asset = AVURLAsset(url: fileURL)
+        do {
+            let cm = try await asset.load(.duration)
+            let fileSec = cm.seconds
+            if fileSec.isFinite && fileSec > 0 {
+                return max(previewDuration, fileSec)
+            }
+        } catch {
+            DebugLog.log("shortform: AVURLAsset.duration failed (\(error.localizedDescription)) — using preview duration \(previewDuration)s")
+        }
+        return previewDuration
+    }
+
     // MARK: - Markdown composition
 
     private static func composeMarkdown(preview p: ShortFormPreview,
-                                         transcript: [TranscriptSegment]?) -> String {
+                                         transcript: [TranscriptSegment]?,
+                                         durationOverride: TimeInterval? = nil) -> String {
+        // Use the file-derived duration when available; many Instagram Reels
+        // come back from the API without `video_duration` populated.
+        let effectiveDuration = (durationOverride ?? 0) > 0 ? (durationOverride ?? p.duration) : p.duration
         var lines: [String] = []
         lines.append("---")
         switch p.platform {
         case .tiktok:
-            lines.append(contentsOf: yamlTikTok(p))
+            lines.append(contentsOf: yamlTikTok(p, durationOverride: effectiveDuration))
         case .instagram:
-            lines.append(contentsOf: yamlInstagram(p))
+            lines.append(contentsOf: yamlInstagram(p, durationOverride: effectiveDuration))
         default:
             break
         }
@@ -370,8 +517,9 @@ final class ShortFormPipeline {
         return lines.joined(separator: "\n")
     }
 
-    private static func yamlTikTok(_ p: ShortFormPreview) -> [String] {
+    private static func yamlTikTok(_ p: ShortFormPreview, durationOverride: TimeInterval) -> [String] {
         guard let m = p.tikTokMetadata else { return [] }
+        let dur = durationOverride > 0 ? durationOverride : m.duration
         var out: [String] = []
         out.append("title: \(yamlString(p.title))")
         out.append("platform: tiktok")
@@ -385,7 +533,7 @@ final class ShortFormPipeline {
             out.append("posted_at: \(ISO8601DateFormatter().string(from: posted))")
         }
         out.append("date_saved: \(ISO8601DateFormatter().string(from: Date()))")
-        out.append("duration: \(yamlString(formatDuration(m.duration)))")
+        out.append("duration: \(yamlString(formatDuration(dur)))")
         if let v = m.plays    { out.append("plays: \(v)") }
         if let v = m.likes    { out.append("likes: \(v)") }
         if let v = m.comments { out.append("comments: \(v)") }
@@ -405,8 +553,9 @@ final class ShortFormPipeline {
         return out
     }
 
-    private static func yamlInstagram(_ p: ShortFormPreview) -> [String] {
+    private static func yamlInstagram(_ p: ShortFormPreview, durationOverride: TimeInterval) -> [String] {
         guard let m = p.instagramMetadata else { return [] }
+        let dur = durationOverride > 0 ? durationOverride : m.duration
         var out: [String] = []
         out.append("title: \(yamlString(p.title))")
         out.append("platform: instagram")
@@ -420,7 +569,7 @@ final class ShortFormPipeline {
             out.append("posted_at: \(ISO8601DateFormatter().string(from: posted))")
         }
         out.append("date_saved: \(ISO8601DateFormatter().string(from: Date()))")
-        out.append("duration: \(yamlString(formatDuration(m.duration)))")
+        out.append("duration: \(yamlString(formatDuration(dur)))")
         if let v = m.likes    { out.append("likes: \(v)") }
         if let v = m.comments { out.append("comments: \(v)") }
         if let v = m.views    { out.append("views: \(v)") }

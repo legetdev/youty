@@ -164,126 +164,169 @@ final class InstagramExtractor: NSObject, WKNavigationDelegate, WKScriptMessageH
         }
         didInject = true
 
-        // The scrape script: wait for the rendered React DOM, pull data from
-        // the multiple possible sources (DOM, meta tags, embedded JSON, the
-        // shortcode → media-info API), and post back a single JSON blob.
+        // Scraping strategy (revised per current Instagram, May 2026):
+        //   The rendered <video> element carries a `blob:` MediaSource URL,
+        //   NOT the real CDN MP4. The actual media URL lives inside one of
+        //   the page's <script type="application/json" data-sjs> blocks, in
+        //   either REST shape (`xdt_api__v1__media__shortcode__web_info`)
+        //   or GraphQL shape (`xdt_shortcode_media`). React class hashes
+        //   churn every few weeks, so the JSON payload is the only durable
+        //   path.
+        //
+        //   The outer wrapper returns undefined synchronously because
+        //   WKWebView.evaluateJavaScript can't bridge Promise returns
+        //   ("JavaScript execution returned a result of an unsupported
+        //   type"). The inner IIFE posts results via messageHandlers.
         let js = #"""
-        (async function() {
+        (function outer() {
+          (async function() {
           function post(obj) {
-            window.webkit.messageHandlers.instagramScrape.postMessage(obj);
+            try { window.webkit.messageHandlers.instagramScrape.postMessage(obj); }
+            catch (_) { /* nothing to do */ }
           }
 
-          // 1. Bail fast on a login redirect.
+          // 1. Login wall check.
           if (location.pathname.startsWith('/accounts/login')
               || location.pathname.startsWith('/accounts/onetap')) {
             return post({error: 'login_required'});
           }
 
-          // 2. Wait for content to hydrate. We poll for either:
-          //    (a) a <video> element with a src attribute, or
-          //    (b) an embedded <script type="application/json"> blob
-          //        containing the media data.
-          async function pollFor(predicate, totalMs=12000, stepMs=200) {
-            const start = Date.now();
-            while (Date.now() - start < totalMs) {
-              const v = predicate();
-              if (v) return v;
-              await new Promise(r => setTimeout(r, stepMs));
-            }
+          // 2. Poll for the embedded JSON. Instagram hydrates SSR JSON
+          //    early on the page; usually present within a few hundred ms
+          //    but we tolerate slow connections.
+          function deepFind(o, predicate, depth) {
+            if (!o || typeof o !== 'object' || depth > 60) return null;
+            if (predicate(o)) return o;
+            // Arrays + plain objects both iterate via Object.values.
+            try {
+              for (const v of Object.values(o)) {
+                const r = deepFind(v, predicate, depth + 1);
+                if (r) return r;
+              }
+            } catch (_) {}
             return null;
           }
 
-          const video = await pollFor(() => {
-            const els = Array.from(document.querySelectorAll('article video, main video'));
-            for (const v of els) {
-              if (v.src && v.src.startsWith('http')) return v;
-              const s = v.querySelector('source');
-              if (s && s.src && s.src.startsWith('http')) {
-                v._youtySrcFromSource = s.src;
-                return v;
+          function findPayloadInScripts() {
+            const scripts = document.querySelectorAll('script[type="application/json"]');
+            for (const sc of scripts) {
+              const txt = sc.textContent || '';
+              // Pre-filter: cheap substring check before JSON.parse.
+              if (!txt.includes('xdt_api__v1__media__shortcode__web_info')
+                  && !txt.includes('xdt_shortcode_media')
+                  && !txt.includes('video_versions')) continue;
+              let obj = null;
+              try { obj = JSON.parse(txt); } catch (_) { continue; }
+              // REST shape: deep-search for the web_info key.
+              const rest = deepFind(obj, o =>
+                'xdt_api__v1__media__shortcode__web_info' in o, 0);
+              if (rest) {
+                const items = rest.xdt_api__v1__media__shortcode__web_info?.items;
+                if (Array.isArray(items) && items.length) {
+                  return { shape: 'rest', item: items[0] };
+                }
               }
-            }
-            return null;
-          });
-
-          if (!video) return post({error: 'no_video'});
-
-          const videoSrc = video._youtySrcFromSource || video.src;
-          const w = video.videoWidth || video.clientWidth || 0;
-          const h = video.videoHeight || video.clientHeight || 0;
-          const duration = isFinite(video.duration) ? video.duration : 0;
-
-          // 3. Caption: prefer the rendered article's caption block; fall
-          //    back to og:description (which Instagram normally renders as
-          //    "{caption} | Instagram").
-          function readCaption() {
-            // The visible caption is usually under <h1> in the article
-            // section in newer designs, or in <ul> > <li> > <span> in older.
-            const h1 = document.querySelector('article h1, main h1');
-            if (h1 && h1.innerText && h1.innerText.length > 5) return h1.innerText.trim();
-            const span = document.querySelector('article header + div span, article div[role="button"] + span');
-            if (span && span.innerText && span.innerText.length > 5) return span.innerText.trim();
-            const og = document.querySelector('meta[property="og:description"]');
-            if (og) {
-              // Instagram's og:description is typically '...some likes, X comments — @user on Instagram: "caption"'
-              const c = og.content || '';
-              const m = c.match(/:\s*"([\s\S]+)"\s*$/);
-              if (m) return m[1].trim();
-              return c.trim();
-            }
-            return '';
-          }
-          const caption = readCaption();
-
-          // 4. Author: <header><a href="/{username}/"> is the canonical
-          //    location. Display name appears nearby.
-          function readAuthor() {
-            const headerLinks = document.querySelectorAll('article header a[role="link"], header a[role="link"]');
-            for (const a of headerLinks) {
-              const href = a.getAttribute('href') || '';
-              const m = href.match(/^\/([^/]+)\/?$/);
-              if (m && m[1] && !m[1].includes('?')) {
-                const display = a.innerText || '';
-                return {handle: '@' + m[1], display: display.trim()};
+              // GraphQL fallback.
+              const gql = deepFind(obj, o => 'xdt_shortcode_media' in o, 0);
+              if (gql && gql.xdt_shortcode_media) {
+                return { shape: 'gql', item: gql.xdt_shortcode_media };
               }
-            }
-            return {handle: '', display: ''};
-          }
-          const authorInfo = readAuthor();
-
-          // 5. Posted time: <time datetime="...">
-          const timeEl = document.querySelector('article time[datetime], main time[datetime]');
-          const postedAt = timeEl ? timeEl.getAttribute('datetime') : '';
-
-          // 6. Counts: best-effort scrape — Instagram occasionally hides
-          //    these behind interaction. We grep aria-labels and inline text.
-          function readCount(re) {
-            const all = Array.from(document.querySelectorAll('article section span, article section a, button[aria-label]'));
-            for (const el of all) {
-              const t = (el.innerText || el.getAttribute('aria-label') || '');
-              const m = t.match(re);
-              if (m) {
-                const num = parseInt(m[1].replace(/[,.]/g, ''), 10);
-                if (!isNaN(num)) return num;
+              // Direct video_versions fallback (some pages dump the item
+              // at top level under different keys).
+              const videoBearing = deepFind(obj, o =>
+                Array.isArray(o.video_versions) && o.video_versions.length, 0);
+              if (videoBearing) {
+                return { shape: 'rest', item: videoBearing };
               }
             }
             return null;
           }
-          const likes = readCount(/^([\d,\.]+)\s*(?:likes?|gefällt)/i);
-          const comments = readCount(/^([\d,\.]+)\s*comment/i);
-          const views = readCount(/^([\d,\.]+)\s*view/i);
 
-          // 7. Music / audio: <a href="/reels/audio/{id}/">. The link text
-          //    is "{title}", a nearby element holds the artist.
-          function readMusic() {
-            const a = document.querySelector('a[href*="/reels/audio/"], a[href*="/audio/"]');
-            if (!a) return {title: null, author: null};
-            const txt = a.innerText || '';
-            return {title: txt.trim(), author: null};
+          let found = null;
+          const start = Date.now();
+          while (Date.now() - start < 12000) {
+            found = findPayloadInScripts();
+            if (found) break;
+            await new Promise(r => setTimeout(r, 200));
           }
-          const music = readMusic();
+          if (!found) {
+            // Detailed diagnostic — surface how many script tags we saw so
+            // we can tell "no payload" from "page didn't hydrate".
+            const total = document.querySelectorAll('script[type="application/json"]').length;
+            const titleEl = document.querySelector('title');
+            return post({
+              error: 'no_json_payload',
+              detail: 'scripts=' + total + ' title=' + (titleEl?.textContent || '?') +
+                      ' path=' + location.pathname
+            });
+          }
 
-          // 8. Hashtags: parse from caption.
+          // 3. Pull fields from whichever shape we got.
+          const item = found.item;
+          let videoSrc = null;
+          let w = 0, h = 0, duration = 0;
+          let caption = '';
+          let author = '';
+          let authorDisplayName = '';
+          let postedAtSec = 0;
+          let likes = null, comments = null, views = null;
+          let musicTitle = null, musicAuthor = null;
+          let mediaPK = null;
+          let hashtagArr = [];
+
+          if (found.shape === 'rest') {
+            // REST shape (current default): video_versions[] sorted highest-bitrate-first.
+            const vv = Array.isArray(item.video_versions) ? item.video_versions : [];
+            if (vv.length) {
+              const best = vv.find(v => v.url && v.url.startsWith('http')) || vv[0];
+              videoSrc = best.url;
+              w = best.width || 0;
+              h = best.height || 0;
+            }
+            // Duration field name varies — try every variant we've seen.
+            duration = item.video_duration
+                    || (item.video_dash_manifest_duration_ms ? item.video_dash_manifest_duration_ms / 1000 : 0)
+                    || item.media_duration
+                    || (Array.isArray(item.video_versions) && item.video_versions[0]?.duration) || 0;
+            caption = item.caption?.text || '';
+            author = item.user?.username ? '@' + item.user.username : '';
+            authorDisplayName = item.user?.full_name || '';
+            postedAtSec = item.taken_at || 0;
+            likes    = (typeof item.like_count === 'number') ? item.like_count : null;
+            comments = (typeof item.comment_count === 'number') ? item.comment_count : null;
+            views    = (typeof item.play_count === 'number') ? item.play_count :
+                       (typeof item.view_count === 'number') ? item.view_count : null;
+            const mi = item.clips_metadata?.music_info?.music_asset_info;
+            if (mi) {
+              musicTitle = mi.title || null;
+              musicAuthor = mi.display_artist || null;
+            } else if (item.clips_metadata?.original_sound_info) {
+              musicTitle = 'Original audio';
+              musicAuthor = item.clips_metadata.original_sound_info.ig_artist?.username || null;
+            }
+            mediaPK = item.pk || item.id?.split('_')?.[0] || null;
+          } else {
+            // GraphQL shape (legacy fallback).
+            videoSrc = item.video_url || null;
+            w = item.dimensions?.width || 0;
+            h = item.dimensions?.height || 0;
+            duration = item.video_duration || 0;
+            caption = item.edge_media_to_caption?.edges?.[0]?.node?.text || '';
+            author = item.owner?.username ? '@' + item.owner.username : '';
+            authorDisplayName = item.owner?.full_name || '';
+            postedAtSec = item.taken_at_timestamp || 0;
+            likes    = item.edge_media_preview_like?.count
+                    ?? item.edge_liked_by?.count ?? null;
+            comments = item.edge_media_to_parent_comment?.count
+                    ?? item.edge_media_to_comment?.count ?? null;
+            views    = item.video_view_count ?? null;
+            musicTitle = item.clips_music_attribution_info?.song_name || null;
+            musicAuthor = item.clips_music_attribution_info?.artist_name || null;
+            mediaPK = item.id || null;
+          }
+
+          // 4. Hashtags: parse from caption text. Instagram doesn't always
+          //    expose them as separate fields.
           function parseTags(s) {
             const out = [];
             const re = /#([A-Za-z0-9_À-ɏḀ-ỿ]+)/g;
@@ -291,16 +334,13 @@ final class InstagramExtractor: NSObject, WKNavigationDelegate, WKScriptMessageH
             while ((m = re.exec(s || '')) !== null) out.push(m[1].toLowerCase());
             return Array.from(new Set(out)).sort();
           }
-          const hashtags = parseTags(caption);
+          hashtagArr = parseTags(caption);
 
-          // 9. Optional: media pk for callers that want it. We can find it
-          //    in a "data-media-id" attribute or embedded JSON.
-          let mediaPK = null;
-          const scripts = document.querySelectorAll('script[type="application/json"]');
-          for (const sc of scripts) {
-            const txt = sc.innerText || sc.textContent || '';
-            const m = txt.match(/"media_id":\s*"?(\d{10,25})"?/);
-            if (m) { mediaPK = m[1]; break; }
+          if (!videoSrc) {
+            return post({
+              error: 'no_video',
+              detail: 'shape=' + found.shape + ' item_keys=' + Object.keys(item).slice(0, 10).join(',')
+            });
           }
 
           post({
@@ -308,13 +348,20 @@ final class InstagramExtractor: NSObject, WKNavigationDelegate, WKScriptMessageH
             width: w, height: h,
             duration: duration,
             caption: caption,
-            author: authorInfo.handle,
-            authorDisplayName: authorInfo.display,
-            postedAt: postedAt,
+            author: author,
+            authorDisplayName: authorDisplayName,
+            postedAt: postedAtSec ? new Date(postedAtSec * 1000).toISOString() : '',
             likes: likes, comments: comments, views: views,
-            musicTitle: music.title, musicAuthor: music.author,
-            hashtags: hashtags,
-            mediaPK: mediaPK
+            musicTitle: musicTitle, musicAuthor: musicAuthor,
+            hashtags: hashtagArr,
+            mediaPK: mediaPK ? String(mediaPK) : null
+          });
+          })().catch(function(e) {
+            try {
+              window.webkit.messageHandlers.instagramScrape.postMessage(
+                { error: 'js_threw', detail: String(e && e.stack || e) }
+              );
+            } catch (_) {}
           });
         })();
         """#
@@ -344,6 +391,8 @@ final class InstagramExtractor: NSObject, WKNavigationDelegate, WKScriptMessageH
             return
         }
         if let err = dict["error"] as? String {
+            let detail = (dict["detail"] as? String) ?? ""
+            DebugLog.log("instagram: scrape error=\(err) detail=\(detail.prefix(500))")
             switch err {
             case "login_required":
                 finish(.failure(InstagramExtractorError.notLoggedIn))

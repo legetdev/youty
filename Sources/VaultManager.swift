@@ -52,12 +52,18 @@ final class VaultManager: NSObject, ObservableObject {
     @discardableResult
     func saveNote(result: FetchResult, metadata: VideoMetadata) throws -> URL {
         guard let vault = vaultURL else { throw VaultError.noVault }
-        guard vault.startAccessingSecurityScopedResource() else { throw VaultError.accessDenied }
-        defer { vault.stopAccessingSecurityScopedResource() }
+        let acquired = vault.startAccessingSecurityScopedResource()
+        defer { if acquired { vault.stopAccessingSecurityScopedResource() } }
 
         let fm = FileManager.default
         let folderName = bundleFolderName(metadata: metadata)
-        let folderURL  = vault.appendingPathComponent(folderName)
+        // YouTube bundles live under {vault}/youtube/{folder}. Same shape as
+        // the Instagram + TikTok paths so the corpus has one tree per
+        // platform — easier for AI consumers to filter, easier for humans
+        // to browse, and avoids cross-platform name collisions.
+        let platformFolder = vault.appendingPathComponent("youtube")
+        try fm.createDirectory(at: platformFolder, withIntermediateDirectories: true)
+        let folderURL  = platformFolder.appendingPathComponent(folderName)
 
         // Write video.md inside the new folder
         try fm.createDirectory(at: folderURL, withIntermediateDirectories: true)
@@ -65,8 +71,9 @@ final class VaultManager: NSObject, ObservableObject {
             .write(to: folderURL.appendingPathComponent("video.md"), atomically: true, encoding: .utf8)
 
         // Remove any old bundle for the same video_id (different folder name = re-saved with new title)
+        let relativeFolder = "youtube/\(folderName)"
         if let existing = findExistingEntry(videoID: metadata.videoID, in: vault),
-           existing.folder != folderName {
+           existing.folder != relativeFolder && existing.folder != folderName {
             try? fm.removeItem(at: vault.appendingPathComponent(existing.folder))
         }
 
@@ -137,18 +144,38 @@ final class VaultManager: NSObject, ObservableObject {
         updateManifest(in: vault)
     }
 
-    // Scans all subfolders for video.md, rebuilds manifest.json.
+    // Scans all subfolders for video.md, rebuilds manifest.json. Recurses
+    // one level so the per-platform vault layout
+    // ({vault}/{youtube,tiktok,instagram}/{bundle}) is discovered uniformly
+    // alongside any legacy flat bundles still living at the vault root.
     private func updateManifest(in vault: URL) {
         let fm = FileManager.default
         guard let contents = try? fm.contentsOfDirectory(at: vault,
                                                           includingPropertiesForKeys: [.isDirectoryKey]) else { return }
         var entries: [ManifestEntry] = []
+        let platformDirs = Set(["youtube", "tiktok", "instagram"])
+
         for item in contents {
             guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-            let noteURL = item.appendingPathComponent("video.md")
-            guard let text = try? String(contentsOf: noteURL, encoding: .utf8),
-                  let entry = manifestEntry(from: text, folderName: item.lastPathComponent) else { continue }
-            entries.append(entry)
+
+            // Direct-bundle case: video.md lives one level under {vault}.
+            if let entry = readBundle(at: item, relativePath: item.lastPathComponent) {
+                entries.append(entry)
+                continue
+            }
+
+            // Platform subfolder: video.md lives one more level deep.
+            if platformDirs.contains(item.lastPathComponent) {
+                guard let inner = try? fm.contentsOfDirectory(at: item,
+                                                               includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
+                for bundle in inner {
+                    guard (try? bundle.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+                    let rel = "\(item.lastPathComponent)/\(bundle.lastPathComponent)"
+                    if let entry = readBundle(at: bundle, relativePath: rel) {
+                        entries.append(entry)
+                    }
+                }
+            }
         }
         entries.sort { $0.dateSaved > $1.dateSaved }
         let encoder = JSONEncoder()
@@ -156,6 +183,12 @@ final class VaultManager: NSObject, ObservableObject {
         if let data = try? encoder.encode(entries) {
             try? data.write(to: vault.appendingPathComponent("manifest.json"), options: .atomic)
         }
+    }
+
+    private func readBundle(at folderURL: URL, relativePath: String) -> ManifestEntry? {
+        let noteURL = folderURL.appendingPathComponent("video.md")
+        guard let text = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
+        return manifestEntry(from: text, folderName: relativePath)
     }
 
     // Finds an existing manifest entry by video_id. Checks manifest.json first, then scans.
@@ -166,15 +199,29 @@ final class VaultManager: NSObject, ObservableObject {
             return entries.first { $0.videoID == videoID }
         }
         let fm = FileManager.default
+        let platformDirs = Set(["youtube", "tiktok", "instagram"])
         guard let contents = try? fm.contentsOfDirectory(at: vault,
                                                           includingPropertiesForKeys: [.isDirectoryKey]) else { return nil }
         for item in contents {
             guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-            let noteURL = item.appendingPathComponent("video.md")
-            guard let text = try? String(contentsOf: noteURL, encoding: .utf8),
-                  let entry = manifestEntry(from: text, folderName: item.lastPathComponent),
-                  entry.videoID == videoID else { continue }
-            return entry
+            // Direct legacy bundle at the vault root.
+            if let entry = readBundle(at: item, relativePath: item.lastPathComponent),
+               entry.videoID == videoID {
+                return entry
+            }
+            // Per-platform subfolder — recurse one level.
+            if platformDirs.contains(item.lastPathComponent) {
+                guard let inner = try? fm.contentsOfDirectory(at: item,
+                                                               includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
+                for bundle in inner {
+                    guard (try? bundle.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+                    let rel = "\(item.lastPathComponent)/\(bundle.lastPathComponent)"
+                    if let entry = readBundle(at: bundle, relativePath: rel),
+                       entry.videoID == videoID {
+                        return entry
+                    }
+                }
+            }
         }
         return nil
     }
