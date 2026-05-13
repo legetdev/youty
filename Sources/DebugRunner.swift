@@ -500,6 +500,7 @@ enum DebugRunner {
                 }
                 print("VIDEOS_INDEXED=\(summary.videosIndexed)")
                 print("CHUNKS_WRITTEN=\(summary.chunksWritten)")
+                print("VIDEOS_DELETED=\(summary.videosDeleted)")
                 print("FAILURES=\(summary.failures.count)")
                 for f in summary.failures {
                     print("FAIL_DETAIL folder=\(f.folder) error=\(f.error)")

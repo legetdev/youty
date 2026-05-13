@@ -111,9 +111,24 @@ class GeminiEmbedder:
 
 
 def looks_compound(query: str) -> bool:
-    """Heuristic: should we run the multi-query decomposer?"""
-    if len(query.split()) > 6:
+    """Heuristic: should we run the multi-query decomposer?
+
+    Permissive — when in doubt, decompose. Cost is ~$0.000013 per
+    Gemini Flash call, and the decomposer returns a single-element array
+    on focused queries, so over-triggering is harmless.
+
+    Triggers on:
+      - any query with 4+ tokens (covers conversational phrasing and
+        most German queries — "Friedrich Merz politische Probleme Kritik"
+        is 5 tokens and is plainly compound)
+      - explicit compound markers in EN + DE: " and ", " und ", " oder ",
+        " vs ", " or ", ";", commas, question marks
+    """
+    if len(query.split()) >= 4:
         return True
-    lowered = query.lower()
-    triggers = (", and ", "? ", " and ", " vs ", ";")
+    lowered = " " + query.lower() + " "
+    triggers = (
+        " and ", " or ", " vs ", " und ", " oder ", " sowie ",
+        ", ", "; ", "? ",
+    )
     return any(t in lowered for t in triggers)

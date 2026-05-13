@@ -144,6 +144,107 @@ final class VaultManager: NSObject, ObservableObject {
         updateManifest(in: vault)
     }
 
+    /// Stateless, non-isolated manifest rebuild. Callable from any actor —
+    /// in particular from Indexer.reindexVault which runs on a background
+    /// task while the main thread is blocked on `sem.wait()` in headless
+    /// mode (so `MainActor.run` would deadlock).
+    ///
+    /// Caller is responsible for owning the security scope on `vault`
+    /// (the reindex probe holds it via the stored bookmark).
+    @discardableResult
+    nonisolated static func rebuildManifest(at vault: URL) -> Bool {
+        let manifestURL = vault.appendingPathComponent("manifest.json")
+        let before = (try? FileManager.default.attributesOfItem(atPath: manifestURL.path)[.modificationDate] as? Date) ?? Date.distantPast
+        VaultManager.writeManifest(in: vault)
+        let after = (try? FileManager.default.attributesOfItem(atPath: manifestURL.path)[.modificationDate] as? Date) ?? Date.distantPast
+        let touched = after > before
+        NSLog("[vault] manifest rebuild touched=%@ path=%@", touched ? "yes" : "no", manifestURL.path)
+        return touched
+    }
+
+    /// Non-isolated worker — the actual disk walk + JSON write. Pulled out
+    /// of the `@MainActor`-bound `updateManifest` so the headless reindex
+    /// can call it from a background task without deadlocking.
+    nonisolated static func writeManifest(in vault: URL) {
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: vault, includingPropertiesForKeys: [.isDirectoryKey]
+        ) else { return }
+        var entries: [ManifestEntry] = []
+        let platformDirs: Set<String> = ["youtube", "tiktok", "instagram"]
+        for item in contents {
+            guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+            if let entry = readBundleStatic(at: item, relativePath: item.lastPathComponent) {
+                entries.append(entry)
+                continue
+            }
+            if platformDirs.contains(item.lastPathComponent) {
+                guard let inner = try? fm.contentsOfDirectory(
+                    at: item, includingPropertiesForKeys: [.isDirectoryKey]
+                ) else { continue }
+                for bundle in inner {
+                    guard (try? bundle.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
+                    let rel = "\(item.lastPathComponent)/\(bundle.lastPathComponent)"
+                    if let entry = readBundleStatic(at: bundle, relativePath: rel) {
+                        entries.append(entry)
+                    }
+                }
+            }
+        }
+        entries.sort { $0.dateSaved > $1.dateSaved }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(entries) {
+            try? data.write(to: vault.appendingPathComponent("manifest.json"), options: .atomic)
+        }
+    }
+
+    nonisolated private static func readBundleStatic(at folderURL: URL, relativePath: String) -> ManifestEntry? {
+        let noteURL = folderURL.appendingPathComponent("video.md")
+        guard let text = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
+        return manifestEntryStatic(from: text, folderName: relativePath)
+    }
+
+    nonisolated private static func manifestEntryStatic(from text: String, folderName: String) -> ManifestEntry? {
+        guard text.hasPrefix("---") else { return nil }
+        let lines = text.components(separatedBy: "\n")
+        guard let closeIdx = lines.dropFirst().firstIndex(of: "---") else { return nil }
+        let frontmatter = lines[1..<closeIdx]
+        var kv: [String: String] = [:]
+        for line in frontmatter {
+            let parts = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2 else { continue }
+            kv[parts[0]] = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        }
+        let id = kv["video_id"] ?? kv["post_id"] ?? ""
+        guard !id.isEmpty else { return nil }
+        let platform = kv["platform"] ?? "youtube"
+        let tagsRaw = kv["tags"] ?? kv["hashtags"] ?? "[]"
+        let tags = tagsRaw
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
+            .filter { !$0.isEmpty }
+        let channel = kv["channel"] ?? kv["author_display_name"] ?? kv["author"] ?? ""
+        let urlFallback: String
+        switch platform {
+        case "tiktok":    urlFallback = "https://www.tiktok.com/"
+        case "instagram": urlFallback = "https://www.instagram.com/p/\(id)/"
+        default:          urlFallback = "https://www.youtube.com/watch?v=\(id)"
+        }
+        return ManifestEntry(
+            folder:    folderName,
+            videoID:   id,
+            title:     kv["title"]      ?? "",
+            channel:   channel,
+            duration:  kv["duration"]   ?? "",
+            dateSaved: kv["date_saved"] ?? "",
+            tags:      tags,
+            url:       kv["url"]        ?? urlFallback,
+            platform:  platform
+        )
+    }
+
     // Scans all subfolders for video.md, rebuilds manifest.json. Recurses
     // one level so the per-platform vault layout
     // ({vault}/{youtube,tiktok,instagram}/{bundle}) is discovered uniformly

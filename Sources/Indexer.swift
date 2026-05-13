@@ -24,6 +24,7 @@ enum IndexerError: LocalizedError {
 struct ReindexSummary: Sendable {
     var videosIndexed: Int = 0
     var chunksWritten: Int = 0
+    var videosDeleted: Int = 0       // bundles in DB whose video.md is gone from disk
     var failures: [(folder: String, error: String)] = []
     var totalMs: Int = 0
 }
@@ -51,6 +52,12 @@ enum Indexer {
 
     /// Indexes every `video.md` under `vaultRoot`. Used by the Settings
     /// re-index button and by `--reindex` headless mode.
+    ///
+    /// Also synchronises deletions: at the end of the walk, any DB row whose
+    /// `video_id` was NOT seen on disk in this run is deleted (cascade clears
+    /// chunks, frames, vec_chunks, vec_frames, FTS5). Then drops a refreshed
+    /// version of the bundles' video_ids into `index_meta.last_seen_ids` for
+    /// later diagnostics.
     @discardableResult
     static func reindexVault(vaultRoot: URL,
                               progress: ((String) -> Void)? = nil) async throws -> ReindexSummary {
@@ -58,6 +65,7 @@ enum Indexer {
         let embedder = try makeEmbedderOrThrow()
         let bundles = enumerateBundles(at: vaultRoot)
         var summary = ReindexSummary()
+        var seenIDs = Set<String>()
         for url in bundles {
             do {
                 let count = try await indexBundle(videoMdURL: url,
@@ -65,6 +73,9 @@ enum Indexer {
                                                    embedder: embedder)
                 summary.videosIndexed += 1
                 summary.chunksWritten += count
+                if let id = try? Chunker.parseAndChunk(videoMdURL: url).parsed.qualifiedID {
+                    seenIDs.insert(id)
+                }
                 if count == 0 {
                     progress?("SKIP \(url.path) — already indexed, video.md unchanged")
                 } else {
@@ -76,6 +87,29 @@ enum Indexer {
                 progress?("FAIL \(rel) — \(error.localizedDescription)")
             }
         }
+
+        // Sync deletions — drop DB rows for bundles that no longer exist on
+        // disk. Cascade deletes chunks + frames + their vec0 partitions + the
+        // FTS5 rows via the schema's ON DELETE CASCADE.
+        let allIDs = (try? await IndexStore.shared.allVideoIDs()) ?? []
+        for id in allIDs where !seenIDs.contains(id) {
+            do {
+                try await IndexStore.shared.deleteVideo(videoID: id)
+                summary.videosDeleted += 1
+                progress?("DELETE \(id) — video.md no longer on disk")
+            } catch {
+                progress?("FAIL_DELETE \(id) — \(error.localizedDescription)")
+            }
+        }
+
+        // Rebuild manifest.json so the on-disk corpus index also reflects
+        // the new state (deletions + folder renames). `rebuildManifest` is
+        // nonisolated so this can run directly on the background task; no
+        // MainActor hop required (which would deadlock the headless probe
+        // that blocks main on `sem.wait()`).
+        let manifestTouched = VaultManager.rebuildManifest(at: vaultRoot)
+        progress?("MANIFEST_REBUILT=\(manifestTouched)")
+
         summary.totalMs = Int(Date().timeIntervalSince(kickoff) * 1000)
 
         // Record vault path + last rebuild so the MCP server / Settings UI
@@ -110,6 +144,31 @@ enum Indexer {
             return 0
         }
 
+        // Always refresh the videos row first — keeps folder_path / title /
+        // tags / channel in sync with what's on disk RIGHT NOW, even when
+        // we're about to skip re-embedding. Decouples metadata freshness
+        // from chunk freshness.
+        let bundleFolder = videoMdURL.deletingLastPathComponent()
+        let folderPath = relativePath(of: bundleFolder, under: vaultRoot)
+        let tagsJSON: String = {
+            guard !parsed.tags.isEmpty else { return "[]" }
+            if let data = try? JSONSerialization.data(withJSONObject: parsed.tags, options: []),
+               let str = String(data: data, encoding: .utf8) { return str }
+            return "[]"
+        }()
+        let videoRow = IndexVideoRow(
+            videoID:     parsed.qualifiedID,
+            platform:    parsed.platform,
+            title:       parsed.title,
+            channel:     parsed.channel.isEmpty ? nil : parsed.channel,
+            url:         parsed.url,
+            durationMs:  parsed.durationMs,
+            dateSavedMs: parsed.dateSavedUnixMs,
+            folderPath:  folderPath,
+            tagsJSON:    tagsJSON
+        )
+        try await IndexStore.shared.upsertVideo(videoRow)
+
         // Idempotent skip — don't burn quota on already-indexed videos.
         if !force,
            let state = try await IndexStore.shared.videoIndexState(videoID: parsed.qualifiedID),
@@ -130,33 +189,11 @@ enum Indexer {
             throw IndexerError.vaultMismatch("embedder returned \(vectors.count) vectors for \(chunks.count) chunks")
         }
 
-        let bundleFolder = videoMdURL.deletingLastPathComponent()
-        let folderPath = relativePath(of: bundleFolder, under: vaultRoot)
-        let tagsJSON: String = {
-            guard !parsed.tags.isEmpty else { return "[]" }
-            if let data = try? JSONSerialization.data(withJSONObject: parsed.tags, options: []),
-               let str = String(data: data, encoding: .utf8) { return str }
-            return "[]"
-        }()
-
-        let videoRow = IndexVideoRow(
-            videoID:     parsed.qualifiedID,
-            platform:    parsed.platform,
-            title:       parsed.title,
-            channel:     parsed.channel.isEmpty ? nil : parsed.channel,
-            url:         parsed.url,
-            durationMs:  parsed.durationMs,
-            dateSavedMs: parsed.dateSavedUnixMs,
-            folderPath:  folderPath,
-            tagsJSON:    tagsJSON
-        )
-
         let chunkRows: [IndexChunkRow] = zip(chunks, vectors).map { (c, v) in
             IndexChunkRow(chunk: c, embedding: v, modelVersion: embedder.modelIdentifier)
         }
 
         let store = IndexStore.shared
-        try await store.upsertVideo(videoRow)
         try await store.replaceChunks(videoID: videoRow.videoID, rows: chunkRows)
         try await store.setMeta(key: "current_text_model", value: embedder.modelIdentifier)
 

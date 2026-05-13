@@ -228,6 +228,22 @@ actor IndexStore {
         try execBound("DELETE FROM videos WHERE video_id = ?;", text: videoID)
     }
 
+    /// Returns every `video_id` currently in the index. Used by the reindex
+    /// sweep to find rows orphaned by on-disk deletions.
+    func allVideoIDs() throws -> [String] {
+        try openIfNeeded()
+        let sql = "SELECT video_id FROM videos;"
+        let stmt = try prepare(sql)
+        defer { sqlite3_finalize(stmt) }
+        var out: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let cstr = sqlite3_column_text(stmt, 0) {
+                out.append(String(cString: cstr))
+            }
+        }
+        return out
+    }
+
     /// Returns (indexed_at_ms, chunk_count) for a video, or nil if unindexed.
     /// Used by the indexer to skip re-embedding videos whose video.md hasn't
     /// been modified since the last successful index — keeps reindex idempotent
