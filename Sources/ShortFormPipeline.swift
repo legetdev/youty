@@ -241,7 +241,8 @@ final class ShortFormPipeline {
         )
         DebugLog.log("shortform: requesting \(frameTimes.count) frames (cap=\(settings.frameCountCap) fps=\(settings.fpsCap))")
 
-        let maxEdge = Self.maxLongEdge(for: preview)
+        let maxEdge = Self.maxLongEdge(for: preview, target: settings.targetResolution)
+        DebugLog.log("shortform: target=\(settings.targetResolution)p source=\(preview.width)x\(preview.height) → maxLongEdge=\(maxEdge)")
         let fileBox = SendableURL(tempFileURL)
 
         async let framesTask: [(timestamp: TimeInterval, image: NSImage)] = {
@@ -453,10 +454,30 @@ final class ShortFormPipeline {
 
     // MARK: - Max long edge per source
 
-    private static func maxLongEdge(for p: ShortFormPreview) -> Int {
-        // Reels + TikToks are typically 1080×1920 vertical. Cap at 1920 (long
-        // edge) so we never upscale and preserve every available pixel.
-        return 1920
+    private static func maxLongEdge(for p: ShortFormPreview, target: Int) -> Int {
+        // For short-form posts the platform serves a single video file, so
+        // "stream selection" is trivial — there's nothing to pick between.
+        // The target setting still applies as a *cap*: if the source long
+        // edge exceeds the target's nominal long edge, downscale to the
+        // target. If the source is already at or below the target, save at
+        // native (never upscale).
+        //
+        // Target → long-edge pixel count (matches FastFramePipeline.maxEdgeFor):
+        //   720p  → 1280, 1080p → 1920, 1440p → 2560, 2160p → 3840
+        let targetEdge: Int
+        switch target {
+        case 720:  targetEdge = 1280
+        case 1080: targetEdge = 1920
+        case 1440: targetEdge = 2560
+        case 2160: targetEdge = 3840
+        default:   targetEdge = 1920
+        }
+        let sourceEdge = max(p.width, p.height)
+        // If we don't know the source resolution (0 from a missing metadata
+        // field), fall back to the target — better to cap than to leak full
+        // native pixels on an unknown source.
+        if sourceEdge <= 0 { return targetEdge }
+        return min(sourceEdge, targetEdge)
     }
 
     // MARK: - Duration resolution

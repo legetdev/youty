@@ -56,10 +56,13 @@ final class FastFramePipeline: FramePipeline {
             DebugLog.log("fast: formats fetched in \(formatsMs)ms (n=\(formatList.formats.count), progressive=\(formatList.progressiveCount), length=\(formatList.lengthSeconds)s)")
 
             // ---- Stage 2: select stream ----
+            let target = settings.targetResolution
+            DebugLog.log("fast: target resolution \(target)p (from settings)")
             let stream = try StreamFetcher.selectFastPathStream(
                 from: formatList.formats,
-                progressiveCount: formatList.progressiveCount)
-            DebugLog.log("fast: selected codec=\(stream.codec) quality=\(stream.quality) size=\(stream.contentLength / 1_000_000)MB")
+                progressiveCount: formatList.progressiveCount,
+                targetResolution: target)
+            DebugLog.log("fast: selected codec=\(stream.codec) quality=\(stream.quality) size=\(stream.contentLength / 1_000_000)MB (target=\(target)p)")
 
             // ---- Stage 3: extract frames via FFmpeg ----
             let trueDuration = formatList.lengthSeconds

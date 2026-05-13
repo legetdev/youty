@@ -68,7 +68,24 @@ enum DebugRunner {
         let count = intArg(args, key: "--count") ?? 100
         let outArg = stringArg(args, key: "--out")
         let mode = stringArg(args, key: "--mode") ?? "production"
-        let maxEdge = intArg(args, key: "--max-edge") ?? 1920
+        // --resolution overrides the user setting for headless testing. Falls
+        // back to the user's saved setting (or 1080 if never set).
+        let resolution: Int = {
+            if let r = intArg(args, key: "--resolution") { return r }
+            let stored = UserDefaults.standard.integer(forKey: "targetResolution")
+            return stored == 0 ? 1080 : stored
+        }()
+        // --max-edge caps the decoded frame size. If omitted, derive from the
+        // chosen resolution so the JPEG actually matches the picked source.
+        let maxEdge = intArg(args, key: "--max-edge") ?? {
+            switch resolution {
+            case 720:  return 1280
+            case 1080: return 1920
+            case 1440: return 2560
+            case 2160: return 3840
+            default:   return 1920
+            }
+        }()
 
         guard let videoID = extractVideoID(url) else {
             FileHandle.standardError.write("error: invalid YouTube URL: \(url)\n".data(using: .utf8)!)
@@ -106,6 +123,7 @@ enum DebugRunner {
                     outDir: outDir,
                     mode: mode,
                     maxEdge: Int32(maxEdge),
+                    targetResolution: resolution,
                     kickoff: kickoff
                 )
                 box.code = code
@@ -126,11 +144,13 @@ enum DebugRunner {
         outDir: URL,
         mode: String,
         maxEdge: Int32,
+        targetResolution: Int,
         kickoff: Date
     ) async throws -> Int32 {
 
         print("MODE=\(mode)")
         print("VIDEO_ID=\(videoID)")
+        print("TARGET_RESOLUTION=\(targetResolution)p")
 
         // Stage 1: formats.
         let formatsStart = Date()
@@ -148,7 +168,8 @@ enum DebugRunner {
         do {
             stream = try StreamFetcher.selectFastPathStream(
                 from: formatList.formats,
-                progressiveCount: formatList.progressiveCount)
+                progressiveCount: formatList.progressiveCount,
+                targetResolution: targetResolution)
         } catch {
             print("ERROR=stream-selection: \(error.localizedDescription)")
             return 2

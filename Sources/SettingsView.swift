@@ -24,6 +24,9 @@ struct SettingsView: View {
                 vaultSection
                 Divider().opacity(0.35)
 
+                resolutionSection
+                Divider().opacity(0.35)
+
                 frameSection
                 Divider().opacity(0.35)
 
@@ -87,6 +90,31 @@ struct SettingsView: View {
                     .truncationMode(.middle)
             }
         }
+    }
+
+    // MARK: - Resolution
+
+    private var resolutionSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("Resolution")
+            Picker("", selection: $settings.targetResolutionStored) {
+                ForEach(SettingsStore.resolutionOptions, id: \.value) { opt in
+                    Text(opt.label).tag(opt.value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text(resolutionHint)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var resolutionHint: String {
+        let r = settings.targetResolution
+        return "Saves at \(r)p when the source offers it. Otherwise the highest available below \(r)p — never upscaled."
     }
 
     // MARK: - Frame density

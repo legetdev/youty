@@ -45,12 +45,14 @@ enum StreamFetcher {
     private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     static let androidVRUA = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
 
-    // Resolution priority for the FFmpeg fast path, expressed as the long-edge
-    // pixel count. We match qualityLabel by its leading digits, so "1080p",
-    // "1080p60", "1080p HFR" all bucket as 1080. 1080 preferred per spec
-    // (real source-resolution frames). 1440 / 2160 next (strict supersets of
-    // 1080). Below 1080 we step down. Never upscale — a 360p source saves at 360.
-    static let fastPathHeights: [Int] = [1080, 1440, 2160, 720, 480, 360, 240, 144]
+    // All resolutions the fast path knows how to handle, expressed as the
+    // long-edge pixel count parsed from qualityLabel ("1080p", "1080p60",
+    // "1080p HFR" all bucket as 1080). Used to filter candidates down to
+    // recognisable rungs before applying the target-based priority ordering.
+    static let knownHeights: [Int] = [144, 240, 360, 480, 720, 1080, 1440, 2160]
+
+    /// Default fallback when no explicit target is supplied (legacy callers).
+    static let defaultTargetResolution: Int = 1080
 
     // MARK: - Visitor data caching
 
@@ -198,18 +200,32 @@ enum StreamFetcher {
     //
     // Why no VP9/AV1: VP9 ships in WebM which AVFoundation cannot open. AV1
     // hardware decode is M3+ only; software decode is too slow.
+    /// Selects the best fast-path stream for a target resolution.
+    ///
+    /// Priority order:
+    ///   1. Exact match at `targetResolution`.
+    ///   2. Highest available below `targetResolution`. Never picks a lower
+    ///      rung when a higher rung at-or-below the target was available — so
+    ///      a user targeting 1440p with `{720, 1080}` available gets 1080p,
+    ///      not 720p.
+    ///   3. Lowest available above `targetResolution`. Only reached when the
+    ///      source ladder starts above the target (e.g. target 720p, only
+    ///      1080p+ available). Edge case; logged explicitly.
+    ///
+    /// Within a chosen rung the legacy preferences still apply: non-HFR over
+    /// HFR, then H.264 → VP9 → AV1.
     static func selectFastPathStream(from formats: [[String: Any]],
-                                     progressiveCount: Int) throws -> VideoStream {
+                                     progressiveCount: Int,
+                                     targetResolution: Int = defaultTargetResolution) throws -> VideoStream {
         guard formats.count >= progressiveCount else { throw StreamFetchError.noFastPathAvailable }
 
         // True video length = longest approxDurationMs across all formats.
         let maxDurMs = formats.compactMap { $0["approxDurationMs"] as? Int }.max() ?? 0
 
         // FFmpeg handles every codec YouTube ships — H.264, VP9, AV1 — so we
-        // don't filter by codec, only by resolution. The selector groups by
-        // qualityLabel and within each group prefers H.264 (hardware-decoded
-        // everywhere) over VP9 (Apple-Silicon HW only) over AV1 (M3+ HW
-        // only, software elsewhere).
+        // don't filter by codec, only by resolution. Within a resolution
+        // bucket: H.264 (hardware-decoded everywhere) > VP9 (Apple-Silicon HW
+        // only) > AV1 (M3+ HW only, software elsewhere).
         let codecPriority: [(String, String)] = [
             ("H264", "avc1"), ("VP9", "vp9"), ("AV1", "av01"),
         ]
@@ -223,26 +239,44 @@ enum StreamFetcher {
                Double(durMs) < 0.9 * Double(maxDurMs) {
                 return false
             }
-            return true
+            // Only consider rungs the priority list knows. Anything else
+            // (oddball labels) gets ignored — better than silently picking
+            // an unrecognised bucket.
+            let q = (f["qualityLabel"] as? String) ?? ""
+            return knownHeights.contains(parsedHeight(of: q))
         }
         guard !candidates.isEmpty else { throw StreamFetchError.noFastPathAvailable }
 
-        // Diagnostic: log every candidate's qualityLabel + codec. Helped catch
-        // the original "1080p60" mismatch — keep so future regressions in the
-        // selection logic are visible without re-instrumenting.
+        // Diagnostic: log every candidate's qualityLabel + codec.
         let summary = candidates.prefix(20).compactMap { c -> String? in
             let q = (c["qualityLabel"] as? String) ?? "?"
             let m = (c["mimeType"] as? String) ?? "?"
             let codec = m.contains("avc1") ? "H264" : m.contains("vp9") ? "VP9" : m.contains("av01") ? "AV1" : "?"
             return "\(q)/\(codec)"
         }.joined(separator: " ")
-        DebugLog.log("stream-select: candidates=\(candidates.count) [\(summary)]")
+        DebugLog.log("stream-select: target=\(targetResolution)p candidates=\(candidates.count) [\(summary)]")
 
-        // Match by parsed long-edge height. "1080p", "1080p60", "1080p HFR"
-        // all bucket as 1080. Within a bucket, prefer non-HFR over HFR (same
-        // visual quality, lower bitrate → faster fetch). Within (height, hfr)
-        // prefer H.264 → VP9 → AV1.
-        for height in fastPathHeights {
+        // Distinct heights actually present in this video's ladder.
+        let availableHeights: Set<Int> = Set(candidates.compactMap { c in
+            guard let q = c["qualityLabel"] as? String else { return nil }
+            let h = parsedHeight(of: q)
+            return h > 0 ? h : nil
+        })
+        DebugLog.log("stream-select: target=\(targetResolution)p available_heights=\(availableHeights.sorted())")
+
+        // Build the priority order:
+        //   exact target → highest below (descending) → lowest above (ascending).
+        // This is the canonical "pick best at-or-below target, fall back up
+        // only if nothing at-or-below exists" ordering.
+        var priority: [Int] = []
+        if availableHeights.contains(targetResolution) {
+            priority.append(targetResolution)
+        }
+        priority.append(contentsOf: availableHeights.filter { $0 < targetResolution }.sorted(by: >))
+        priority.append(contentsOf: availableHeights.filter { $0 > targetResolution }.sorted())
+        DebugLog.log("stream-select: target=\(targetResolution)p priority=\(priority)")
+
+        for height in priority {
             for hfrPreference in [false, true] {
                 for (codecName, mimeMarker) in codecPriority {
                     if let f = candidates.first(where: { c in
@@ -252,11 +286,21 @@ enum StreamFetcher {
                         let isHfr = q.contains("60") || q.contains("HFR")
                         return isHfr == hfrPreference && m.contains(mimeMarker)
                     }) {
+                        let label = (f["qualityLabel"] as? String) ?? "?"
+                        let relation: String
+                        if height == targetResolution { relation = "exact" }
+                        else if height < targetResolution { relation = "below(highest-at-or-below)" }
+                        else { relation = "above(lowest-above)" }
+                        DebugLog.log("stream-select: target=\(targetResolution)p PICKED \(label) / \(codecName) (\(relation))")
                         return try makeStream(from: f, codec: codecName)
                     }
                 }
             }
         }
+        // Defensive: if the priority loop didn't pick anything (shouldn't
+        // happen because every height in availableHeights came from a real
+        // candidate), fall back to the first candidate.
+        DebugLog.log("stream-select: target=\(targetResolution)p NO PRIORITY MATCH — falling back to first candidate")
         return try makeStream(from: candidates[0], codec: "H264")
     }
 

@@ -16,6 +16,26 @@ import Foundation
 @MainActor
 final class SettingsStore: ObservableObject {
 
+    // MARK: - Resolution
+
+    /// Target source resolution (long-edge short side, in pixels). When the
+    /// source offers this exact resolution we use it; otherwise we pick the
+    /// highest available ≤ target (never silently jumping to a much-lower
+    /// rung), and only fall back to the lowest available > target when
+    /// nothing at-or-below the target exists. Saved frames are always at the
+    /// picked source's native resolution — never upscaled.
+    @AppStorage("targetResolution") var targetResolutionStored: Int = 1080
+
+    /// Validated accessor. Clamps to one of the four supported options in
+    /// case UserDefaults got hand-edited or migrated from another version.
+    var targetResolution: Int {
+        get {
+            let allowed = Self.resolutionOptions.map(\.value)
+            return allowed.contains(targetResolutionStored) ? targetResolutionStored : 1080
+        }
+        set { targetResolutionStored = newValue }
+    }
+
     // MARK: - Frame density
 
     /// Maximum number of frames per save. Capped at the picked value; the
@@ -49,6 +69,13 @@ final class SettingsStore: ObservableObject {
         let label: String
         let value: Value
     }
+
+    static let resolutionOptions: [Option<Int>] = [
+        Option(label: "720p",  value: 720),
+        Option(label: "1080p", value: 1080),
+        Option(label: "1440p", value: 1440),
+        Option(label: "2160p", value: 2160),
+    ]
 
     static let frameCountOptions: [Option<Int>] = [
         Option(label: "50",  value: 50),
