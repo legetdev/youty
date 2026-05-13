@@ -17,9 +17,25 @@ from typing import Iterable
 import sqlite_vec
 
 
-DEFAULT_DB_PATH = Path(
-    "~/Library/Application Support/Youty/index.db"
-).expanduser()
+def _resolve_default_db_path() -> Path:
+    """Prefer the sandboxed-Mac-app container path when it exists.
+
+    The Mac app is App-Store sandboxed, so its writes land at
+    ~/Library/Containers/dev.leget.youty/Data/Library/Application Support/
+    Youty/index.db. The Python MCP server isn't sandboxed, so the plain
+    ~/Library/Application Support/Youty/index.db is a separate file. When
+    the container DB exists we point at it — that's where real writes go.
+    """
+    container = Path(
+        "~/Library/Containers/dev.leget.youty/Data/Library/"
+        "Application Support/Youty/index.db"
+    ).expanduser()
+    if container.exists():
+        return container
+    return Path("~/Library/Application Support/Youty/index.db").expanduser()
+
+
+DEFAULT_DB_PATH = _resolve_default_db_path()
 
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"

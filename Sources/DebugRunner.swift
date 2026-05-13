@@ -456,19 +456,45 @@ enum DebugRunner {
     //   2 — setup error (missing key, unreadable vault)
     //   3 — fatal (DB open, embedder ctor)
     private static func runReindexProbe(vaultPath: String) -> Never {
-        let vaultURL = URL(fileURLWithPath: vaultPath, isDirectory: true)
+        // Resolve the path. If the user passed the same folder they previously
+        // selected in the Mac app's UI, use the stored security-scoped
+        // bookmark so the sandbox grants access. Otherwise the bare path is
+        // only readable when it's inside the app's container (e.g. ~/Library/
+        // Containers/dev.leget.youty/Data/tmp/...).
+        let bareURL = URL(fileURLWithPath: vaultPath, isDirectory: true).standardizedFileURL
+        var vaultURL = bareURL
+        var bookmarkedURL: URL?
+        if let data = UserDefaults.standard.data(forKey: "vaultBookmark") {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data,
+                                  options: .withSecurityScope,
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &stale) {
+                bookmarkedURL = url.standardizedFileURL
+                if url.standardizedFileURL.path == bareURL.path {
+                    vaultURL = url
+                }
+            }
+        }
+        let scoped = vaultURL.startAccessingSecurityScopedResource()
+        defer { if scoped { vaultURL.stopAccessingSecurityScopedResource() } }
         guard FileManager.default.fileExists(atPath: vaultURL.path) else {
-            FileHandle.standardError.write("error: vault path does not exist: \(vaultPath)\n".data(using: .utf8)!)
+            FileHandle.standardError.write("error: vault path does not exist or is sandbox-blocked: \(vaultPath)\n".data(using: .utf8)!)
+            if let b = bookmarkedURL, b.path != bareURL.path {
+                FileHandle.standardError.write(
+                    "  hint: app currently has a security-scoped bookmark for \(b.path) — pass that path instead, or open the app UI once to re-bookmark.\n".data(using: .utf8)!)
+            }
             exit(2)
         }
         let sem = DispatchSemaphore(value: 0)
         let box = ExitBox()
-        Task.detached {
+        Task.detached { [vaultURL] in
             defer { sem.signal() }
             do {
                 let dbPath = (try? IndexStore.databasePath()) ?? "?"
                 print("VAULT_ROOT=\(vaultURL.path)")
                 print("INDEX_DB=\(dbPath)")
+                print("SCOPED_RESOURCE=\(scoped)")
                 let summary = try await Indexer.reindexVault(vaultRoot: vaultURL) { line in
                     print(line)
                 }
@@ -496,14 +522,27 @@ enum DebugRunner {
     // writes to the `frames` table. Bundles using the legacy 4-digit-seconds
     // JPEG names are silently skipped (FRAMES_KEPT=0 each).
     private static func runIndexFramesProbe(vaultPath: String) -> Never {
-        let vaultURL = URL(fileURLWithPath: vaultPath, isDirectory: true)
+        let bareURL = URL(fileURLWithPath: vaultPath, isDirectory: true).standardizedFileURL
+        var vaultURL = bareURL
+        if let data = UserDefaults.standard.data(forKey: "vaultBookmark") {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data,
+                                  options: .withSecurityScope,
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &stale),
+               url.standardizedFileURL.path == bareURL.path {
+                vaultURL = url
+            }
+        }
+        let scoped = vaultURL.startAccessingSecurityScopedResource()
+        defer { if scoped { vaultURL.stopAccessingSecurityScopedResource() } }
         guard FileManager.default.fileExists(atPath: vaultURL.path) else {
-            FileHandle.standardError.write("error: vault path does not exist: \(vaultPath)\n".data(using: .utf8)!)
+            FileHandle.standardError.write("error: vault path does not exist or is sandbox-blocked: \(vaultPath)\n".data(using: .utf8)!)
             exit(2)
         }
         let sem = DispatchSemaphore(value: 0)
         let box = ExitBox()
-        Task.detached {
+        Task.detached { [vaultURL] in
             defer { sem.signal() }
             do {
                 let dbPath = (try? IndexStore.databasePath()) ?? "?"
@@ -511,6 +550,7 @@ enum DebugRunner {
                 print("VAULT_ROOT=\(vaultURL.path)")
                 print("INDEX_DB=\(dbPath)")
                 print("MODELS_DIR=\(modelsDir)")
+                print("SCOPED_RESOURCE=\(scoped)")
                 let summary = try await Indexer.reindexFrames(vaultRoot: vaultURL) { line in
                     print(line)
                 }

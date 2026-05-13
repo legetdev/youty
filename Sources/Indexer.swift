@@ -65,7 +65,11 @@ enum Indexer {
                                                    embedder: embedder)
                 summary.videosIndexed += 1
                 summary.chunksWritten += count
-                progress?("OK \(url.path) — \(count) chunks")
+                if count == 0 {
+                    progress?("SKIP \(url.path) — already indexed, video.md unchanged")
+                } else {
+                    progress?("OK \(url.path) — \(count) chunks")
+                }
             } catch {
                 let rel = url.path.replacingOccurrences(of: vaultRoot.path + "/", with: "")
                 summary.failures.append((folder: rel, error: error.localizedDescription))
@@ -85,10 +89,13 @@ enum Indexer {
     // MARK: - Internal: single-bundle path
 
     /// Returns the chunk count it wrote, so reindexVault can sum it up.
+    /// Returns 0 when the bundle is already up-to-date (idempotent skip:
+    /// video.md mtime <= last indexed_at AND model_version matches).
     @discardableResult
     static func indexBundle(videoMdURL: URL,
                              vaultRoot: URL,
-                             embedder: Embedder) async throws -> Int {
+                             embedder: Embedder,
+                             force: Bool = false) async throws -> Int {
         let started = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: videoMdURL.path) else {
@@ -101,6 +108,18 @@ enum Indexer {
         }
         guard !chunks.isEmpty else {
             return 0
+        }
+
+        // Idempotent skip — don't burn quota on already-indexed videos.
+        if !force,
+           let state = try await IndexStore.shared.videoIndexState(videoID: parsed.qualifiedID),
+           state.chunkCount > 0,
+           state.modelVersion == embedder.modelIdentifier {
+            let attrs = try? fm.attributesOfItem(atPath: videoMdURL.path)
+            let mtimeMs = (attrs?[.modificationDate] as? Date).map { Int($0.timeIntervalSince1970 * 1000) } ?? 0
+            if mtimeMs <= state.indexedAt {
+                return 0
+            }
         }
 
         // Embed all chunks in one batch (Gemini batch endpoint handles ≥2,

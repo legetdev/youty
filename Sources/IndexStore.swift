@@ -228,6 +228,32 @@ actor IndexStore {
         try execBound("DELETE FROM videos WHERE video_id = ?;", text: videoID)
     }
 
+    /// Returns (indexed_at_ms, chunk_count) for a video, or nil if unindexed.
+    /// Used by the indexer to skip re-embedding videos whose video.md hasn't
+    /// been modified since the last successful index — keeps reindex idempotent
+    /// and avoids burning embed-API quota on no-op work.
+    func videoIndexState(videoID: String) throws -> (indexedAt: Int, chunkCount: Int, modelVersion: String?)? {
+        try openIfNeeded()
+        let sql = """
+            SELECT v.indexed_at,
+                   (SELECT COUNT(*) FROM chunks WHERE video_id = v.video_id) AS cnt,
+                   (SELECT model_version FROM chunks WHERE video_id = v.video_id LIMIT 1) AS mv
+            FROM videos v WHERE v.video_id = ?;
+        """
+        let stmt = try prepare(sql)
+        defer { sqlite3_finalize(stmt) }
+        bindText(stmt, 1, videoID)
+        let rc = sqlite3_step(stmt)
+        if rc == SQLITE_ROW {
+            let at = Int(sqlite3_column_int64(stmt, 0))
+            let cnt = Int(sqlite3_column_int64(stmt, 1))
+            let mvPtr = sqlite3_column_text(stmt, 2)
+            let mv = mvPtr.flatMap { String(cString: $0) }
+            return (at, cnt, mv)
+        }
+        return nil
+    }
+
     /// Convenience: updates an `index_meta` key.
     func setMeta(key: String, value: String) throws {
         try openIfNeeded()
