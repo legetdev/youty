@@ -271,10 +271,55 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            indexStatsBlock
+
             Text("Embeds every video.md into a local SQLite index so an MCP-compatible AI can search the vault. The index lives outside your vault and is fully rebuildable.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { indexerProgress.refreshStats() }
+    }
+
+    /// Read-only status block at the bottom of the AI search index section.
+    /// Mirrors the count breakdown shown by the headless `--reindex` probe,
+    /// so a glance here tells the user exactly what their AI sees.
+    @ViewBuilder
+    private var indexStatsBlock: some View {
+        if let s = indexerProgress.stats {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(systemName: "shippingbox.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Text("\(s.videoCount) videos · \(s.chunkCount) chunks" +
+                         (s.frameCount > 0 ? " · \(s.frameCount) frame vectors" : "") +
+                         "  ·  \(formatBytes(s.dbBytes)) on disk")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                if let lastMs = s.lastRebuildMs {
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Text("Last full reindex: \(formatRelativeTime(unixMs: lastMs))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let model = s.textModelID {
+                    HStack(spacing: 6) {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                        Text("Text model: \(model)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.top, 2)
         }
     }
 
@@ -305,10 +350,12 @@ struct SettingsView: View {
                     }
                 }
                 let line = "Indexed \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
+                           (summary.videosDeleted > 0 ? " · \(summary.videosDeleted) removed" : "") +
                            (summary.failures.isEmpty ? "" : " — \(summary.failures.count) failed")
                 await MainActor.run {
                     self.indexerProgress.lastStatus = line
                     self.indexerProgress.isRunning = false
+                    self.indexerProgress.refreshStats()
                 }
             } catch {
                 await MainActor.run {
@@ -327,6 +374,20 @@ struct SettingsView: View {
             .foregroundStyle(.secondary)
             .textCase(.uppercase)
             .tracking(0.5)
+    }
+
+    private func formatBytes(_ bytes: Int64) -> String {
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useKB, .useMB, .useGB]
+        f.countStyle = .file
+        return f.string(fromByteCount: bytes)
+    }
+
+    private func formatRelativeTime(unixMs: Int) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(unixMs) / 1000)
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .full
+        return f.localizedString(for: date, relativeTo: Date())
     }
 
     /// Segmented picker bound to a Hashable value. Used twice — once for
@@ -356,4 +417,14 @@ struct SettingsView: View {
 final class IndexerProgress: ObservableObject {
     @Published var isRunning: Bool = false
     @Published var lastStatus: String?
+    @Published var stats: IndexStats?
+
+    /// Re-reads the DB and updates `stats`. Cheap (one DB pass), called on
+    /// Settings sheet appear and after `runReindex` completes.
+    func refreshStats() {
+        Task.detached {
+            let s = try? await IndexStore.shared.indexStats()
+            await MainActor.run { self.stats = s }
+        }
+    }
 }

@@ -54,6 +54,18 @@ struct IndexFrameRow {
     let modelVersion: String
 }
 
+/// Snapshot of the index state for the Settings UI. Read in one DB pass.
+struct IndexStats: Sendable {
+    let videoCount: Int
+    let chunkCount: Int
+    let frameCount: Int
+    let lastRebuildMs: Int?           // unix epoch ms, nil if never rebuilt
+    let textModelID: String?          // e.g. "gemini-embedding-001@768"
+    let frameModelID: String?         // e.g. "mobileclip-s2@512"
+    let vaultRoot: String?
+    let dbBytes: Int64                // index.db + index.db-wal size
+}
+
 /// Singleton; the indexer talks to one instance, opened lazily.
 /// Internally serialises all writes via an actor — sqlite3 handles are not
 /// safe to share across threads without serialised access.
@@ -226,6 +238,57 @@ actor IndexStore {
     func deleteVideo(videoID: String) throws {
         try openIfNeeded()
         try execBound("DELETE FROM videos WHERE video_id = ?;", text: videoID)
+    }
+
+    /// Aggregate stats for the Settings UI. Single round-trip through the
+    /// DB — counts + the relevant `index_meta` rows + file size.
+    func indexStats() throws -> IndexStats {
+        try openIfNeeded()
+        func count(_ table: String) -> Int {
+            let stmt = try? prepare("SELECT COUNT(*) FROM \(table);")
+            defer { sqlite3_finalize(stmt) }
+            if let stmt, sqlite3_step(stmt) == SQLITE_ROW {
+                return Int(sqlite3_column_int64(stmt, 0))
+            }
+            return 0
+        }
+        func meta(_ key: String) -> String? {
+            let stmt = try? prepare("SELECT value FROM index_meta WHERE key = ?;")
+            defer { sqlite3_finalize(stmt) }
+            guard let stmt else { return nil }
+            bindText(stmt, 1, key)
+            if sqlite3_step(stmt) == SQLITE_ROW, let cstr = sqlite3_column_text(stmt, 0) {
+                return String(cString: cstr)
+            }
+            return nil
+        }
+        let videoCount = count("videos")
+        let chunkCount = count("chunks")
+        let frameCount = count("frames")
+        let lastRebuildMs = meta("last_rebuild").flatMap(Int.init)
+        let textModel = meta("current_text_model")
+        let frameModel = meta("current_frame_model")
+        let vaultRoot = meta("vault_root")
+
+        // DB file size (includes WAL sidecar if present).
+        var dbBytes: Int64 = 0
+        if let path = try? Self.databasePath() {
+            let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+            if let n = attrs?[.size] as? NSNumber { dbBytes += n.int64Value }
+            let wal = path + "-wal"
+            if let walAttrs = try? FileManager.default.attributesOfItem(atPath: wal),
+               let n = walAttrs[.size] as? NSNumber { dbBytes += n.int64Value }
+        }
+        return IndexStats(
+            videoCount:    videoCount,
+            chunkCount:    chunkCount,
+            frameCount:    frameCount,
+            lastRebuildMs: lastRebuildMs,
+            textModelID:   textModel,
+            frameModelID:  frameModel,
+            vaultRoot:     vaultRoot,
+            dbBytes:       dbBytes
+        )
     }
 
     /// Returns every `video_id` currently in the index. Used by the reindex
