@@ -21,32 +21,43 @@
 		674CF57AC4E8B460F93ED637 /* MediaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4DB273A82F354414E993F7 /* MediaDownloader.swift */; };
 		754CC21CEEDD77A9212895FE /* LocalFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */; };
 		7700E341676B9465D4ADD448 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */; };
+		77CE91EE8F4C30827AE1D84E /* Chunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AF6C6C447D9216143D47E6 /* Chunker.swift */; };
+		79615886D7973E16FA559F69 /* IndexSchema.sql in Resources */ = {isa = PBXBuildFile; fileRef = 7009AA6A6668D4D93B0A165A /* IndexSchema.sql */; };
 		80C925A67998CA3D1A01F1EE /* FFmpegURLSessionIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */; };
 		8609704C5B930A0AE41EDEAE /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 57CDA26D3414E63EDB216766 /* AppIcon.icns */; };
+		8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */; };
 		95177DA36FFB1E5C7D32A1FF /* CanvasFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */; };
 		9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */; };
+		99F278B1636D3DAA95B536B0 /* GeminiEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */; };
 		9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
 		A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
 		A5A27212E838E96609102929 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
+		AD608EA3D02E1867EAC7AAC8 /* MobileCLIPLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25753B7780C0535CF5901FB /* MobileCLIPLoader.swift */; };
 		B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73525BB1298A12906490472 /* FastFramePipeline.swift */; };
 		C197B5F7B683DDB4951CC9BF /* FFmpegSampleTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */; };
 		C6324A47E444EB299EAC6DB6 /* MP4MoofParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */; };
+		C7C2F5EB8D173E0123CCC064 /* IndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */; };
 		C8B9333704250B395669467E /* VideoExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07EACD9853587F324A75FFB /* VideoExtractor.swift */; };
 		C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
+		CE56642172EC7DA6552AD966 /* Indexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB507870B7D6E4EC22ED4053 /* Indexer.swift */; };
 		D235DE78DBDF7AED552E8AFB /* ParallelCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */; };
 		E3165888D2C54EB8455B0EAE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0A56EE058438A3D7841601 /* SettingsView.swift */; };
+		E8B97176F582159EC5144CF0 /* PHashFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13370E21DD4886D040B9C4DD /* PHashFilter.swift */; };
 		ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2C2747C12D2CBE36AD416926 /* Assets.xcassets */; };
+		F06C80DA7A74AC43B01AF18C /* EmbedderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */; };
 		F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
 		FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12465B44FC685B0D846EA0E /* DebugRunner.swift */; };
+		FEDB9DC9FEB3B9CF9CDB1A47 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A947CCECB5098809045CC6 /* KeychainHelper.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFrameExtractor.swift; sourceTree = "<group>"; };
 		095F0E65E14289ABD525C24B /* youty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = youty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformRouter.swift; sourceTree = "<group>"; };
+		13370E21DD4886D040B9C4DD /* PHashFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PHashFilter.swift; sourceTree = "<group>"; };
 		27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokExtractor.swift; sourceTree = "<group>"; };
 		28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParallelCapture.swift; sourceTree = "<group>"; };
 		2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptFetcher.swift; sourceTree = "<group>"; };
@@ -62,10 +73,17 @@
 		57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		61F403150ACD28D7C5A9F18C /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortFormPipeline.swift; sourceTree = "<group>"; };
+		7009AA6A6668D4D93B0A165A /* IndexSchema.sql */ = {isa = PBXFileReference; path = IndexSchema.sql; sourceTree = "<group>"; };
+		7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameEmbedder.swift; sourceTree = "<group>"; };
 		7F0A56EE058438A3D7841601 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegURLSessionIO.swift; sourceTree = "<group>"; };
+		88A947CCECB5098809045CC6 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		8C8C64BEE7581B939A220E62 /* SidxParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidxParser.swift; sourceTree = "<group>"; };
+		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
+		A25753B7780C0535CF5901FB /* MobileCLIPLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCLIPLoader.swift; sourceTree = "<group>"; };
+		B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStore.swift; sourceTree = "<group>"; };
+		B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbedderProtocol.swift; sourceTree = "<group>"; };
 		BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePipeline.swift; sourceTree = "<group>"; };
 		CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasFramePipeline.swift; sourceTree = "<group>"; };
 		D07EACD9853587F324A75FFB /* VideoExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExtractor.swift; sourceTree = "<group>"; };
@@ -76,6 +94,8 @@
 		E533613734AEB3CF1ABED12B /* youtyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = youtyApp.swift; sourceTree = "<group>"; };
 		E73525BB1298A12906490472 /* FastFramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastFramePipeline.swift; sourceTree = "<group>"; };
 		E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4MoofParser.swift; sourceTree = "<group>"; };
+		E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiEmbedder.swift; sourceTree = "<group>"; };
+		EB507870B7D6E4EC22ED4053 /* Indexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Indexer.swift; sourceTree = "<group>"; };
 		EC7071A2233262A50751C78C /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
 		ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameExtractor.swift; sourceTree = "<group>"; };
 		F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhaseIFrameExtractor.swift; sourceTree = "<group>"; };
@@ -100,25 +120,35 @@
 				2C2747C12D2CBE36AD416926 /* Assets.xcassets */,
 				39676C399FF505D0F90D141F /* AuthLoginView.swift */,
 				CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */,
+				98AF6C6C447D9216143D47E6 /* Chunker.swift */,
 				515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */,
 				EC7071A2233262A50751C78C /* DebugLog.swift */,
 				A12465B44FC685B0D846EA0E /* DebugRunner.swift */,
+				B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */,
 				4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */,
 				E73525BB1298A12906490472 /* FastFramePipeline.swift */,
 				453A0D43C6693B48BBE4607F /* FFmpegBridging.h */,
 				DD24184554CE6FFF9B2F5E0D /* FFmpegFrameExtractor.swift */,
 				47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */,
 				8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */,
+				7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */,
 				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
 				BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */,
+				E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */,
+				EB507870B7D6E4EC22ED4053 /* Indexer.swift */,
+				7009AA6A6668D4D93B0A165A /* IndexSchema.sql */,
+				B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */,
 				DEA64626546F131BCD86B15A /* Info.plist */,
 				F26E67BEE5ACDE9AEEA6217D /* InstagramExtractor.swift */,
+				88A947CCECB5098809045CC6 /* KeychainHelper.swift */,
 				001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */,
 				DB4DB273A82F354414E993F7 /* MediaDownloader.swift */,
 				FB6708940A3424B502A6232E /* MetadataEnricher.swift */,
+				A25753B7780C0535CF5901FB /* MobileCLIPLoader.swift */,
 				E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */,
 				28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */,
 				F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */,
+				13370E21DD4886D040B9C4DD /* PHashFilter.swift */,
 				0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */,
 				FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */,
 				61F403150ACD28D7C5A9F18C /* SettingsStore.swift */,
@@ -207,6 +237,7 @@
 			files = (
 				8609704C5B930A0AE41EDEAE /* AppIcon.icns in Resources */,
 				ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */,
+				79615886D7973E16FA559F69 /* IndexSchema.sql in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -219,21 +250,30 @@
 			files = (
 				1BA5CC8ADA3E531A38B36F7A /* AuthLoginView.swift in Sources */,
 				95177DA36FFB1E5C7D32A1FF /* CanvasFramePipeline.swift in Sources */,
+				77CE91EE8F4C30827AE1D84E /* Chunker.swift in Sources */,
 				7700E341676B9465D4ADD448 /* ContentView.swift in Sources */,
 				1D3B34BB5AC912CB62DDA000 /* DebugLog.swift in Sources */,
 				FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */,
+				F06C80DA7A74AC43B01AF18C /* EmbedderProtocol.swift in Sources */,
 				20693B65CBBC3B960A95A6C6 /* FFmpegFrameExtractor.swift in Sources */,
 				C197B5F7B683DDB4951CC9BF /* FFmpegSampleTable.swift in Sources */,
 				80C925A67998CA3D1A01F1EE /* FFmpegURLSessionIO.swift in Sources */,
 				F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */,
 				B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */,
+				8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */,
 				9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */,
 				A5A27212E838E96609102929 /* FramePipeline.swift in Sources */,
+				99F278B1636D3DAA95B536B0 /* GeminiEmbedder.swift in Sources */,
+				C7C2F5EB8D173E0123CCC064 /* IndexStore.swift in Sources */,
+				CE56642172EC7DA6552AD966 /* Indexer.swift in Sources */,
 				3931592C71C89B67BDA4F77E /* InstagramExtractor.swift in Sources */,
+				FEDB9DC9FEB3B9CF9CDB1A47 /* KeychainHelper.swift in Sources */,
 				754CC21CEEDD77A9212895FE /* LocalFrameExtractor.swift in Sources */,
 				C6324A47E444EB299EAC6DB6 /* MP4MoofParser.swift in Sources */,
 				674CF57AC4E8B460F93ED637 /* MediaDownloader.swift in Sources */,
 				348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */,
+				AD608EA3D02E1867EAC7AAC8 /* MobileCLIPLoader.swift in Sources */,
+				E8B97176F582159EC5144CF0 /* PHashFilter.swift in Sources */,
 				D235DE78DBDF7AED552E8AFB /* ParallelCapture.swift in Sources */,
 				9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */,
 				1032CEABD5436FC124C83529 /* PlatformRouter.swift in Sources */,
@@ -327,7 +367,7 @@
 					"@executable_path/../Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/ffmpeg/lib";
-				OTHER_LDFLAGS = "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox";
+				OTHER_LDFLAGS = "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -lsqlite3 -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.leget.youty;
 				SDKROOT = macosx;
 				SWIFT_OBJC_BRIDGING_HEADER = Sources/FFmpegBridging.h;
@@ -413,7 +453,7 @@
 					"@executable_path/../Frameworks",
 				);
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/ffmpeg/lib";
-				OTHER_LDFLAGS = "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox";
+				OTHER_LDFLAGS = "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -lsqlite3 -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.leget.youty;
 				SDKROOT = macosx;
 				SWIFT_OBJC_BRIDGING_HEADER = Sources/FFmpegBridging.h;

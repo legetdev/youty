@@ -12,4 +12,7 @@
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 
+// SQLite C API for the Phase B vector index (IndexStore.swift).
+#include <sqlite3.h>
+
 #endif /* FFmpegBridging_h */

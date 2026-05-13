@@ -18,6 +18,10 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+        excludes:
+          - "IndexSchema.sql"
+      - path: Sources/IndexSchema.sql
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leget.youty
@@ -28,7 +32,7 @@ targets:
         SWIFT_OBJC_BRIDGING_HEADER: Sources/FFmpegBridging.h
         HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/include
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/lib
-        OTHER_LDFLAGS: "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox"
+        OTHER_LDFLAGS: "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -lsqlite3 -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox"
     entitlements:
       path: Sources/youty.entitlements
       properties:

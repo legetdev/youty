@@ -41,6 +41,8 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--instagram-probe")
             || CommandLine.arguments.contains("--speech-probe")
             || CommandLine.arguments.contains("--shortform-save")
+            || CommandLine.arguments.contains("--reindex")
+            || CommandLine.arguments.contains("--index-frames")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -61,6 +63,12 @@ enum DebugRunner {
         if let saveURL = stringArg(args, key: "--shortform-save") {
             runShortFormSaveProbe(urlString: saveURL,
                                    vaultPath: stringArg(args, key: "--vault"))
+        }
+        if let vaultPath = stringArg(args, key: "--reindex") {
+            runReindexProbe(vaultPath: vaultPath)
+        }
+        if let vaultPath = stringArg(args, key: "--index-frames") {
+            runIndexFramesProbe(vaultPath: vaultPath)
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -438,6 +446,94 @@ enum DebugRunner {
             exit(box.code)
         }
         dispatchMain()
+    }
+
+    // Headless Phase B smoke test. Walks every video.md under the given
+    // vault path, embeds each via Gemini, writes into the SQLite index at
+    // ~/Library/Application Support/Youty/index.db. Exit codes:
+    //   0 — all bundles indexed cleanly
+    //   1 — partial: some bundles failed (e.g. transient network)
+    //   2 — setup error (missing key, unreadable vault)
+    //   3 — fatal (DB open, embedder ctor)
+    private static func runReindexProbe(vaultPath: String) -> Never {
+        let vaultURL = URL(fileURLWithPath: vaultPath, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: vaultURL.path) else {
+            FileHandle.standardError.write("error: vault path does not exist: \(vaultPath)\n".data(using: .utf8)!)
+            exit(2)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            do {
+                let dbPath = (try? IndexStore.databasePath()) ?? "?"
+                print("VAULT_ROOT=\(vaultURL.path)")
+                print("INDEX_DB=\(dbPath)")
+                let summary = try await Indexer.reindexVault(vaultRoot: vaultURL) { line in
+                    print(line)
+                }
+                print("VIDEOS_INDEXED=\(summary.videosIndexed)")
+                print("CHUNKS_WRITTEN=\(summary.chunksWritten)")
+                print("FAILURES=\(summary.failures.count)")
+                for f in summary.failures {
+                    print("FAIL_DETAIL folder=\(f.folder) error=\(f.error)")
+                }
+                print("TOTAL_MS=\(summary.totalMs)")
+                box.code = summary.failures.isEmpty ? 0 : 1
+            } catch let e as IndexerError {
+                print("SETUP_ERROR=\(e.localizedDescription)")
+                box.code = 2
+            } catch {
+                print("FATAL=\(error.localizedDescription)")
+                box.code = 3
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
+    // Headless frame indexer. Walks every bundle, runs pHash + MobileCLIP-S2,
+    // writes to the `frames` table. Bundles using the legacy 4-digit-seconds
+    // JPEG names are silently skipped (FRAMES_KEPT=0 each).
+    private static func runIndexFramesProbe(vaultPath: String) -> Never {
+        let vaultURL = URL(fileURLWithPath: vaultPath, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: vaultURL.path) else {
+            FileHandle.standardError.write("error: vault path does not exist: \(vaultPath)\n".data(using: .utf8)!)
+            exit(2)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            do {
+                let dbPath = (try? IndexStore.databasePath()) ?? "?"
+                let modelsDir = (try? MobileCLIPLoader.modelsDirectory().path) ?? "?"
+                print("VAULT_ROOT=\(vaultURL.path)")
+                print("INDEX_DB=\(dbPath)")
+                print("MODELS_DIR=\(modelsDir)")
+                let summary = try await Indexer.reindexFrames(vaultRoot: vaultURL) { line in
+                    print(line)
+                }
+                print("VIDEOS_PROCESSED=\(summary.videosProcessed)")
+                print("VIDEOS_SKIPPED=\(summary.videosSkipped)")
+                print("FRAMES_KEPT=\(summary.framesKept)")
+                print("FRAMES_DROPPED_DEDUPE=\(summary.framesDroppedDedupe)")
+                print("FAILURES=\(summary.failures.count)")
+                for f in summary.failures {
+                    print("FAIL_DETAIL folder=\(f.folder) error=\(f.error)")
+                }
+                print("TOTAL_MS=\(summary.totalMs)")
+                box.code = summary.failures.isEmpty ? 0 : 1
+            } catch let e as IndexerError {
+                print("SETUP_ERROR=\(e.localizedDescription)")
+                box.code = 2
+            } catch {
+                print("FATAL=\(error.localizedDescription)")
+                box.code = 3
+            }
+        }
+        sem.wait()
+        exit(box.code)
     }
 
     private static func runSpeechProbe(audioPath: String) -> Never {

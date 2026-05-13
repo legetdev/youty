@@ -13,6 +13,11 @@ struct SettingsView: View {
     @ObservedObject var vault: VaultManager
     let onDismiss: () -> Void
 
+    @StateObject private var indexerProgress = IndexerProgress()
+    @State private var apiKeyInput: String = ""
+    @State private var apiKeyStored: Bool = KeychainHelper.exists(account: "youty", service: "gemini-api")
+    @State private var apiKeyMessage: String?
+
     var body: some View {
         ZStack {
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
@@ -31,6 +36,9 @@ struct SettingsView: View {
                 Divider().opacity(0.35)
 
                 languageSection
+                Divider().opacity(0.35)
+
+                indexerSection
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 18)
@@ -172,6 +180,145 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - AI search index (Phase B)
+
+    private var indexerSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("AI search index")
+
+            Toggle(isOn: $settings.indexerEnabled) {
+                Text("Index new saves automatically")
+                    .font(.system(size: 13))
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            // API key field. Reads + writes Keychain at account=youty,
+            // service=gemini-api so the value is never serialised to disk
+            // outside the system keychain.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: apiKeyStored ? "checkmark.seal.fill" : "key.fill")
+                        .foregroundStyle(apiKeyStored ? .green : .secondary)
+                        .font(.system(size: 12))
+                    Text(apiKeyStored ? "Gemini API key stored" : "Gemini API key not configured")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                HStack(spacing: 8) {
+                    SecureField(apiKeyStored ? "Enter a new key to replace…" : "Paste your Gemini API key",
+                                 text: $apiKeyInput)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                        )
+                    Button("Save") { saveAPIKey() }
+                        .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .controlSize(.small)
+                }
+                if let msg = apiKeyMessage {
+                    Text(msg)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Model picker — only one option for now, but the surface is in
+            // place so swapping in Voyage / on-device BGE stays one line.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Embedding model")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Picker("", selection: $settings.embeddingModelID) {
+                    Text("Gemini Embedding 001 (768d)").tag("gemini-embedding-001@768")
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            }
+
+            // Re-index action.
+            HStack(spacing: 10) {
+                Button {
+                    runReindex()
+                } label: {
+                    HStack(spacing: 6) {
+                        if indexerProgress.isRunning {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        Text(indexerProgress.isRunning ? "Indexing…" : "Re-index entire vault")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+                .controlSize(.regular)
+                .disabled(indexerProgress.isRunning || vault.vaultURL == nil)
+
+                Spacer()
+            }
+
+            if let status = indexerProgress.lastStatus {
+                Text(status)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("Embeds every video.md into a local SQLite index so an MCP-compatible AI can search the vault. The index lives outside your vault and is fully rebuildable.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func saveAPIKey() {
+        let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        do {
+            try KeychainHelper.write(trimmed, account: "youty", service: "gemini-api")
+            apiKeyInput = ""
+            apiKeyStored = true
+            apiKeyMessage = "Saved."
+        } catch {
+            apiKeyMessage = "Could not save key: \(error.localizedDescription)"
+        }
+    }
+
+    private func runReindex() {
+        guard let vaultURL = vault.vaultURL else { return }
+        indexerProgress.isRunning = true
+        indexerProgress.lastStatus = "Starting…"
+        Task.detached {
+            let acquired = vaultURL.startAccessingSecurityScopedResource()
+            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+            do {
+                let summary = try await Indexer.reindexVault(vaultRoot: vaultURL) { line in
+                    Task { @MainActor in
+                        self.indexerProgress.lastStatus = line
+                    }
+                }
+                let line = "Indexed \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
+                           (summary.failures.isEmpty ? "" : " — \(summary.failures.count) failed")
+                await MainActor.run {
+                    self.indexerProgress.lastStatus = line
+                    self.indexerProgress.isRunning = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.indexerProgress.lastStatus = "Failed: \(error.localizedDescription)"
+                    self.indexerProgress.isRunning = false
+                }
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func sectionTitle(_ s: String) -> some View {
@@ -201,4 +348,12 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity)
     }
+}
+
+/// Drives the inline status line in the AI search index section. Mutated
+/// from the main actor only.
+@MainActor
+final class IndexerProgress: ObservableObject {
+    @Published var isRunning: Bool = false
+    @Published var lastStatus: String?
 }

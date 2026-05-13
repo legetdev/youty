@@ -462,6 +462,7 @@ struct ContentView: View {
                                        ?? preview.instagramMetadata?.shortcode
                                        ?? "post",
                                  folderURL: outcome.folder)
+                    triggerIndexer(bundleFolder: outcome.folder)
                 } catch {
                     vaultError = error.localizedDescription
                 }
@@ -512,6 +513,29 @@ struct ContentView: View {
             applyStage(stage)
         }
         applyOutcome(outcome, videoID: videoID, folderURL: folderURL)
+        if case .success = outcome {
+            triggerIndexer(bundleFolder: folderURL)
+        }
+    }
+
+    /// Best-effort, non-blocking Phase B index. Skipped when the user has
+    /// disabled it in Settings, or when no vault is configured. Failures
+    /// (no API key, network) are logged only — the save itself is already
+    /// complete and the user shouldn't see a UI banner for an optional
+    /// background step. The user can always re-run via Settings → Re-index.
+    private func triggerIndexer(bundleFolder: URL) {
+        guard settings.indexerEnabled else { return }
+        guard let vaultURL = vault.vaultURL else { return }
+        let videoMd = bundleFolder.appendingPathComponent("video.md")
+        Task.detached(priority: .background) {
+            let acquired = vaultURL.startAccessingSecurityScopedResource()
+            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+            do {
+                try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultURL)
+            } catch {
+                NSLog("[youty] indexer skipped/failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func runCanvasFallback(videoID: String, folderURL: URL) async {

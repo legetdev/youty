@@ -63,6 +63,16 @@ final class SettingsStore: ObservableObject {
     /// handles fallback when the exact identifier isn't installed.
     @AppStorage("transcriptionLocale") var transcriptionLocaleIdentifier: String = "auto"
 
+    // MARK: - Indexer (Phase B)
+
+    /// Master toggle. When false, the background indexer hook in ContentView
+    /// skips entirely — capture stays anonymous + offline.
+    @AppStorage("indexerEnabled") var indexerEnabled: Bool = true
+
+    /// Identifier of the embedding model. Mirrors `chunks.model_version`
+    /// in the SQLite index so the Python MCP server can match.
+    @AppStorage("embeddingModelID") var embeddingModelID: String = "gemini-embedding-001@768"
+
     // MARK: - Picker options (single source of truth)
 
     struct Option<Value: Hashable>: Hashable {
