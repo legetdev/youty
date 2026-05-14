@@ -131,6 +131,43 @@ run "Ingestion + classifier + spotlight + local search" \
     "$BIN" --phase-l-probe
 
 echo
+echo "== Phase M — youty CLI =="
+CLI_BIN="$ROOT/build/dd/Build/Products/Debug/youty"
+CLI_VAULT="$(mktemp -d)/youty-cli-smoke"
+mkdir -p "$CLI_VAULT"
+if [ ! -x "$CLI_BIN" ]; then
+    printf "%b∼%b CLI smoke (binary missing — run xcodebuild for youty-cli)${NC}\n" "$YELLOW" "$NC"
+    SKIPPED=$((SKIPPED+1))
+else
+    run "youty --version" \
+        'youty 1' \
+        "$CLI_BIN" --version
+
+    run "youty --help" \
+        'COMMANDS' \
+        "$CLI_BIN" --help
+
+    run "youty save dQw4w9WgXcQ (YouTube)" \
+        '"video_id" : "dQw4w9WgXcQ"' \
+        "$CLI_BIN" save "https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
+            --vault "$CLI_VAULT" --count 10 --no-index --json
+
+    run "youty list" \
+        'dQw4w9WgXcQ' \
+        "$CLI_BIN" list --vault "$CLI_VAULT"
+
+    run "youty search 'rick astley'" \
+        'dQw4w9WgXcQ' \
+        "$CLI_BIN" search "rick astley" --vault "$CLI_VAULT"
+
+    run "youty transcript by id" \
+        '## Transcript' \
+        "$CLI_BIN" transcript "yt:dQw4w9WgXcQ" --vault "$CLI_VAULT"
+
+    rm -rf "$CLI_VAULT"
+fi
+
+echo
 printf "Result: ${GREEN}%d passed${NC}" "$PASSED"
 [ $SKIPPED -gt 0 ] && printf ", ${YELLOW}%d skipped${NC}" "$SKIPPED"
 [ $FAILED -gt 0 ] && printf ", ${RED}%d failed${NC}" "$FAILED"

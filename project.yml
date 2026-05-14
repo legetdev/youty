@@ -61,3 +61,41 @@ targets:
       path: ShareExtension/ShareExtension.entitlements
       properties:
         com.apple.security.app-sandbox: true
+
+  youty-cli:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources
+        excludes:
+          - "IndexSchema.sql"
+          - "Info.plist"
+          - "youty.entitlements"
+          - "Assets.xcassets"
+          - "AppIcon.icns"
+          # GUI-only — the CLI has its own main + no SwiftUI surface
+          - "youtyApp.swift"
+          - "AppDelegate.swift"
+          - "ContentView.swift"
+          - "SettingsView.swift"
+          - "AuthLoginView.swift"
+          - "MenuBarController.swift"
+          - "MainWindowKeeper.swift"
+          - "IngestionFunnel.swift"
+          - "YoutyAppIntents.swift"
+          - "SpotlightIndexer.swift"
+          - "DebugRunner.swift"
+      - path: Sources/IndexSchema.sql
+        buildPhase: resources
+      - path: CLI
+    settings:
+      base:
+        PRODUCT_NAME: youty
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leget.youty.cli
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/FFmpegBridging.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/lib
+        OTHER_LDFLAGS: "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -lsqlite3 -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox -framework Foundation -framework AppKit -framework WebKit -framework Speech"
+        SKIP_INSTALL: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_STYLE: Automatic
