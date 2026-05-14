@@ -535,6 +535,11 @@ struct ContentView: View {
             } catch {
                 NSLog("[youty] indexer skipped/failed: \(error.localizedDescription)")
             }
+            do {
+                try await Indexer.indexFrames(videoMdURL: videoMd, vaultRoot: vaultURL)
+            } catch {
+                NSLog("[youty] frame indexer skipped/failed: \(error.localizedDescription)")
+            }
         }
     }
 
