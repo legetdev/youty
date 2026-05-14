@@ -328,13 +328,13 @@ enum CLIError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .frameExtractionFailed(let reason):
-            return "frame extraction failed: \(reason)"
+            return "Couldn't extract frames: \(reason)"
         case .instagramLoginRequired:
             return """
                 Instagram requires a sign-in.
 
-                The CLI keeps its own web session — Mac-app cookies don't
-                transfer over. Run this once:
+                The CLI has its own web session — your Mac-app login doesn't
+                carry over. Run this once:
 
                   youty login instagram
 

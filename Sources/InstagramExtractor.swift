@@ -63,12 +63,18 @@ enum InstagramExtractorError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .malformedURL:           return "Not a recognised Instagram post URL."
-        case .notLoggedIn:            return "Sign in to Instagram inside Youty to enable Reel extraction."
-        case .noVideo:                return "Instagram returned no playable video for this post (private, deleted, or photo-only)."
-        case .pageLoadFailed(let e):  return "Instagram page failed to load: \(e.localizedDescription)"
-        case .scrapeFailed:           return "Could not parse Instagram post data."
-        case .malformedResponse:      return "Instagram returned an unexpected response shape."
+        case .malformedURL:
+            return "That URL doesn't look like an Instagram post. Use a /reel/, /reels/, /p/, or /tv/ link."
+        case .notLoggedIn:
+            return "Sign in to Instagram inside Youty to save Reels. Paste any Reel URL and the sign-in window will appear."
+        case .noVideo:
+            return "Instagram returned no video for this post. It may be private, deleted, or a photo-only post."
+        case .pageLoadFailed(let e):
+            return "Couldn't load the Instagram page. Check your internet connection and try again. (\(e.localizedDescription))"
+        case .scrapeFailed:
+            return "Youty couldn't read this Instagram post. Try a different post."
+        case .malformedResponse:
+            return "Instagram returned an unexpected response. Try the save again — this usually clears on retry."
         }
     }
 }

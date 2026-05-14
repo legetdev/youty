@@ -61,14 +61,18 @@ enum TikTokExtractorError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .malformedURL(let s): return "Not a recognised TikTok URL: \(s)."
-        case .couldNotResolveShortURL: return "Could not resolve TikTok short URL."
-        case .pageFetchFailed(let c): return "TikTok responded with HTTP \(c)."
-        case .noHydration: return "TikTok page is missing the hydration JSON."
-        case .noItemStruct: return "TikTok payload had no itemStruct."
-        case .noVideoURL: return "Could not find a playable video URL in the response."
-        case .wafChallengeUnsolvable: return "TikTok issued a WAF challenge we could not solve."
-        case .malformedJSON: return "Could not parse TikTok hydration JSON."
+        case .malformedURL:
+            return "That URL doesn't look like a TikTok video. Use a /video/ link from tiktok.com."
+        case .couldNotResolveShortURL:
+            return "Couldn't expand that TikTok short link. Open the link in TikTok, copy the full URL, and try again."
+        case .pageFetchFailed:
+            return "TikTok didn't respond. Check your internet connection and try again."
+        case .noHydration, .noItemStruct, .malformedJSON:
+            return "Youty couldn't read this TikTok page. Try a different video."
+        case .noVideoURL:
+            return "TikTok didn't include a downloadable video for this post. It may be a slideshow or have been removed."
+        case .wafChallengeUnsolvable:
+            return "TikTok blocked the request. Wait a minute and try again, or open the link in TikTok first to refresh your session."
         }
     }
 }

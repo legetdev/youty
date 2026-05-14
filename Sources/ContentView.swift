@@ -346,7 +346,7 @@ struct ContentView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.red)
                                 .font(.system(size: 11))
-                            Text("Fast extraction failed — \(failure.reason)")
+                            Text("Couldn't grab frames the fast way — \(failure.reason)")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -361,7 +361,7 @@ struct ContentView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "tortoise.fill").font(.system(size: 11))
-                                Text("Use fallback approach (slower)")
+                                Text("Try the slower extractor instead")
                                     .font(.system(size: 12, weight: .medium))
                             }
                             .frame(maxWidth: .infinity)
@@ -446,7 +446,7 @@ struct ContentView: View {
             }
         case .tiktok, .instagram:
             guard let url = URL(string: urlInput) else {
-                state = .error("Invalid URL.")
+                state = .error("That doesn't look like a valid post URL.")
                 return
             }
             do {
@@ -570,7 +570,7 @@ struct ContentView: View {
 
         // YouTube path (unchanged).
         guard let result = lastResult else {
-            vaultError = "No transcript loaded."
+            vaultError = "Nothing to save yet. Paste a URL and tap Load first."
             finishExternalIngest()
             return
         }

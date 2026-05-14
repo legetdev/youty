@@ -479,8 +479,10 @@ enum VaultError: LocalizedError {
     case noVault, accessDenied
     var errorDescription: String? {
         switch self {
-        case .noVault:      return "No vault folder selected."
-        case .accessDenied: return "Could not access the selected folder."
+        case .noVault:
+            return "Pick a vault folder in Settings before saving."
+        case .accessDenied:
+            return "Youty can't write to the chosen vault folder. Pick a folder you own, or grant access in System Settings → Privacy & Security → Files & Folders."
         }
     }
 }

@@ -25,9 +25,12 @@ enum MobileCLIPLoaderError: LocalizedError {
     case modelLoad(URL, String)
     var errorDescription: String? {
         switch self {
-        case .download(let u, let s): return "Download failed (\(s)) for \(u.absoluteString)"
-        case .fileMove(let f, let t, let m): return "Move \(f.path) → \(t.path) failed: \(m)"
-        case .modelLoad(let u, let m): return "MLModel load failed for \(u.path): \(m)"
+        case .download:
+            return "Couldn't download the image-search model. Check your internet connection and try saving again — the model only downloads once."
+        case .fileMove:
+            return "Couldn't install the image-search model on disk. Make sure Youty has enough free space, then try again."
+        case .modelLoad:
+            return "Couldn't load the image-search model. Try restarting Youty."
         }
     }
 }

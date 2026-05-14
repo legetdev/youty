@@ -13,3 +13,14 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# Secrets — never commit any of these.
+# Defence-in-depth before Phase R (public repo).
+.env
+.env.*
+*.key
+*.pem
+*.p12
+secrets/
+.secrets/
+.gemini-api.key

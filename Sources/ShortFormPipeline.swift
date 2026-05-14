@@ -36,12 +36,18 @@ enum ShortFormPipelineError: LocalizedError {
     case writeFailed(Error)
     var errorDescription: String? {
         switch self {
-        case .noVault:               return "No vault folder set."
-        case .noVideoTrack:          return "Downloaded media has no playable video track."
-        case .downloadFailed(let e): return "Could not download the video: \(e.localizedDescription)"
-        case .framesFailed(let e):   return "Could not extract frames: \(e.localizedDescription)"
-        case .speechFailed(let e):   return "Could not transcribe audio: \(e.localizedDescription)"
-        case .writeFailed(let e):    return "Could not write the vault bundle: \(e.localizedDescription)"
+        case .noVault:
+            return "Pick a vault folder in Settings before saving."
+        case .noVideoTrack:
+            return "The downloaded post had no playable video. It may be a photo-only post or a carousel without video."
+        case .downloadFailed(let e):
+            return "Couldn't download the video. Check your internet connection and try again. (\(e.localizedDescription))"
+        case .framesFailed(let e):
+            return "Couldn't extract frames from the video. Try a different post. (\(e.localizedDescription))"
+        case .speechFailed(let e):
+            return "Couldn't transcribe the audio. The video will still be saved without a transcript. (\(e.localizedDescription))"
+        case .writeFailed(let e):
+            return "Couldn't write to the vault folder. Check that the folder still exists and Youty can write to it. (\(e.localizedDescription))"
         }
     }
 }

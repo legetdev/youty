@@ -367,10 +367,14 @@ enum FetchError: LocalizedError {
     case invalidURL, networkError, parseError, noTranscript
     var errorDescription: String? {
         switch self {
-        case .invalidURL:   return "That doesn't look like a valid YouTube link."
-        case .networkError: return "Couldn't reach YouTube. Check your connection."
-        case .parseError:   return "Couldn't read the video page. YouTube may have changed."
-        case .noTranscript: return "This video has no available transcript."
+        case .invalidURL:
+            return "That URL doesn't look like a YouTube video. Make sure you copied the full link."
+        case .networkError:
+            return "Couldn't reach YouTube. Check your internet connection and try again."
+        case .parseError:
+            return "Youty couldn't read this YouTube page. The video may be private, deleted, or YouTube may have changed something. Try a different video."
+        case .noTranscript:
+            return "This YouTube video doesn't have captions, so there's no transcript to save."
         }
     }
 }

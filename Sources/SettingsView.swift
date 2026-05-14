@@ -83,7 +83,7 @@ struct SettingsView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 } else {
-                    Text("No vault selected")
+                    Text("No vault yet — pick a folder to start saving.")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
@@ -99,6 +99,11 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+            } else {
+                Text("Every saved video lands in this folder. Pick anywhere — Documents, iCloud Drive, an external drive, whatever you like.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -189,6 +194,11 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("AI search index")
 
+            Text("Optional. Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Your vault stays local — only the transcript text is sent to Gemini, and only with the API key you provide below.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Toggle(isOn: $settings.indexerEnabled) {
                 Text("Index new saves automatically")
                     .font(.system(size: 13))
@@ -204,7 +214,7 @@ struct SettingsView: View {
                     Image(systemName: apiKeyStored ? "checkmark.seal.fill" : "key.fill")
                         .foregroundStyle(apiKeyStored ? .green : .secondary)
                         .font(.system(size: 12))
-                    Text(apiKeyStored ? "Gemini API key stored" : "Gemini API key not configured")
+                    Text(apiKeyStored ? "Gemini API key stored in Keychain" : "Add a Gemini API key to enable search")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -229,6 +239,13 @@ struct SettingsView: View {
                     Text(msg)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 4) {
+                    Text("Free tier covers a few thousand videos.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    Link("Get a key →", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
+                        .font(.system(size: 11))
                 }
             }
 
@@ -276,9 +293,9 @@ struct SettingsView: View {
 
             indexStatsBlock
 
-            Text("Embeds every video.md into a local SQLite index so an MCP-compatible AI can search the vault. The index lives outside your vault and is fully rebuildable.")
+            Text("The index lives outside your vault. You can rebuild it any time without losing saved videos.")
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { indexerProgress.refreshStats() }
@@ -333,9 +350,9 @@ struct SettingsView: View {
             try KeychainHelper.write(trimmed, account: "youty", service: "gemini-api")
             apiKeyInput = ""
             apiKeyStored = true
-            apiKeyMessage = "Saved."
+            apiKeyMessage = "Key saved. New saves will be indexed automatically."
         } catch {
-            apiKeyMessage = "Could not save key: \(error.localizedDescription)"
+            apiKeyMessage = "Couldn't save key. \(error.localizedDescription)"
         }
     }
 
@@ -384,7 +401,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Show in menu bar")
                         .font(.system(size: 13))
-                    Text("Adds a small menu bar icon for one-click saves.")
+                    Text("Adds a tray icon for paste-and-save without bringing the main window forward.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -392,9 +409,10 @@ struct SettingsView: View {
             .toggleStyle(.switch)
             .controlSize(.small)
 
-            Text("Youty also appears in Share menus, Services, Shortcuts, and Spotlight.")
+            Text("Youty also surfaces automatically in Share menus, the Services menu, Shortcuts, and Spotlight — no setup needed.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

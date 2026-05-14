@@ -29,11 +29,16 @@ enum StreamFetchError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noFastPathAvailable: return "No H.264 720p+ stream available."
-        case .restrictedVideo:     return "Video is restricted or unavailable."
-        case .visitorDataInvalid:  return "YouTube session expired."
-        case .networkError(let c): return "YouTube returned HTTP \(c)."
-        case .parseError:          return "Could not parse YouTube response."
+        case .noFastPathAvailable:
+            return "No usable video stream for this YouTube video. It may be region-locked, age-restricted, or premium-only."
+        case .restrictedVideo:
+            return "This YouTube video is restricted or unavailable in your region."
+        case .visitorDataInvalid:
+            return "YouTube needed a fresh session. Try the save again — this usually clears on retry."
+        case .networkError:
+            return "YouTube didn't respond. Check your internet connection and try again."
+        case .parseError:
+            return "Youty couldn't read YouTube's response. Try a different video."
         }
     }
 }

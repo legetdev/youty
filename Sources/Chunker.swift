@@ -22,8 +22,10 @@ enum ChunkerError: LocalizedError {
     case readFailed(Error)
     var errorDescription: String? {
         switch self {
-        case .noFrontmatter:        return "video.md is missing its YAML frontmatter."
-        case .readFailed(let e):    return "Could not read video.md: \(e.localizedDescription)"
+        case .noFrontmatter:
+            return "This saved video's note is malformed — its header is missing. Try saving again, or delete the bundle and re-save."
+        case .readFailed:
+            return "Couldn't read this saved video's note. The file may have moved or been deleted."
         }
     }
 }

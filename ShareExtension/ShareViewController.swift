@@ -192,8 +192,10 @@ enum ShareError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noInput: return "No content was shared."
-        case .noURL:   return "No supported URL found."
+        case .noInput:
+            return "Nothing was shared."
+        case .noURL:
+            return "Youty saves YouTube, Instagram, and TikTok links. The shared item didn't include one."
         }
     }
 }

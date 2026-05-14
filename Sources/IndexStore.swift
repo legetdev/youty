@@ -18,11 +18,12 @@ enum IndexStoreError: LocalizedError {
     case exec(code: Int32, message: String, sql: String)
     var errorDescription: String? {
         switch self {
-        case .schemaResourceMissing:    return "IndexSchema.sql is missing from the app bundle."
-        case .open(let c, let m):       return "Could not open SQLite (\(c)): \(m)"
-        case .prepare(let c, let m, _): return "SQLite prepare failed (\(c)): \(m)"
-        case .step(let c, let m, _):    return "SQLite step failed (\(c)): \(m)"
-        case .exec(let c, let m, _):    return "SQLite exec failed (\(c)): \(m)"
+        case .schemaResourceMissing:
+            return "The search index template is missing from this build of Youty. Reinstall Youty to fix this."
+        case .open:
+            return "Couldn't open the search index. Try restarting Youty."
+        case .prepare, .step, .exec:
+            return "The search index ran into an error. Try the indexer again, or use Settings → Re-index vault if this keeps happening."
         }
     }
 }

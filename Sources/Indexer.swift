@@ -13,9 +13,12 @@ enum IndexerError: LocalizedError {
     case noVideoMD(URL)
     var errorDescription: String? {
         switch self {
-        case .missingKey:                return "No Gemini API key configured. Add one in Settings → AI search index."
-        case .vaultMismatch(let m):      return m
-        case .noVideoMD(let u):          return "No video.md found at \(u.path)."
+        case .missingKey:
+            return "Add a Gemini API key in Settings → AI search index to enable transcript search."
+        case .vaultMismatch(let message):
+            return message
+        case .noVideoMD:
+            return "This saved video is missing its note file. The original save may have failed — try saving again."
         }
     }
 }

@@ -33,14 +33,14 @@ enum SpeechTranscriptionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .audioFileOpenFailed(let url, let e):
-            return "Could not open audio file at \(url.lastPathComponent): \(e.localizedDescription)"
-        case .localeNotSupported(let l):
-            return "Speech recognition isn't available for \(l.identifier) on this device."
-        case .modelInstallFailed(let e):
-            return "Speech model download failed: \(e.localizedDescription)"
-        case .analysisFailed(let e):
-            return "Speech analysis failed: \(e.localizedDescription)"
+        case .audioFileOpenFailed:
+            return "Couldn't open the downloaded audio for transcription. The save will still complete without a transcript."
+        case .localeNotSupported(let locale):
+            return "Your Mac doesn't have an on-device speech model for \(locale.identifier). Pick a different language in Settings → Transcription language, or wait for macOS to download the model."
+        case .modelInstallFailed:
+            return "Couldn't download the on-device speech model. Check your internet connection and try again."
+        case .analysisFailed:
+            return "On-device speech recognition couldn't process this audio. The save will still complete without a transcript."
         }
     }
 }

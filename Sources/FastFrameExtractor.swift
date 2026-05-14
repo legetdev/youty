@@ -20,10 +20,10 @@ enum ExtractionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .incompleteFrames(let g, let e):
-            return "Only \(g) of \(e) frames extracted — try the fallback approach."
+        case .incompleteFrames(let got, let expected):
+            return "Saved \(got) of \(expected) frames. Try the alternative extractor for full coverage."
         case .durationLoadFailed:
-            return "Could not read video duration from downloaded file."
+            return "Couldn't read the video's duration. Try a different video."
         }
     }
 }

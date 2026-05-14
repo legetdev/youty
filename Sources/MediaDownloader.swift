@@ -21,9 +21,12 @@ enum MediaDownloaderError: LocalizedError {
     case underlying(Error)
     var errorDescription: String? {
         switch self {
-        case .badResponse(let c): return "CDN responded with HTTP \(c)."
-        case .empty:              return "CDN returned empty body."
-        case .underlying(let e):  return e.localizedDescription
+        case .badResponse:
+            return "Couldn't download the video — the server refused or returned an error. Try a different post."
+        case .empty:
+            return "The video download was empty. Try a different post."
+        case .underlying(let e):
+            return "Couldn't download the video: \(e.localizedDescription)"
         }
     }
 }

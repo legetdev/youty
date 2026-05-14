@@ -15,10 +15,12 @@ enum FrameEmbedderError: LocalizedError {
     case unexpectedOutputShape(String)
     var errorDescription: String? {
         switch self {
-        case .cannotDecode(let u): return "Could not decode JPEG at \(u.path)."
-        case .cannotResize(let u): return "Could not resize image to 256x256 at \(u.path)."
-        case .predictionFailed(let m): return "CoreML prediction failed: \(m)."
-        case .unexpectedOutputShape(let m): return "Unexpected MobileCLIP output: \(m)."
+        case .cannotDecode:
+            return "Couldn't read a saved frame for image search. The save still completed; visual search may be incomplete for this video."
+        case .cannotResize:
+            return "Couldn't prepare a saved frame for image search. The save still completed; visual search may be incomplete for this video."
+        case .predictionFailed, .unexpectedOutputShape:
+            return "The image-search model returned an unexpected result. The save still completed; try restarting Youty if this keeps happening."
         }
     }
 }
