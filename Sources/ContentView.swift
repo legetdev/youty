@@ -15,6 +15,7 @@ struct ContentView: View {
     @StateObject private var playerFetcher = PlayerFetcher()
     @StateObject private var shortForm: ShortFormPipelineHolder = ShortFormPipelineHolder()
     @StateObject private var settings = SettingsStore()
+    @ObservedObject private var funnel = IngestionFunnel.shared
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var lastResult: FetchResult?
@@ -28,6 +29,9 @@ struct ContentView: View {
     @State private var downloadProgress: Double = 0
     @State private var showCopied = false
     @State private var fastFailure: FastFailure?
+    @State private var autoSavePending = false
+    @State private var ingestionBanner: String?
+    @State private var ingestionBannerTimer: DispatchWorkItem?
     @FocusState private var inputFocused: Bool
 
     private struct FastFailure: Equatable {
@@ -75,15 +79,34 @@ struct ContentView: View {
                     videoExtractor.attach(to: window)
                     playerFetcher.attach(to: window)
                     shortForm.pipeline(vault: vault, settings: settings).attach(to: window)
+                    // Intercept the red-X so closing the window only hides
+                    // it. Keeps ContentView + the WKWebView pipelines alive
+                    // so background saves from menu bar / Share Sheet /
+                    // Services / AppIntent keep working all session.
+                    MainWindowKeeper.shared.attach(to: window)
                 }
             }
+        }
+        .onChange(of: funnel.dispatchID) { _, _ in
+            guard let url = funnel.inboxURL else { return }
+            startExternalIngest(url: url, source: funnel.lastSource)
         }
         .sheet(isPresented: $showInstagramLogin) {
             AuthLoginView(config: .instagram) { result in
                 showInstagramLogin = false
                 if case .success = result, let url = pendingInstagramURL {
                     urlInput = url.absoluteString
-                    Task { await fetch() }
+                    Task {
+                        if autoSavePending {
+                            await runAutoIngest()
+                        } else {
+                            await fetch()
+                        }
+                    }
+                } else if autoSavePending {
+                    // User canceled login during an auto-ingest. Let the funnel
+                    // move on to the next queued URL.
+                    finishExternalIngest()
                 }
                 pendingInstagramURL = nil
             }
@@ -111,6 +134,20 @@ struct ContentView: View {
 
     private var inputSection: some View {
         VStack(spacing: 12) {
+            if let banner = ingestionBanner {
+                HStack(spacing: 6) {
+                    Image(systemName: "tray.and.arrow.down.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(banner)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(.thinMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+            }
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
                     TextField("Paste a YouTube, TikTok or Instagram URL…", text: $urlInput)
@@ -433,6 +470,66 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - External ingestion (Share Sheet / Services / AppIntents / menu bar / scheme)
+
+    /// Called when IngestionFunnel publishes a new URL. Fetches + auto-saves
+    /// using the same paths as a manual paste. Auto-save only triggers when
+    /// `autoSavePending` is true; users typing into the URL field are
+    /// unaffected.
+    private func startExternalIngest(url: URL, source: String) {
+        autoSavePending = true
+        showIngestionBanner(source: source)
+        urlInput = url.absoluteString
+        Task { await runAutoIngest() }
+    }
+
+    /// Drive a single fetch+save cycle. Re-entrant: the Instagram login
+    /// flow may re-invoke this after the user signs in.
+    private func runAutoIngest() async {
+        await fetch()
+        // Instagram login in progress — sheet handler will re-call us.
+        if showInstagramLogin { return }
+        // Fetch failed (no preview, no result) → tell the funnel we're done.
+        if lastResult == nil && shortFormPreview == nil {
+            finishExternalIngest()
+            return
+        }
+        saveToVault()
+        // applyOutcome / save error handlers call finishExternalIngest()
+        // once the save settles. We don't await here so the UI updates as
+        // the frame pipeline progresses.
+    }
+
+    /// Signals IngestionFunnel that this URL is done so the next queue
+    /// item (if any) gets dispatched. Safe to call repeatedly.
+    fileprivate func finishExternalIngest() {
+        guard autoSavePending else { return }
+        autoSavePending = false
+        IngestionFunnel.shared.didFinishSave()
+    }
+
+    /// Briefly show a "Received from {source}" pill so users see the URL
+    /// didn't appear by magic. Auto-clears after 2 s.
+    private func showIngestionBanner(source: String) {
+        let label: String? = {
+            switch source {
+            case "share":     return "From Share Sheet"
+            case "services":  return "From Services menu"
+            case "intent":    return "From Shortcuts"
+            case "menubar":   return "From menu bar"
+            case "scheme":    return "From URL"
+            default:          return nil
+            }
+        }()
+        ingestionBannerTimer?.cancel()
+        withAnimation { ingestionBanner = label }
+        let work = DispatchWorkItem { [self] in
+            withAnimation { ingestionBanner = nil }
+        }
+        ingestionBannerTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: work)
+    }
+
     private func saveToVault() {
         vaultError = nil
 
@@ -465,6 +562,7 @@ struct ContentView: View {
                     triggerIndexer(bundleFolder: outcome.folder)
                 } catch {
                     vaultError = error.localizedDescription
+                    finishExternalIngest()
                 }
             }
             return
@@ -473,6 +571,7 @@ struct ContentView: View {
         // YouTube path (unchanged).
         guard let result = lastResult else {
             vaultError = "No transcript loaded."
+            finishExternalIngest()
             return
         }
         let metadata = MetadataEnricher.enrich(from: result)
@@ -488,6 +587,7 @@ struct ContentView: View {
             }
         } catch {
             vaultError = error.localizedDescription
+            finishExternalIngest()
         }
     }
 
@@ -580,6 +680,7 @@ struct ContentView: View {
         case .success(let count, let ms, let mode):
             NSLog("[youty] \(mode): \(count) frames in \(ms)ms")
             withAnimation { vault.frameState = .done(count) }
+            SpotlightIndexer.indexBundle(at: folderURL, vault: vault)
         case .failed(let reason, let canFallback):
             if canFallback {
                 withAnimation {
@@ -590,6 +691,9 @@ struct ContentView: View {
                 withAnimation { vault.frameState = .failed(reason) }
             }
         }
+        // External-ingestion completion: settle the funnel so the next
+        // queued URL (if any) gets picked up.
+        finishExternalIngest()
     }
 
     private func saveMarkdown(_ content: String, title: String) {

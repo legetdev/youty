@@ -43,6 +43,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--shortform-save")
             || CommandLine.arguments.contains("--reindex")
             || CommandLine.arguments.contains("--index-frames")
+            || CommandLine.arguments.contains("--phase-l-probe")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -69,6 +70,12 @@ enum DebugRunner {
         }
         if let vaultPath = stringArg(args, key: "--index-frames") {
             runIndexFramesProbe(vaultPath: vaultPath)
+        }
+        if args.contains("--phase-l-probe") {
+            runPhaseLProbe()
+        }
+        if args.contains("--phase-l-e2e-check") {
+            runPhaseLE2ECheck()
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -575,6 +582,120 @@ enum DebugRunner {
         }
         sem.wait()
         exit(box.code)
+    }
+
+    /// Headless probe that exercises every Phase L surface that can be
+    /// driven without a system UI interaction:
+    ///   • IngestionFunnel ingest + queue serialization
+    ///   • SpotlightIndexer reconcile (no-op when vault is empty)
+    ///   • VaultLocalSearch keyword search
+    /// Skipped: Share Sheet activation (system UI), Services menu
+    /// (system UI), menu bar popover click (system UI). Those require
+    /// driving the system UI from outside the app.
+    private static func runPhaseLProbe() -> Never {
+        // We are on the main thread (called from AppMain.main → DebugRunner.run).
+        // Use MainActor.assumeIsolated to call MainActor-isolated APIs
+        // synchronously — Task-based dispatch would deadlock because the
+        // MainActor executor is the main thread, and we never return to
+        // the run loop.
+        var failures: [String] = []
+
+        MainActor.assumeIsolated {
+            // 1. Ingestion funnel — verify enqueue + serialization.
+            let funnel = IngestionFunnel.shared
+            funnel.ingest(urlString: "https://www.youtube.com/watch?v=test1", source: "probe")
+            funnel.ingest(urlString: "https://www.youtube.com/watch?v=test2", source: "probe")
+            if funnel.inboxURL?.absoluteString != "https://www.youtube.com/watch?v=test1" {
+                failures.append("funnel: inbox after 2 ingests is not test1 (was \(funnel.inboxURL?.absoluteString ?? "nil"))")
+            }
+            if !funnel.hasWork {
+                failures.append("funnel: hasWork should be true after ingest")
+            }
+            // Drain first → second should become inbox.
+            funnel.didFinishSave()
+            if funnel.inboxURL?.absoluteString != "https://www.youtube.com/watch?v=test2" {
+                failures.append("funnel: after didFinishSave, inbox is not test2 (was \(funnel.inboxURL?.absoluteString ?? "nil"))")
+            }
+            funnel.didFinishSave()
+            if funnel.hasWork {
+                failures.append("funnel: hasWork should be false after final didFinishSave")
+            }
+            // Idempotence: re-enqueueing while active should be a no-op for
+            // duplicates already queued.
+            funnel.ingest(urlString: "https://www.youtube.com/watch?v=test3", source: "probe")
+            funnel.ingest(urlString: "https://www.youtube.com/watch?v=test3", source: "probe")
+            if funnel.inboxURL?.absoluteString != "https://www.youtube.com/watch?v=test3" {
+                failures.append("funnel: third URL not dispatched")
+            }
+            funnel.didFinishSave()
+
+            // 2. URL classifier — used by AppIntents, menu bar, and the
+            // share-extension copy.
+            let classifierCases: [(String, Bool)] = [
+                ("https://www.youtube.com/watch?v=abc", true),
+                ("https://youtu.be/abc",                true),
+                ("https://www.tiktok.com/@user/video/123", true),
+                ("https://vm.tiktok.com/abc",           true),
+                ("https://www.instagram.com/reel/abc",  true),
+                ("https://www.instagram.com/p/abc",     true),
+                ("https://www.google.com/search?q=hi",  false),
+                ("not-a-url",                            false),
+            ]
+            for (input, expected) in classifierCases {
+                let actual = YoutyShareURLClassifier.isSupported(input)
+                if actual != expected {
+                    failures.append("classifier(\"\(input)\"): expected \(expected), got \(actual)")
+                }
+            }
+
+            // 3. Spotlight reconcile — no crashes when vault is empty.
+            SpotlightIndexer.reconcileAll()
+
+            // 4. VaultLocalSearch — empty-query short-circuit returns empty.
+            let results = VaultLocalSearch.search(query: "", limit: 5)
+            if !results.isEmpty {
+                failures.append("VaultLocalSearch.search(\"\"): expected empty, got \(results.count)")
+            }
+        }
+
+        if failures.isEmpty {
+            print("PHASE_L_PROBE OK")
+            exit(0)
+        } else {
+            print("PHASE_L_PROBE FAIL")
+            for f in failures { print("  - \(f)") }
+            exit(1)
+        }
+    }
+
+    /// Invoke each AppIntent's `perform()` directly to verify it lands in
+    /// the funnel + returns sensible result values. Doesn't rely on the
+    /// Shortcuts.app GUI or `shortcuts` CLI.
+    /// Read the sentinel UserDefaults entry that the running app writes
+    /// every time IngestionFunnel.ingest() fires. Lets a CI script verify
+    /// the URL-scheme / Services / Share-Extension surfaces actually
+    /// reached the funnel after launching the live app + dispatching an
+    /// event.
+    private static func runPhaseLE2ECheck() -> Never {
+        let args = CommandLine.arguments
+        let expectedURL = stringArg(args, key: "--expect-url")
+        let expectedSource = stringArg(args, key: "--expect-source")
+        guard let raw = UserDefaults.standard.dictionary(forKey: "phaseLProbe.lastIngest") else {
+            print("PHASE_L_E2E_FAIL no sentinel")
+            exit(1)
+        }
+        let url = raw["url"] as? String ?? ""
+        let source = raw["source"] as? String ?? ""
+        if let exp = expectedURL, exp != url {
+            print("PHASE_L_E2E_FAIL url=\(url) want=\(exp)")
+            exit(1)
+        }
+        if let exp = expectedSource, exp != source {
+            print("PHASE_L_E2E_FAIL source=\(source) want=\(exp)")
+            exit(1)
+        }
+        print("PHASE_L_E2E_OK url=\(url) source=\(source)")
+        exit(0)
     }
 
     private static func runSpeechProbe(audioPath: String) -> Never {

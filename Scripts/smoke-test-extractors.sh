@@ -121,6 +121,16 @@ echo "== Instagram =="
 run_instagram_skip "veganer.wandel — Kartoffelpuffer Crunchwrap"
 
 echo
+echo "== Phase L surfaces =="
+# Headless probe — exercises IngestionFunnel queue serialization, URL
+# classifier, SpotlightIndexer reconcile, and VaultLocalSearch. Share
+# Sheet activation / Services menu click / menu bar popover require
+# driving the system UI and are verified via the in-app flow.
+run "Ingestion + classifier + spotlight + local search" \
+    'PHASE_L_PROBE OK' \
+    "$BIN" --phase-l-probe
+
+echo
 printf "Result: ${GREEN}%d passed${NC}" "$PASSED"
 [ $SKIPPED -gt 0 ] && printf ", ${YELLOW}%d skipped${NC}" "$SKIPPED"
 [ $FAILED -gt 0 ] && printf ", ${RED}%d failed${NC}" "$FAILED"

@@ -39,6 +39,9 @@ struct SettingsView: View {
                 Divider().opacity(0.35)
 
                 indexerSection
+                Divider().opacity(0.35)
+
+                integrationsSection
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 18)
@@ -363,6 +366,35 @@ struct SettingsView: View {
                     self.indexerProgress.isRunning = false
                 }
             }
+        }
+    }
+
+    // MARK: - Integrations (Phase L)
+
+    /// macOS-native surface multipliers — toggles for the optional ones.
+    /// Share Sheet + Services + AppIntents + Spotlight are always on (they
+    /// surface automatically once the app is launched, and they aren't
+    /// intrusive). The menu bar item is the only one that adds a visible
+    /// element to the system UI, so it's opt-in.
+    private var integrationsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Integrations")
+
+            Toggle(isOn: $settings.menuBarEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Show in menu bar")
+                        .font(.system(size: 13))
+                    Text("Adds a small menu bar icon for one-click saves.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+
+            Text("Youty also appears in Share menus, Services, Shortcuts, and Spotlight.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
         }
     }
 

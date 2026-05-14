@@ -73,6 +73,13 @@ final class SettingsStore: ObservableObject {
     /// in the SQLite index so the Python MCP server can match.
     @AppStorage("embeddingModelID") var embeddingModelID: String = "gemini-embedding-001@768"
 
+    // MARK: - Menu bar (Phase L)
+
+    /// When true, Youty installs a small NSStatusBar icon. Click it for a
+    /// popover with a paste field + recent saves. Default off — power-user
+    /// surface only.
+    @AppStorage("menuBarEnabled") var menuBarEnabled: Bool = false
+
     // MARK: - Picker options (single source of truth)
 
     struct Option<Value: Hashable>: Hashable {
