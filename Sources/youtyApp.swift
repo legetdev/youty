@@ -47,26 +47,15 @@ struct YoutyApp: App {
         .defaultSize(width: 520, height: 560)
     }
 
-    /// Handle `youty://save?url=...` (Share Extension, AppIntent, manual)
-    /// and `youty://open?folder=...` (Spotlight handoff).
+    /// Handle `youty://save?url=...` from the Share Extension, AppIntents,
+    /// and manual launches.
     private func handleIncomingURL(_ url: URL) {
-        guard url.scheme?.lowercased() == "youty" else { return }
-        let host = url.host?.lowercased() ?? ""
-        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        switch host {
-        case "save":
-            if let urlParam = components?.queryItems?.first(where: { $0.name == "url" })?.value,
-               !urlParam.isEmpty {
-                IngestionFunnel.shared.ingest(urlString: urlParam, source: "scheme")
-            }
-        case "open":
-            // Spotlight click → reveal bundle in Finder. The folder param is
-            // relative to the vault root (e.g. "youtube/Channel - Title").
-            if let folderParam = components?.queryItems?.first(where: { $0.name == "folder" })?.value {
-                SpotlightIndexer.revealBundle(relativePath: folderParam)
-            }
-        default:
-            break
-        }
+        guard url.scheme?.lowercased() == "youty",
+              url.host?.lowercased() == "save",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let urlParam = components.queryItems?.first(where: { $0.name == "url" })?.value,
+              !urlParam.isEmpty
+        else { return }
+        IngestionFunnel.shared.ingest(urlString: urlParam, source: "scheme")
     }
 }

@@ -680,7 +680,6 @@ struct ContentView: View {
         case .success(let count, let ms, let mode):
             NSLog("[youty] \(mode): \(count) frames in \(ms)ms")
             withAnimation { vault.frameState = .done(count) }
-            SpotlightIndexer.indexBundle(at: folderURL, vault: vault)
         case .failed(let reason, let canFallback):
             if canFallback {
                 withAnimation {

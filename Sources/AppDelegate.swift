@@ -1,5 +1,4 @@
 import AppKit
-import CoreSpotlight
 
 // macOS-specific glue that SwiftUI doesn't expose directly:
 //   1. NSServices provider — handles right-click "Save to Youty Vault" in any app.
@@ -21,13 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Refresh the system service registry so the menu item appears
         // without requiring a restart of every app on disk.
         NSUpdateDynamicServices()
-        // Reconcile the Spotlight index with the current vault. Deferred
-        // off the launch path so it doesn't slow the first paint.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            Task { @MainActor in
-                SpotlightIndexer.reconcileAll()
-            }
-        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -38,23 +30,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainWindowKeeper.shared.reveal()
         }
         return true
-    }
-
-    func application(_ application: NSApplication,
-                     continue userActivity: NSUserActivity,
-                     restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
-        // Spotlight delivers result clicks as NSUserActivity with type
-        // CSSearchableItemActionType. The identifier is "platform:videoID";
-        // we look up its bundle folder via the manifest and reveal it in
-        // Finder.
-        if userActivity.activityType == CSSearchableItemActionType,
-           let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String {
-            Task { @MainActor in
-                SpotlightIndexer.revealBundle(forIdentifier: identifier)
-            }
-            return true
-        }
-        return false
     }
 
     // MARK: - Services

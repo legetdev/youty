@@ -592,7 +592,6 @@ enum DebugRunner {
     /// Headless probe that exercises every Phase L surface that can be
     /// driven without a system UI interaction:
     ///   • IngestionFunnel ingest + queue serialization
-    ///   • SpotlightIndexer reconcile (no-op when vault is empty)
     ///   • VaultLocalSearch keyword search
     /// Skipped: Share Sheet activation (system UI), Services menu
     /// (system UI), menu bar popover click (system UI). Those require
@@ -653,10 +652,7 @@ enum DebugRunner {
                 }
             }
 
-            // 3. Spotlight reconcile — no crashes when vault is empty.
-            SpotlightIndexer.reconcileAll()
-
-            // 4. VaultLocalSearch — empty-query short-circuit returns empty.
+            // 3. VaultLocalSearch — empty-query short-circuit returns empty.
             let results = VaultLocalSearch.search(query: "", limit: 5)
             if !results.isEmpty {
                 failures.append("VaultLocalSearch.search(\"\"): expected empty, got \(results.count)")

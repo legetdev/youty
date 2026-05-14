@@ -100,7 +100,6 @@
 		E7CC5D854D4A4FFCCBE4C576 /* Chunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AF6C6C447D9216143D47E6 /* Chunker.swift */; };
 		E8B97176F582159EC5144CF0 /* PHashFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13370E21DD4886D040B9C4DD /* PHashFilter.swift */; };
 		E979052EADCB12AA1DA89989 /* ListCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF78DB0683DB0DBAC273AA27 /* ListCommand.swift */; };
-		EC12AC63ED881B6B04643A98 /* SpotlightIndexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF8CD6135DF9E0672AED90A9 /* SpotlightIndexer.swift */; };
 		ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2C2747C12D2CBE36AD416926 /* Assets.xcassets */; };
 		F06C80DA7A74AC43B01AF18C /* EmbedderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */; };
 		F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
@@ -193,7 +192,6 @@
 		DB4DB273A82F354414E993F7 /* MediaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDownloader.swift; sourceTree = "<group>"; };
 		DD24184554CE6FFF9B2F5E0D /* FFmpegFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegFrameExtractor.swift; sourceTree = "<group>"; };
 		DEA64626546F131BCD86B15A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		DF8CD6135DF9E0672AED90A9 /* SpotlightIndexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightIndexer.swift; sourceTree = "<group>"; };
 		E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamFetcher.swift; sourceTree = "<group>"; };
 		E533613734AEB3CF1ABED12B /* youtyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = youtyApp.swift; sourceTree = "<group>"; };
 		E73525BB1298A12906490472 /* FastFramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastFramePipeline.swift; sourceTree = "<group>"; };
@@ -293,7 +291,6 @@
 				637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */,
 				8C8C64BEE7581B939A220E62 /* SidxParser.swift */,
 				57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */,
-				DF8CD6135DF9E0672AED90A9 /* SpotlightIndexer.swift */,
 				E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */,
 				27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */,
 				2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */,
@@ -549,7 +546,6 @@
 				2E95A4B3792989B8DC2AA8C5 /* ShortFormPipeline.swift in Sources */,
 				1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */,
 				090209CA9B05E0C2E4924947 /* SpeechTranscriptionPipeline.swift in Sources */,
-				EC12AC63ED881B6B04643A98 /* SpotlightIndexer.swift in Sources */,
 				9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */,
 				A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */,
 				21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */,

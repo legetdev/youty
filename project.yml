@@ -97,7 +97,6 @@ targets:
           - "MainWindowKeeper.swift"
           - "IngestionFunnel.swift"
           - "YoutyAppIntents.swift"
-          - "SpotlightIndexer.swift"
           - "DebugRunner.swift"
       - path: Sources/IndexSchema.sql
         buildPhase: resources
