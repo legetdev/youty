@@ -46,6 +46,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--phase-l-probe")
             || CommandLine.arguments.contains("--phase-l-e2e-check")
             || CommandLine.arguments.contains("--hardness-probe")
+            || CommandLine.arguments.contains("--bench-indexer")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -81,6 +82,9 @@ enum DebugRunner {
         }
         if args.contains("--hardness-probe") {
             runHardnessProbe()
+        }
+        if let nStr = stringArg(args, key: "--bench-indexer") {
+            runBenchIndexer(count: Int(nStr) ?? 1000)
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -857,6 +861,112 @@ enum DebugRunner {
         } else {
             print("HARDNESS_PROBE FAIL")
             for f in collected { print("  - \(f)") }
+            exit(1)
+        }
+    }
+
+    /// Q.8 — synthetic-vault throughput benchmark. Generates `count`
+    /// realistic-looking bundles in a tmp vault, then times the parts of
+    /// the indexer pipeline that don't need a network round-trip:
+    ///   1. `VaultManager.writeManifest` (file walk + frontmatter parse).
+    ///   2. `VaultLocalSearch.search` against the resulting manifest.
+    ///   3. Re-walking the same vault a second time (warm cache).
+    /// Reports throughput so a Phase B→M regression on these paths shows
+    /// up as a clear "X seconds for N videos" number.
+    private static func runBenchIndexer(count: Int) -> Never {
+        let fm = FileManager.default
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("youty-bench-\(UUID().uuidString)", isDirectory: true)
+        let youtube = tmp.appendingPathComponent("youtube", isDirectory: true)
+        try? fm.createDirectory(at: youtube, withIntermediateDirectories: true)
+
+        print("==> Generating \(count) synthetic bundles in \(tmp.path)")
+        let genStart = Date()
+        for i in 0..<count {
+            let folder = youtube.appendingPathComponent("Channel \(i % 100) - Title \(i)")
+            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            // ~2 KB of realistic-shaped video.md per bundle.
+            let body = """
+                ---
+                video_id: synth\(i)
+                title: "Synthetic Bench Title \(i) — the AI built a video"
+                channel: "Channel \(i % 100)"
+                platform: youtube
+                url: https://www.youtube.com/watch?v=synth\(i)
+                duration: "10:00"
+                date_saved: 2026-05-14T12:00:00Z
+                tags: ["benchmark", "synthetic", "youty"]
+                ---
+                ## Description
+
+                Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do
+                eiusmod tempor incididunt ut labore et dolore magna aliqua.
+
+                ## Transcript
+
+                [0:00] Hello, this is synthetic transcript line 1 of \(i).
+                [0:05] And this is the second line of the synthetic transcript.
+                [0:11] Line three — talking about benchmarks and indexers.
+                [0:18] Fourth line, longer this time, to bulk up the chunk size.
+                [0:26] Line five wraps things up, with a final long thought.
+                """
+            try? Data(body.utf8).write(to: folder.appendingPathComponent("video.md"))
+        }
+        let genMs = Int(Date().timeIntervalSince(genStart) * 1000)
+        print("    generation: \(genMs) ms (\(genMs / max(count, 1)) µs/bundle)")
+
+        let failures = HardnessFailureBox()
+        MainActor.assumeIsolated {
+            // 1. Cold manifest build.
+            let coldStart = Date()
+            VaultManager.writeManifest(in: tmp)
+            let coldMs = Int(Date().timeIntervalSince(coldStart) * 1000)
+            let manifestData = (try? Data(contentsOf: tmp.appendingPathComponent("manifest.json"))) ?? Data()
+            let manifestKB = manifestData.count / 1024
+            let arrCount = ((try? JSONSerialization.jsonObject(with: manifestData)) as? [Any])?.count ?? 0
+            print("    cold writeManifest: \(coldMs) ms (\(coldMs * 1000 / max(count, 1)) µs/bundle) — manifest=\(manifestKB) KB, \(arrCount) entries")
+            if arrCount != count {
+                failures.add("cold writeManifest: produced \(arrCount) entries, expected \(count)")
+            }
+
+            // 2. Warm rebuild (manifest already exists).
+            let warmStart = Date()
+            VaultManager.writeManifest(in: tmp)
+            let warmMs = Int(Date().timeIntervalSince(warmStart) * 1000)
+            print("    warm writeManifest: \(warmMs) ms")
+
+            // 3. Keyword search against the manifest.
+            //
+            // VaultLocalSearch.search reads the manifest via vaultRootURL()
+            // which only resolves the UserDefaults bookmark — useless for
+            // this tmp vault. Re-implement the same scoring inline so we
+            // benchmark the pure search math against our synthetic data.
+            let searchStart = Date()
+            let entries = (try? JSONDecoder().decode(
+                [VaultManager.ManifestEntry].self,
+                from: manifestData
+            )) ?? []
+            let needle = "synthetic"
+            let hits = entries.filter { entry in
+                let hay = ([entry.title, entry.channel] + entry.tags).joined(separator: " ").lowercased()
+                return hay.contains(needle)
+            }.prefix(10)
+            let searchMs = Int(Date().timeIntervalSince(searchStart) * 1000)
+            print("    keyword search over \(entries.count): \(searchMs) ms (\(hits.count) top hits)")
+            if hits.isEmpty {
+                failures.add("keyword search returned zero hits when every entry contains 'synthetic'")
+            }
+        }
+
+        try? fm.removeItem(at: tmp)
+
+        let issues = failures.all
+        if issues.isEmpty {
+            print("BENCH_INDEXER OK")
+            exit(0)
+        } else {
+            print("BENCH_INDEXER FAIL")
+            for s in issues { print("  - \(s)") }
             exit(1)
         }
     }

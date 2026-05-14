@@ -183,6 +183,7 @@ struct MenuBarPopoverView: View {
             }
             .buttonStyle(.plain)
             .help("Open Youty")
+            .accessibilityLabel("Open Youty main window")
         }
     }
 
@@ -192,6 +193,8 @@ struct MenuBarPopoverView: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12))
                 .onSubmit { onSave(controller.pasted) }
+                .accessibilityLabel("Video URL")
+                .accessibilityHint("Paste a YouTube, Instagram, or TikTok post URL — save runs silently in the background")
             HStack(spacing: 8) {
                 Button {
                     onSave(controller.pasted)
@@ -202,6 +205,7 @@ struct MenuBarPopoverView: View {
                 .controlSize(.small)
                 .buttonStyle(.borderedProminent)
                 .disabled(!YoutyShareURLClassifier.isSupported(controller.pasted.trimmingCharacters(in: .whitespacesAndNewlines)))
+                .accessibilityLabel("Save URL to vault")
                 if let candidate = controller.clipboardCandidate,
                    candidate != controller.pasted.trimmingCharacters(in: .whitespacesAndNewlines) {
                     Button("Use clipboard") {
@@ -209,6 +213,8 @@ struct MenuBarPopoverView: View {
                     }
                     .controlSize(.small)
                     .buttonStyle(.bordered)
+                    .accessibilityLabel("Use clipboard URL")
+                    .accessibilityHint("Fill the field with the URL currently on your clipboard")
                 }
             }
         }

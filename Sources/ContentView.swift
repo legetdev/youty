@@ -155,6 +155,8 @@ struct ContentView: View {
                         .font(.system(size: 14))
                         .focused($inputFocused)
                         .onSubmit { if isValidURL { Task { await fetch() } } }
+                        .accessibilityLabel("Video URL")
+                        .accessibilityHint("Paste a YouTube, Instagram, or TikTok post URL")
 
                     if !urlInput.isEmpty {
                         Button {
@@ -166,6 +168,7 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                         .transition(.opacity)
+                        .accessibilityLabel("Clear URL")
                     }
                 }
                 .padding(.horizontal, 14)
@@ -206,6 +209,8 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .help("Settings")
+        .accessibilityLabel("Settings")
+        .accessibilityHint("Open the Settings sheet to pick a vault, adjust frame density, or enter your Gemini API key")
     }
 
     private var fetchButton: some View {
@@ -266,6 +271,7 @@ struct ContentView: View {
                     Image(systemName: "xmark").foregroundStyle(.tertiary).font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Dismiss error")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
@@ -331,7 +337,9 @@ struct ContentView: View {
                         Spacer()
                         Button { vaultError = nil } label: {
                             Image(systemName: "xmark").font(.system(size: 10)).foregroundStyle(.tertiary)
-                        }.buttonStyle(.plain)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss error")
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)

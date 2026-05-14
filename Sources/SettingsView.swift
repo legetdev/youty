@@ -66,6 +66,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close settings")
         }
     }
 
@@ -92,6 +93,8 @@ struct SettingsView: View {
                     vault.chooseVault()
                 }
                 .controlSize(.regular)
+                .accessibilityLabel(vault.vaultURL == nil ? "Choose vault folder" : "Change vault folder")
+                .accessibilityHint("Pick the folder where saved videos will be stored")
             }
             if let url = vault.vaultURL {
                 Text(url.path)
@@ -120,6 +123,8 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .accessibilityLabel("Source resolution")
+            .accessibilityHint("Pick the highest resolution Youty should try to fetch")
 
             Text(resolutionHint)
                 .font(.system(size: 11))
@@ -180,6 +185,8 @@ struct SettingsView: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("Transcription language")
+            .accessibilityHint("Language Apple's on-device speech model uses for Instagram and TikTok transcripts")
 
             Text("Used by Instagram and TikTok. YouTube transcripts are scraped directly from the platform.")
                 .font(.system(size: 11))
@@ -205,6 +212,7 @@ struct SettingsView: View {
             }
             .toggleStyle(.switch)
             .controlSize(.small)
+            .accessibilityHint("When on, every saved video is embedded into the local search index so AI tools can find it by meaning")
 
             // API key field. Reads + writes Keychain at account=youty,
             // service=gemini-api so the value is never serialised to disk
@@ -231,9 +239,12 @@ struct SettingsView: View {
                             RoundedRectangle(cornerRadius: 8)
                                 .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                         )
+                        .accessibilityLabel("Gemini API key")
+                        .accessibilityHint("Paste your key from aistudio.google.com — stored only on this Mac")
                     Button("Save") { saveAPIKey() }
                         .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
                         .controlSize(.small)
+                        .accessibilityLabel("Save API key")
                 }
                 if let msg = apiKeyMessage {
                     Text(msg)
@@ -260,6 +271,7 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+                .accessibilityLabel("Embedding model")
             }
 
             // Re-index action.
@@ -279,6 +291,8 @@ struct SettingsView: View {
                 }
                 .controlSize(.regular)
                 .disabled(indexerProgress.isRunning || vault.vaultURL == nil)
+                .accessibilityLabel(indexerProgress.isRunning ? "Indexing in progress" : "Re-index entire vault")
+                .accessibilityHint("Re-embeds every saved video into the local search index")
 
                 Spacer()
             }
@@ -389,10 +403,10 @@ struct SettingsView: View {
     // MARK: - Integrations (Phase L)
 
     /// macOS-native surface multipliers — toggles for the optional ones.
-    /// Share Sheet + Services + AppIntents + Spotlight are always on (they
-    /// surface automatically once the app is launched, and they aren't
-    /// intrusive). The menu bar item is the only one that adds a visible
-    /// element to the system UI, so it's opt-in.
+    /// Share Sheet + Services + AppIntents are always on (they surface
+    /// automatically once the app is launched, and they aren't intrusive).
+    /// The menu bar item is the only one that adds a visible element to
+    /// the system UI, so it's opt-in.
     private var integrationsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Integrations")
@@ -408,8 +422,10 @@ struct SettingsView: View {
             }
             .toggleStyle(.switch)
             .controlSize(.small)
+            .accessibilityLabel("Show in menu bar")
+            .accessibilityHint("When on, a small tray icon lets you save URLs without opening the main window")
 
-            Text("Youty also surfaces automatically in Share menus, the Services menu, Shortcuts, and Spotlight — no setup needed.")
+            Text("Youty also surfaces automatically in Share menus, the Services menu, and Shortcuts — no setup needed.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -456,6 +472,7 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .accessibilityLabel(label)
         }
         .frame(maxWidth: .infinity)
     }

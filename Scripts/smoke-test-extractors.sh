@@ -131,6 +131,26 @@ run "Ingestion + classifier + spotlight + local search" \
     "$BIN" --phase-l-probe
 
 echo
+echo "== Phase Q.8 — perf + accessibility =="
+# Indexer throughput on a synthetic 1000-bundle vault — catches a Phase
+# B→M regression on the manifest walk + frontmatter parse + JSON write.
+run "Indexer bench (1000 synthetic bundles)" \
+    'BENCH_INDEXER OK' \
+    "$BIN" --bench-indexer 1000
+
+# Static accessibility audit — every interactive SwiftUI control must
+# carry an explicit accessibilityLabel/Hint OR a visible Text/Label
+# that SwiftUI uses as the spoken label automatically.
+if "$ROOT/Scripts/audit-accessibility.sh" > /tmp/a11y-audit.txt 2>&1; then
+    printf "%b✓%b Accessibility audit (every SwiftUI control labeled)\n" "$GREEN" "$NC"
+    PASSED=$((PASSED + 1))
+else
+    printf "%b✗%b Accessibility audit\n" "$RED" "$NC"
+    cat /tmp/a11y-audit.txt | sed 's/^/    /'
+    FAILED=$((FAILED + 1))
+fi
+
+echo
 echo "== Phase Q.6 — crash hardening =="
 # Drives every weird vault state we can simulate headlessly: empty vault,
 # vault-is-a-file, garbage manifest.json (7 variants), corrupt video.md

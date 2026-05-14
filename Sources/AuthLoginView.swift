@@ -77,6 +77,7 @@ struct AuthLoginView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Cancel sign-in")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
