@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Build a drag-installable DMG from the current Release youty.app.
+#
+# Output: build/Youty.dmg
+#
+# Layout: a single Finder window with youty.app on the left and an
+# Applications symlink on the right. Drag the app onto Applications to
+# install. Standard macOS convention.
+#
+# Tools used: hdiutil (built-in), osascript (built-in). No third-party.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$ROOT/build/release"
+APP="$BUILD_DIR/Build/Products/Release/youty.app"
+DMG_OUT="$ROOT/build/Youty.dmg"
+VOLUME_NAME="Youty"
+
+# ---- Build the Release app ----
+echo "==> Building Release youty.app..."
+xcodebuild \
+    -project "$ROOT/youty.xcodeproj" \
+    -scheme youty \
+    -configuration Release \
+    -derivedDataPath "$BUILD_DIR" \
+    build > /tmp/youty-dmg-build.log 2>&1 || {
+        echo "error: build failed. Tail of /tmp/youty-dmg-build.log:" >&2
+        tail -20 /tmp/youty-dmg-build.log >&2
+        exit 1
+    }
+
+if [ ! -d "$APP" ]; then
+    echo "error: built app not found at $APP" >&2
+    exit 1
+fi
+
+# ---- Stage the DMG contents ----
+STAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE"' EXIT
+echo "==> Staging in $STAGE"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+
+# ---- Build a read/write DMG so Finder can save view options ----
+mkdir -p "$ROOT/build"
+RW_DMG="$ROOT/build/.youty-rw.dmg"
+rm -f "$RW_DMG" "$DMG_OUT"
+
+# Size = app size + 10 MB headroom for view-options metadata.
+SIZE_KB=$(du -sk "$STAGE" | awk '{print $1 + 10000}')
+hdiutil create \
+    -volname "$VOLUME_NAME" \
+    -srcfolder "$STAGE" \
+    -ov \
+    -format UDRW \
+    -size "${SIZE_KB}k" \
+    "$RW_DMG" > /dev/null
+
+# ---- Mount + apply Finder window layout via AppleScript ----
+echo "==> Mounting + laying out window..."
+MOUNT_DIR=$(hdiutil attach "$RW_DMG" -nobrowse -noverify -noautoopen | tail -1 | awk '{print $3}')
+sleep 1
+
+osascript <<APPLESCRIPT > /dev/null
+tell application "Finder"
+    tell disk "$VOLUME_NAME"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set bounds of container window to {200, 200, 760, 540}
+        set theViewOptions to icon view options of container window
+        set arrangement of theViewOptions to not arranged
+        set icon size of theViewOptions to 128
+        set position of item "youty.app" of container window to {145, 175}
+        set position of item "Applications" of container window to {415, 175}
+        update without registering applications
+        delay 1
+        close
+    end tell
+end tell
+APPLESCRIPT
+
+# Forced sync before unmount so Finder's .DS_Store gets persisted.
+sync
+hdiutil detach "$MOUNT_DIR" -quiet
+
+# ---- Convert RW → compressed read-only ----
+echo "==> Compressing to $DMG_OUT..."
+hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$DMG_OUT" > /dev/null
+rm -f "$RW_DMG"
+
+# ---- Verify the result ----
+hdiutil verify "$DMG_OUT" > /dev/null
+SIZE_MB=$(du -m "$DMG_OUT" | awk '{print $1}')
+echo "==> Built $DMG_OUT (${SIZE_MB} MB)"

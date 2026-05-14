@@ -3,6 +3,10 @@ youty.app/
 build/
 DerivedData/
 *.xcuserstate
+youty-mcp/dist/
+youty-mcp/.venv/
+*.dmg
+*.whl
 
 # Xcode
 xcuserdata/
