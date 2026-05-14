@@ -21,7 +21,16 @@ struct YoutyApp: App {
     @StateObject private var settings = SettingsStore()
 
     var body: some Scene {
-        WindowGroup {
+        // Single-instance window. Previously this was a `WindowGroup`, but
+        // every `youty://save?url=…` opened by the Share Sheet / AppIntent /
+        // URL scheme was spawning a fresh WindowGroup window — and macOS's
+        // "Prefer tabs when opening documents" setting was then auto-merging
+        // those into tabs, so the user saw a tabbed window instead of the
+        // intended single capture surface. `Window` guarantees one (and only
+        // one) window for the app's lifetime; `MainWindowKeeper` then keeps
+        // it alive across red-X clicks so the menu bar + background save
+        // paths still find a host.
+        Window("youty", id: "main") {
             ContentView()
                 .onOpenURL { url in
                     handleIncomingURL(url)
