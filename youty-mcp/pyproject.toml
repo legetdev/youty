@@ -6,12 +6,16 @@ authors = [
     { name = "Bent Eisheuer", email = "legetdev@gmail.com" }
 ]
 requires-python = ">=3.11"
+# Phase Q.5: upper bounds on every dependency so a future major release
+# can't silently break the MCP server. Lower bounds match what the code
+# actually uses; upper bounds capped one major above current (or at the
+# next 0.x for pre-1.0 packages).
 dependencies = [
-    "mcp>=1.2.0",
-    "sqlite-vec>=0.1.6",
-    "httpx>=0.27.0",
-    "numpy>=1.26.0",
-    "coremltools>=9.0",
+    "mcp>=1.2.0,<2.0.0",
+    "sqlite-vec>=0.1.6,<0.2.0",     # pre-1.0; breaking changes likely in 0.2
+    "httpx>=0.27.0,<1.0.0",
+    "numpy>=1.26.0,<3.0.0",
+    "coremltools>=9.0,<10.0.0",
 ]
 
 [project.scripts]

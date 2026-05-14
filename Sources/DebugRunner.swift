@@ -44,6 +44,8 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--reindex")
             || CommandLine.arguments.contains("--index-frames")
             || CommandLine.arguments.contains("--phase-l-probe")
+            || CommandLine.arguments.contains("--phase-l-e2e-check")
+            || CommandLine.arguments.contains("--hardness-probe")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -76,6 +78,9 @@ enum DebugRunner {
         }
         if args.contains("--phase-l-e2e-check") {
             runPhaseLE2ECheck()
+        }
+        if args.contains("--hardness-probe") {
+            runHardnessProbe()
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -696,6 +701,175 @@ enum DebugRunner {
         }
         print("PHASE_L_E2E_OK url=\(url) source=\(source)")
         exit(0)
+    }
+
+    /// Q.6 — drive every weird vault state we can simulate headlessly and
+    /// confirm nothing crashes. Each case sets up a synthetic temp vault,
+    /// triggers the read/write path, and asserts the outcome.
+    ///
+    /// Cases that need physical hardware (yanked external drive, disk full,
+    /// network dropped mid-fetch) are documented but not covered here.
+    private static func runHardnessProbe() -> Never {
+        let failures = HardnessFailureBox()
+        let fm = FileManager.default
+        let tmpRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("youty-hardness-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmpRoot) }
+
+        MainActor.assumeIsolated {
+            // ---- Case 1: completely empty vault (zero bundles) ----
+            let empty = tmpRoot.appendingPathComponent("empty", isDirectory: true)
+            try? fm.createDirectory(at: empty, withIntermediateDirectories: true)
+            VaultManager.writeManifest(in: empty)
+            if let data = try? Data(contentsOf: empty.appendingPathComponent("manifest.json")),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+                if !arr.isEmpty {
+                    failures.add("empty vault: manifest had \(arr.count) entries, expected 0")
+                }
+            } else {
+                failures.add("empty vault: manifest.json missing or invalid after writeManifest")
+            }
+
+            // ---- Case 2: vault path is a regular file, not a directory ----
+            let asFile = tmpRoot.appendingPathComponent("not-a-folder")
+            try? Data("nope".utf8).write(to: asFile)
+            // Should not crash. Should produce no manifest.json next to the
+            // file (write to "manifest.json" path inside a file-as-folder
+            // either no-ops or fails silently via `try?`).
+            VaultManager.writeManifest(in: asFile)
+            // No assertion — survival is the test.
+
+            // ---- Case 3: vault directory exists but contains garbage manifest.json ----
+            let badManifestVault = tmpRoot.appendingPathComponent("bad-manifest", isDirectory: true)
+            try? fm.createDirectory(at: badManifestVault, withIntermediateDirectories: true)
+            let badManifestPath = badManifestVault.appendingPathComponent("manifest.json")
+            for garbage in [
+                "",                                          // empty file
+                "not json at all",                           // raw text
+                "{",                                         // truncated JSON
+                "{\"foo\":\"bar\"}",                         // valid JSON, wrong shape
+                "[1, 2, 3]",                                 // array of wrong items
+                String(repeating: "x", count: 10_000),      // huge garbage
+                "\u{FEFF}[]"                                 // BOM-prefixed empty array
+            ] {
+                try? Data(garbage.utf8).write(to: badManifestPath)
+                // Writers should overwrite the garbage with a valid empty
+                // array (no bundles in this vault).
+                VaultManager.writeManifest(in: badManifestVault)
+                let after = (try? Data(contentsOf: badManifestPath)) ?? Data()
+                if (try? JSONSerialization.jsonObject(with: after) as? [Any]) == nil {
+                    failures.add("garbage-manifest case \"\(garbage.prefix(20))…\": writeManifest didn't repair the file")
+                }
+            }
+
+            // ---- Case 4: bundles with corrupt or partial video.md ----
+            let corruptVault = tmpRoot.appendingPathComponent("corrupt", isDirectory: true)
+            let youtubeDir = corruptVault.appendingPathComponent("youtube", isDirectory: true)
+            try? fm.createDirectory(at: youtubeDir, withIntermediateDirectories: true)
+            let corruptCases: [(name: String, body: String)] = [
+                ("no-frontmatter", "Just some text with no YAML markers at all."),
+                ("partial-frontmatter", "---\ntitle: Test\n"),                  // missing closing ---
+                ("frontmatter-only-no-id", "---\ntitle: Test\nplatform: youtube\n---\nBody"),
+                ("garbage-frontmatter", "---\n!@#$%^&*()_+\nnot=valid:yaml\n---\nBody"),
+                ("just-dashes", "---\n---"),
+                ("empty-file", ""),
+                ("binary-bytes", String(decoding: Data([0xFF, 0xFE, 0x00, 0x00, 0x7F]), as: UTF8.self)),
+            ]
+            for c in corruptCases {
+                let folder = youtubeDir.appendingPathComponent(c.name, isDirectory: true)
+                try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                try? Data(c.body.utf8).write(to: folder.appendingPathComponent("video.md"))
+            }
+            // writeManifest should walk all of them without crashing and
+            // emit an empty array (or whichever ones happen to parse — none
+            // should, since none have a valid video_id).
+            VaultManager.writeManifest(in: corruptVault)
+            let corruptManifestPath = corruptVault.appendingPathComponent("manifest.json")
+            if let data = try? Data(contentsOf: corruptManifestPath),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [Any] {
+                if !arr.isEmpty {
+                    failures.add("corrupt-bundles: writeManifest produced \(arr.count) entries from garbage video.md")
+                }
+            } else {
+                failures.add("corrupt-bundles: no valid manifest after writeManifest")
+            }
+
+            // ---- Case 5: read-only vault directory ----
+            let readOnly = tmpRoot.appendingPathComponent("readonly", isDirectory: true)
+            try? fm.createDirectory(at: readOnly, withIntermediateDirectories: true)
+            try? fm.setAttributes([.posixPermissions: NSNumber(value: 0o555)],
+                                  ofItemAtPath: readOnly.path)
+            // writeManifest internally uses `try?` so it should just fail
+            // silently — no crash, no exception, no manifest.
+            VaultManager.writeManifest(in: readOnly)
+            // Restore perms so the temp-cleanup at end of probe works.
+            try? fm.setAttributes([.posixPermissions: NSNumber(value: 0o755)],
+                                  ofItemAtPath: readOnly.path)
+
+            // ---- Case 6: vault path doesn't exist at all ----
+            let ghost = tmpRoot.appendingPathComponent("does-not-exist", isDirectory: true)
+            VaultManager.writeManifest(in: ghost)
+            // No crash. No file produced. The next writeManifest after
+            // someone creates the directory should work — let's verify.
+            try? fm.createDirectory(at: ghost, withIntermediateDirectories: true)
+            VaultManager.writeManifest(in: ghost)
+            if !fm.fileExists(atPath: ghost.appendingPathComponent("manifest.json").path) {
+                failures.add("ghost-vault: writeManifest after directory creation didn't produce a manifest")
+            }
+
+            // ---- Case 7: vault with mixed valid + corrupt bundles ----
+            let mixed = tmpRoot.appendingPathComponent("mixed", isDirectory: true)
+            let mixedYT = mixed.appendingPathComponent("youtube", isDirectory: true)
+            try? fm.createDirectory(at: mixedYT, withIntermediateDirectories: true)
+            // One valid bundle
+            let validFolder = mixedYT.appendingPathComponent("Valid Channel - Valid Title", isDirectory: true)
+            try? fm.createDirectory(at: validFolder, withIntermediateDirectories: true)
+            try? Data("""
+                ---
+                video_id: abc123
+                title: Valid Title
+                channel: Valid Channel
+                platform: youtube
+                url: https://www.youtube.com/watch?v=abc123
+                date_saved: 2026-05-14T12:00:00Z
+                ---
+                Body text.
+                """.utf8).write(to: validFolder.appendingPathComponent("video.md"))
+            // One corrupt sibling
+            let badFolder = mixedYT.appendingPathComponent("Bad Bundle", isDirectory: true)
+            try? fm.createDirectory(at: badFolder, withIntermediateDirectories: true)
+            try? Data("garbage".utf8).write(to: badFolder.appendingPathComponent("video.md"))
+            VaultManager.writeManifest(in: mixed)
+            let mixedManifest = mixed.appendingPathComponent("manifest.json")
+            if let data = try? Data(contentsOf: mixedManifest),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                if arr.count != 1 {
+                    failures.add("mixed vault: expected 1 entry, got \(arr.count)")
+                } else if (arr[0]["video_id"] as? String) != "abc123" {
+                    failures.add("mixed vault: surviving entry's video_id is \(arr[0]["video_id"] ?? "nil"), expected abc123")
+                }
+            } else {
+                failures.add("mixed vault: manifest unreadable after writeManifest")
+            }
+        }
+
+        let collected = failures.all
+        if collected.isEmpty {
+            print("HARDNESS_PROBE OK")
+            exit(0)
+        } else {
+            print("HARDNESS_PROBE FAIL")
+            for f in collected { print("  - \(f)") }
+            exit(1)
+        }
+    }
+
+    private final class HardnessFailureBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [String] = []
+        func add(_ s: String) { lock.lock(); defer { lock.unlock() }; items.append(s) }
+        var all: [String] { lock.lock(); defer { lock.unlock() }; return items }
     }
 
     private static func runSpeechProbe(audioPath: String) -> Never {

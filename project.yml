@@ -11,6 +11,20 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "26.0"
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: ""
+  configs:
+    Release:
+      # Compacting (Phase Q.5): strip + dead-code + size opt + LTO for
+      # Release builds only. Debug stays unaffected so iteration speed +
+      # debuggability are preserved.
+      DEAD_CODE_STRIPPING: YES
+      STRIP_INSTALLED_PRODUCT: YES
+      DEPLOYMENT_POSTPROCESSING: YES
+      STRIP_STYLE: all
+      GCC_OPTIMIZATION_LEVEL: s         # size-optimized C/ObjC
+      SWIFT_OPTIMIZATION_LEVEL: "-O"    # default Release optimization
+      SWIFT_COMPILATION_MODE: wholemodule
+      LLVM_LTO: YES                     # link-time optimization for both Swift + clang
+      OTHER_LDFLAGS: "$(inherited) -dead_strip"
 
 targets:
   youty:

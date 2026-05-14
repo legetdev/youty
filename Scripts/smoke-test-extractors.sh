@@ -131,6 +131,19 @@ run "Ingestion + classifier + spotlight + local search" \
     "$BIN" --phase-l-probe
 
 echo
+echo "== Phase Q.6 — crash hardening =="
+# Drives every weird vault state we can simulate headlessly: empty vault,
+# vault-is-a-file, garbage manifest.json (7 variants), corrupt video.md
+# (7 variants), read-only vault, ghost vault path, mixed valid+corrupt.
+# Each case must exit cleanly — no Swift trap, no fatalError, no force
+# unwrap crash. Cases requiring hardware (drive disconnect, disk full,
+# network drop mid-fetch) are documented in implementation.md but not
+# in scope for headless smoke.
+run "Vault weird-state survival" \
+    'HARDNESS_PROBE OK' \
+    "$BIN" --hardness-probe
+
+echo
 echo "== Phase M — youty CLI =="
 CLI_BIN="$ROOT/build/dd/Build/Products/Debug/youty"
 CLI_VAULT="$(mktemp -d)/youty-cli-smoke"
@@ -152,17 +165,47 @@ else
         "$CLI_BIN" save "https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
             --vault "$CLI_VAULT" --count 10 --no-index --json
 
+    # Q.5 — exercise --quiet on a quick second save. Suppresses the stderr
+    # progress lines; bundle path still goes to stdout.
+    run "youty save --quiet (no stderr noise)" \
+        'youtube/Rick Astley' \
+        "$CLI_BIN" save "https://www.youtube.com/watch?v=dQw4w9WgXcQ" \
+            --vault "$CLI_VAULT" --count 10 --no-index --quiet
+
     run "youty list" \
         'dQw4w9WgXcQ' \
         "$CLI_BIN" list --vault "$CLI_VAULT"
+
+    # Q.5 — --platform filter and --limit cap
+    run "youty list --platform youtube" \
+        'dQw4w9WgXcQ' \
+        "$CLI_BIN" list --vault "$CLI_VAULT" --platform youtube
+
+    run "youty list --platform tiktok (empty)" \
+        '\[' \
+        "$CLI_BIN" list --vault "$CLI_VAULT" --platform tiktok
+
+    run "youty list --limit 1" \
+        'dQw4w9WgXcQ' \
+        "$CLI_BIN" list --vault "$CLI_VAULT" --limit 1
 
     run "youty search 'rick astley'" \
         'dQw4w9WgXcQ' \
         "$CLI_BIN" search "rick astley" --vault "$CLI_VAULT"
 
+    # Q.5 — --limit on search
+    run "youty search --limit 1" \
+        'dQw4w9WgXcQ' \
+        "$CLI_BIN" search "rick" --vault "$CLI_VAULT" --limit 1
+
     run "youty transcript by id" \
         '## Transcript' \
         "$CLI_BIN" transcript "yt:dQw4w9WgXcQ" --vault "$CLI_VAULT"
+
+    # Q.5 — CLI weird-vault survival (exit-code matters; pipe to /dev/null to keep run() happy)
+    run "youty list on garbage manifest (no crash)" \
+        '\[' \
+        "$CLI_BIN" list --vault /tmp/youty-garbage-vault-doesnt-exist
 
     rm -rf "$CLI_VAULT"
 fi

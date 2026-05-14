@@ -989,11 +989,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "coremltools", specifier = ">=9.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "mcp", specifier = ">=1.2.0" },
-    { name = "numpy", specifier = ">=1.26.0" },
-    { name = "sqlite-vec", specifier = ">=0.1.6" },
+    { name = "coremltools", specifier = ">=9.0,<10.0.0" },
+    { name = "httpx", specifier = ">=0.27.0,<1.0.0" },
+    { name = "mcp", specifier = ">=1.2.0,<2.0.0" },
+    { name = "numpy", specifier = ">=1.26.0,<3.0.0" },
+    { name = "sqlite-vec", specifier = ">=0.1.6,<0.2.0" },
 ]
 
 [package.metadata.requires-dev]

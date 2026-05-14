@@ -40,13 +40,20 @@ enum SaveCommand {
         progressLog.stage("Vault: \(vaultResolution.url.path) (from \(vaultResolution.source.label))")
 
         // Make sure the vault folder exists. CLI is unsandboxed so we can
-        // create it freely.
+        // create it freely. If the path is a file (or otherwise unwritable),
+        // give a Q.3-style actionable error and exit cleanly.
         do {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: vaultResolution.url.path, isDirectory: &isDir),
+               !isDir.boolValue {
+                cliStderr("error: \(vaultResolution.url.path) is a file. Pass --vault with a folder path, or pick a different location.\n")
+                exit(73)
+            }
             try FileManager.default.createDirectory(
                 at: vaultResolution.url, withIntermediateDirectories: true
             )
         } catch {
-            cliStderr("error: cannot create or access vault: \(error.localizedDescription)\n")
+            cliStderr("error: couldn't create or access the vault folder. \(error.localizedDescription)\n")
             exit(73)
         }
 

@@ -64,28 +64,77 @@ enum VaultResolver {
     // MARK: - Internals
 
     /// Read the security-scoped bookmark the Mac app stores under the
-    /// `vaultBookmark` key in its UserDefaults domain. The bookmark
-    /// data is just a serialized URL reference — resolving it gives us
-    /// the path. We don't need to start/stop the security scope because
-    /// the CLI binary isn't sandboxed.
+    /// `vaultBookmark` key. The bookmark data is just a serialised URL
+    /// reference — resolving it gives us the path. We don't start the
+    /// security scope because the CLI binary isn't sandboxed.
+    ///
+    /// The Mac app is sandboxed, so its UserDefaults plist lives in its
+    /// container, not at the system-wide
+    /// `~/Library/Preferences/dev.leget.youty.plist` path. We therefore
+    /// look in three places, in order:
+    ///   1. `~/Library/Containers/dev.leget.youty/Data/Library/Preferences/dev.leget.youty.plist`
+    ///      — where every sandboxed Mac-app build of Youty actually stores it.
+    ///   2. `UserDefaults(suiteName: "dev.leget.youty")` — covers any future
+    ///      unsandboxed build that uses the system-wide preferences domain.
+    ///   3. `~/Library/Preferences/dev.leget.youty.plist` — same idea, in
+    ///      case macOS's CFPreferences ever surfaces it that way.
     private static func resolveFromMacApp() -> URL? {
-        // The Mac app's defaults live at ~/Library/Preferences/dev.leget.youty.plist
-        // (or in CFPreferences storage). Open that domain explicitly so we
-        // see it from our different bundle ID.
-        guard let defaults = UserDefaults(suiteName: "dev.leget.youty"),
-              let data = defaults.data(forKey: "vaultBookmark") else {
+        let candidates: [() -> Data?] = [
+            { Self.bookmarkFromSandboxPlist() },
+            { UserDefaults(suiteName: "dev.leget.youty")?.data(forKey: "vaultBookmark") },
+            { Self.bookmarkFromSystemPlist() },
+        ]
+        for source in candidates {
+            guard let data = source() else { continue }
+            // Try plain bookmark first. The Mac app's bookmark was created
+            // with `.withSecurityScope`, but security-scoped resolution
+            // requires matching code-signing identity — and the CLI's
+            // bundle id (dev.leget.youty.cli) differs from the app's
+            // (dev.leget.youty), so the scoped resolve refuses. The CLI
+            // is unsandboxed, so it doesn't actually need the scope to
+            // read the underlying URL — plain resolution lifts the path
+            // out of the bookmark just fine.
+            var stale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: [],
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                return url
+            }
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &stale
+            ) {
+                return url
+            }
+        }
+        return nil
+    }
+
+    /// The sandboxed-Mac-app plist path. NSHomeDirectory() returns the
+    /// real user home here because the CLI itself isn't sandboxed.
+    private static func bookmarkFromSandboxPlist() -> Data? {
+        let path = "\(NSHomeDirectory())/Library/Containers/dev.leget.youty/Data/Library/Preferences/dev.leget.youty.plist"
+        return readBookmark(atPath: path)
+    }
+
+    private static func bookmarkFromSystemPlist() -> Data? {
+        let path = "\(NSHomeDirectory())/Library/Preferences/dev.leget.youty.plist"
+        return readBookmark(atPath: path)
+    }
+
+    private static func readBookmark(atPath path: String) -> Data? {
+        guard let raw = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: raw, format: nil
+              ) as? [String: Any] else {
             return nil
         }
-        var stale = false
-        guard let url = try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &stale
-        ) else {
-            return nil
-        }
-        return url
+        return plist["vaultBookmark"] as? Data
     }
 
     private static func expand(_ raw: String) -> URL {
