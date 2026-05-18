@@ -36,6 +36,13 @@ targets:
           - "IndexSchema.sql"
       - path: Sources/IndexSchema.sql
         buildPhase: resources
+      # Bundled license texts — surfaced by the in-app About panel and
+      # required for LGPL §1 compliance (accompany the binary with the
+      # license text of every LGPL-licensed component).
+      - path: THIRD_PARTY_LICENSES.md
+        buildPhase: resources
+      - path: Vendor/ffmpeg/licenses
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leget.youty

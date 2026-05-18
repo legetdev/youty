@@ -55,6 +55,7 @@ enum FFmpegError: LocalizedError {
     case swsInitFailed
     case noFrameAtTimestamp(TimeInterval)
     case incompleteFrames(got: Int, expected: Int)
+    case allocationFailed
 
     var errorDescription: String? {
         switch self {
@@ -74,6 +75,8 @@ enum FFmpegError: LocalizedError {
             return "No decodable frame near one of the requested timestamps."
         case .incompleteFrames(let got, let expected):
             return "Saved \(got) of \(expected) frames. Some couldn't be decoded — try the alternative extractor."
+        case .allocationFailed:
+            return "Ran out of memory while preparing the video decoder. Close some apps and try again."
         }
     }
 }
@@ -120,7 +123,14 @@ enum FFmpegFrameExtractor {
         let io = FFmpegURLSessionIO(url: url, userAgent: userAgent)
         let ioUnmanaged = Unmanaged.passRetained(io)
         let bufSize = 64 * 1024
-        let ioBuffer = av_malloc(bufSize)!.assumingMemoryBound(to: UInt8.self)
+        // av_malloc returns NULL on allocation failure — guard rather than
+        // force-unwrap so a memory-pressure scenario throws cleanly instead of
+        // trapping the app.
+        guard let ioBufferRaw = av_malloc(bufSize) else {
+            ioUnmanaged.release()
+            throw FFmpegError.allocationFailed
+        }
+        let ioBuffer = ioBufferRaw.assumingMemoryBound(to: UInt8.self)
 
         let readCB: @convention(c) (UnsafeMutableRawPointer?,
                                     UnsafeMutablePointer<UInt8>?,

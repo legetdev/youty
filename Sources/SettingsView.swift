@@ -42,6 +42,9 @@ struct SettingsView: View {
                 Divider().opacity(0.35)
 
                 integrationsSection
+                Divider().opacity(0.35)
+
+                aboutSection
             }
             .padding(.horizontal, 22)
             .padding(.vertical, 18)
@@ -430,6 +433,109 @@ struct SettingsView: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // MARK: - About (Open source notices)
+
+    /// Lists every third-party component Youty bundles or builds against,
+    /// surfaces the LGPL §1 attribution for FFmpeg, and exposes the bundled
+    /// license texts via "Show license" buttons. Read-only block — its only
+    /// purpose is fulfilling the open-source disclosure obligations.
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("About")
+
+            HStack(spacing: 8) {
+                Text("Youty \(Self.shortVersion)")
+                    .font(.system(size: 13, weight: .medium))
+                Text("(\(Self.buildVersion))")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Open source components")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Group {
+                    aboutRow("FFmpeg 7.1.1", license: "LGPL-2.1+", note: "statically linked")
+                    aboutRow("sqlite-vec", license: "Apache-2.0", note: nil)
+                    aboutRow("SQLite", license: "public domain", note: nil)
+                    aboutRow("MobileCLIP-S2 (CoreML)", license: "Apple Sample Code", note: "downloaded on first use")
+                    aboutRow("CLIP tokenizer (OpenAI)", license: "MIT", note: "downloaded on first use")
+                    aboutRow("Apple system frameworks", license: "Apple SDK Agreement", note: nil)
+                    aboutRow("Google Gemini API", license: "Google API Terms", note: "your key, your calls")
+                }
+            }
+
+            HStack(spacing: 12) {
+                Button("Show full notices…") {
+                    openBundledResource(name: "THIRD_PARTY_LICENSES", ext: "md")
+                }
+                .controlSize(.small)
+                .accessibilityLabel("Show full third-party notices")
+                .accessibilityHint("Opens the bundled THIRD_PARTY_LICENSES.md")
+
+                Button("Show FFmpeg license…") {
+                    openBundledResource(name: "COPYING.LGPLv2.1", ext: nil)
+                }
+                .controlSize(.small)
+                .accessibilityLabel("Show FFmpeg LGPL-2.1 license")
+                .accessibilityHint("Opens the bundled LGPL-2.1 license text")
+
+                Spacer()
+            }
+
+            Text("To relink Youty against a modified FFmpeg, edit the source from `ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz`, then re-run `Scripts/build-ffmpeg.sh` and `xcodebuild -scheme youty -configuration Release`.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// One row in the About → Components list: name + license + optional note.
+    private func aboutRow(_ name: String, license: String, note: String?) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text("·")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            Text(license)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            if let note {
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                Text(note)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+        }
+    }
+
+    /// Open a resource bundled inside Youty.app/Contents/Resources/ in the
+    /// user's default text viewer. Falls back silently if missing so a
+    /// stripped/repackaged bundle can't crash the panel.
+    private func openBundledResource(name: String, ext: String?) {
+        guard let url = Bundle.main.url(forResource: name, withExtension: ext) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// `CFBundleShortVersionString` — the human-facing version (e.g. "1.0.0").
+    private static var shortVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "dev"
+    }
+
+    /// `CFBundleVersion` — the build number; useful when shipping multiple
+    /// builds of the same version during soft launch.
+    private static var buildVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "0"
     }
 
     // MARK: - Helpers

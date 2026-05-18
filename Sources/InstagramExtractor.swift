@@ -422,8 +422,12 @@ final class InstagramExtractor: NSObject, WKNavigationDelegate, WKScriptMessageH
             }
             return
         }
+        // Scheme-validate the page-extracted media URL before passing it to
+        // any HTTP client. A compromised page could otherwise hand us
+        // `javascript:` or `file://` here.
         guard let videoSrcStr = dict["videoSrc"] as? String,
-              let videoURL = URL(string: videoSrcStr) else {
+              let videoURL = URL(string: videoSrcStr),
+              videoURL.scheme?.lowercased() == "https" else {
             finish(.failure(InstagramExtractorError.noVideo))
             return
         }

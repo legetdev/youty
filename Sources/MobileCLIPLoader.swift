@@ -133,11 +133,16 @@ actor MobileCLIPLoader {
     /// Validates size when `expectedSize` is supplied.
     private func downloadIfMissing(_ url: URL, to dest: URL, expectedSize: Int? = nil) async throws {
         let fm = FileManager.default
+        // Fast-path: if `dest` already exists at the right size (or with no
+        // size check needed), skip the download entirely. We deliberately do
+        // NOT branch into a check-then-remove here — that's a classic TOCTOU
+        // where a symlink could be raced into place between the check and the
+        // write. Instead, after the size check, we just download fresh and
+        // rely on the atomic-move pair below to overwrite without window.
         if fm.fileExists(atPath: dest.path) {
             if let expected = expectedSize {
                 let size = ((try? fm.attributesOfItem(atPath: dest.path))?[.size] as? Int) ?? 0
                 if size == expected { return }
-                try? fm.removeItem(at: dest)
             } else {
                 return
             }
@@ -155,7 +160,14 @@ actor MobileCLIPLoader {
         try? fm.removeItem(at: partURL)
         do {
             try fm.moveItem(at: tmpFile, to: partURL)
-            try fm.moveItem(at: partURL, to: dest)
+            // Atomic replace if `dest` already exists (race-safe overwrite).
+            // `replaceItemAt` swaps via filesystem rename, no window between
+            // remove + move.
+            if fm.fileExists(atPath: dest.path) {
+                _ = try fm.replaceItemAt(dest, withItemAt: partURL)
+            } else {
+                try fm.moveItem(at: partURL, to: dest)
+            }
         } catch {
             throw MobileCLIPLoaderError.fileMove(tmpFile, dest, error.localizedDescription)
         }

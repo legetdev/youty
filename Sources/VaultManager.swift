@@ -218,6 +218,15 @@ final class VaultManager: NSObject, ObservableObject {
         }
         let id = kv["video_id"] ?? kv["post_id"] ?? ""
         guard !id.isEmpty else { return nil }
+        // Re-validate the folder path on read: write-time sanitisation only
+        // protects writes made by this app. If the vault was synced from a
+        // tampered source (Dropbox, iCloud, a different machine), the
+        // manifest could legitimately contain `..` or absolute paths that
+        // would escape the vault on subsequent writes. Reject those rows.
+        let rejectsPathEscape = folderName.contains("..")
+            || folderName.hasPrefix("/")
+            || folderName.contains("\0")
+        guard !rejectsPathEscape else { return nil }
         let platform = kv["platform"] ?? "youtube"
         let tagsRaw = kv["tags"] ?? kv["hashtags"] ?? "[]"
         let tags = tagsRaw

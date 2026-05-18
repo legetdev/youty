@@ -38,6 +38,22 @@ from .retrieval import (
 _log = logging.getLogger("youty_mcp")
 
 
+# Defensive cap on free-form string args coming from the MCP client. 10 KB is
+# orders of magnitude above any human-typed query and keeps a misbehaving
+# caller from streaming megabytes into Gemini / SQLite. Applied at every
+# tool boundary.
+_MAX_STRING_ARG = 10_000
+
+
+def _clamp(s: str | None) -> str | None:
+    """Truncate untrusted string args to a sane upper bound."""
+    if s is None:
+        return None
+    if len(s) <= _MAX_STRING_ARG:
+        return s
+    return s[:_MAX_STRING_ARG]
+
+
 # ─────────────────── lazy singletons ───────────────────
 
 
@@ -138,7 +154,7 @@ def search(
     truncated mid-thought. Each result also includes nearest frame JPEG
     paths — read them with the `Read` tool when visual context matters.
     """
-    return _do_search(query, k=k, platform=platform, since_iso=since_iso)
+    return _do_search(_clamp(query) or "", k=k, platform=platform, since_iso=since_iso)
 
 
 @mcp.tool()
@@ -282,6 +298,7 @@ def list_videos(
     date_saved, tags for each row. No transcripts or embeddings.
     """
     conn = _STATE.conn()
+    channel = _clamp(channel)
     where: list[str] = []
     params: list[object] = []
     if platform:
@@ -425,7 +442,7 @@ def search_frames(
     Returns `results[*].frame.path` — an absolute JPEG path you can pass
     to the `Read` tool to look at the image directly.
     """
-    return _do_search_frames(query, k=k, platform=platform)
+    return _do_search_frames(_clamp(query) or "", k=k, platform=platform)
 
 
 def _do_search_frames(
@@ -481,7 +498,10 @@ def _do_search_frames(
         }
 
     # Hydrate + dedupe per video (max 3 per video).
-    ids_csv = ",".join(str(fid) for fid, _ in raw)
+    # Parameterised IN-list — frame_id is currently always an int from
+    # `dense_top_k_frames`, but f-string SQL is the wrong default everywhere.
+    frame_ids = [fid for fid, _ in raw]
+    placeholders = ",".join("?" * len(frame_ids))
     rows = conn.execute(
         f"""
         SELECT f.frame_id, f.video_id, f.frame_ms, f.frame_path,
@@ -489,8 +509,9 @@ def _do_search_frames(
                v.folder_path, v.tags_json
         FROM frames f
         JOIN videos v ON v.video_id = f.video_id
-        WHERE f.frame_id IN ({ids_csv})
-        """
+        WHERE f.frame_id IN ({placeholders})
+        """,
+        frame_ids,
     ).fetchall()
     by_id = {int(r["frame_id"]): r for r in rows}
 
@@ -681,11 +702,12 @@ def _do_search(
     # Optional since_iso post-filter (lightweight: parse + compare unix ms).
     since_cutoff_ms: int | None = _parse_since(since_iso)
     if since_cutoff_ms is not None and fused:
-        ids_csv = ",".join(str(h.chunk_id) for h in fused)
+        placeholders = ",".join("?" * len(fused))
         ds_rows = conn.execute(
             f"""SELECT c.chunk_id, v.date_saved FROM chunks c
                 JOIN videos v ON v.video_id = c.video_id
-                WHERE c.chunk_id IN ({ids_csv})"""
+                WHERE c.chunk_id IN ({placeholders})""",
+            [h.chunk_id for h in fused],
         ).fetchall()
         keep = {
             int(r["chunk_id"])

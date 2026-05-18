@@ -361,17 +361,25 @@ enum TikTokExtractor {
                 guard let playAddr = entry["PlayAddr"] as? [String: Any],
                       let urlList = playAddr["UrlList"] as? [String] else { continue }
                 if let str = urlList.first(where: { !$0.contains("www.tiktok.com") }),
-                   let url = URL(string: str) {
+                   let url = safeHTTPS(str) {
                     return url
                 }
             }
         }
 
         // Older path: video.playAddr is a single string.
-        if let direct = video?["playAddr"] as? String, let url = URL(string: direct) {
+        if let direct = video?["playAddr"] as? String, let url = safeHTTPS(direct) {
             return url
         }
         return nil
+    }
+
+    /// Accept only `https://` URLs extracted from the hydration JSON — defends
+    /// against a compromised page returning `javascript:` / `file://` strings
+    /// that would otherwise flow into URLSession.
+    private static func safeHTTPS(_ s: String) -> URL? {
+        guard let url = URL(string: s), url.scheme?.lowercased() == "https" else { return nil }
+        return url
     }
 
     // MARK: - Captions
@@ -390,7 +398,7 @@ enum TikTokExtractor {
            let chosen = pickCaption(from: infos) {
             let urlStr = (chosen["url"] as? String) ?? (chosen["Url"] as? String) ?? ""
             let fmt = (chosen["Format"] as? String) ?? (chosen["format"] as? String) ?? ""
-            if let url = URL(string: urlStr),
+            if let url = safeHTTPS(urlStr),
                let segs = await fetchAndParse(captionURL: url, format: fmt, session: session) {
                 return segs
             }
@@ -400,7 +408,7 @@ enum TikTokExtractor {
         if let video = itemStruct["video"] as? [String: Any],
            let infos = video["subtitleInfos"] as? [[String: Any]],
            let chosen = pickCaption(from: infos),
-           let url = (chosen["Url"] as? String).flatMap(URL.init(string:)),
+           let url = (chosen["Url"] as? String).flatMap(safeHTTPS),
            let fmt = (chosen["Format"] as? String) {
             if let segs = await fetchAndParse(captionURL: url, format: fmt, session: session) {
                 return segs
@@ -416,7 +424,7 @@ enum TikTokExtractor {
                       let urlDict = chosen["url"] as? [String: Any],
                       let urlList = urlDict["url_list"] as? [String],
                       let urlStr = urlList.first,
-                      let url = URL(string: urlStr) else { continue }
+                      let url = safeHTTPS(urlStr) else { continue }
                 if let segs = await fetchAndParse(captionURL: url, format: "json", session: session) {
                     return segs
                 }

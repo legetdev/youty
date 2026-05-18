@@ -54,5 +54,14 @@ cp "$PREFIX/lib/"libav{codec,format,util}.a "$PREFIX/lib/libswscale.a" "$ROOT/Ve
 rm -rf "$ROOT/Vendor/ffmpeg/include/"*
 cp -R "$PREFIX/include/"libav{codec,format,util} "$PREFIX/include/libswscale" "$ROOT/Vendor/ffmpeg/include/"
 
+# Copy FFmpeg's canonical license texts alongside the static libs so the
+# LGPL §1 obligation ("accompany the work with a copy of the License") is
+# satisfied for anyone shipping a binary built from this repo.
+echo "→ Copying FFmpeg license texts ..."
+mkdir -p "$ROOT/Vendor/ffmpeg/licenses"
+cp "$SRC/COPYING.LGPLv2.1" "$ROOT/Vendor/ffmpeg/licenses/COPYING.LGPLv2.1"
+[ -f "$SRC/COPYING.LGPLv3" ] && cp "$SRC/COPYING.LGPLv3" "$ROOT/Vendor/ffmpeg/licenses/COPYING.LGPLv3"
+cp "$SRC/CREDITS" "$ROOT/Vendor/ffmpeg/licenses/CREDITS" 2>/dev/null || true
+
 echo "→ Done."
 du -sh "$ROOT/Vendor/ffmpeg/lib"

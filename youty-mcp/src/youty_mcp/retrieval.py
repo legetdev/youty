@@ -172,9 +172,14 @@ def dedupe_per_video(
     """Keep at most `max_per_video` hits per video_id (highest score wins)."""
     if not hits:
         return []
-    ids_csv = ",".join(str(h.chunk_id) for h in hits)
+    # Parameterised IN-list: even though chunk_id is INTEGER PRIMARY KEY and
+    # the current call sites supply trusted integers, f-string interpolation
+    # of SQL values is a latent injection sink. Use placeholders so any
+    # future code path with attacker-influenced ids stays safe.
+    placeholders = ",".join("?" * len(hits))
     rows = conn.execute(
-        f"SELECT chunk_id, video_id FROM chunks WHERE chunk_id IN ({ids_csv})"
+        f"SELECT chunk_id, video_id FROM chunks WHERE chunk_id IN ({placeholders})",
+        [h.chunk_id for h in hits],
     ).fetchall()
     chunk_to_video = {int(r["chunk_id"]): r["video_id"] for r in rows}
 
@@ -202,7 +207,8 @@ def hydrate_results(
     """Turn fused hits into the spec'd response shape (with frame paths attached)."""
     if not hits:
         return []
-    ids_csv = ",".join(str(h.chunk_id) for h in hits)
+    # Parameterised IN-list (see `dedupe_per_video` rationale).
+    placeholders = ",".join("?" * len(hits))
     rows = conn.execute(
         f"""
         SELECT
@@ -211,8 +217,9 @@ def hydrate_results(
             v.title, v.channel, v.platform, v.url, v.duration_ms, v.folder_path, v.tags_json
         FROM chunks c
         JOIN videos v ON v.video_id = c.video_id
-        WHERE c.chunk_id IN ({ids_csv})
-        """
+        WHERE c.chunk_id IN ({placeholders})
+        """,
+        [h.chunk_id for h in hits],
     ).fetchall()
     by_id = {int(r["chunk_id"]): r for r in rows}
 
@@ -315,10 +322,17 @@ def _frames_for_chunk(
 
 
 def _list_frame_jpgs(folder: Path) -> list[tuple[int, Path]]:
-    """Return all numeric-named .jpgs in the folder, sorted by ms timestamp."""
+    """Return all numeric-named .jpgs in the folder, sorted by ms timestamp.
+
+    Skips symlinks defensively — if a vault was synced from elsewhere and
+    contains a symlink masquerading as `00007560.jpg` pointing at
+    `~/.ssh/id_rsa`, we must not return that path to the MCP client.
+    """
     out: list[tuple[int, Path]] = []
     try:
         for entry in folder.iterdir():
+            if entry.is_symlink():
+                continue
             if not entry.is_file() or entry.suffix.lower() != ".jpg":
                 continue
             stem = entry.stem

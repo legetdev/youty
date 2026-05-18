@@ -84,6 +84,25 @@ own pinned dependencies.
 
 Found something concerning? See [`SECURITY.md`](SECURITY.md).
 
+## Open source notice
+
+Youty's Mac app links against FFmpeg 7.1.1 (`libavcodec`, `libavformat`,
+`libavutil`, `libswscale`), built from source as statically-linked
+archives via [`Scripts/build-ffmpeg.sh`](Scripts/build-ffmpeg.sh).
+FFmpeg is licensed under the GNU Lesser General Public License v2.1+
+(LGPL-2.1+) — verbatim text in
+[`Vendor/ffmpeg/licenses/COPYING.LGPLv2.1`](Vendor/ffmpeg/licenses/COPYING.LGPLv2.1).
+
+To relink the app against a modified FFmpeg: edit the FFmpeg source
+unpacked by `Scripts/build-ffmpeg.sh`, re-run that script, then re-run
+`xcodebuild -scheme youty -configuration Release`. The exact pinned
+FFmpeg version is also shown in the app's *About* panel
+(Settings → About).
+
+Other third-party components, their licenses, and where to find their
+verbatim license texts:
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+
 ## License
 
 [MIT](LICENSE). Copyright © Bent Eisheuer.

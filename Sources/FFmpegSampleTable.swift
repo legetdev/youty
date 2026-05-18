@@ -32,11 +32,14 @@ struct SampleTableTarget {
 
 enum SampleTableError: LocalizedError {
     case formatDescriptionFailed
+    case allocationFailed
 
     var errorDescription: String? {
         switch self {
         case .formatDescriptionFailed:
             return "Couldn't read this video's codec layout. Try a different video."
+        case .allocationFailed:
+            return "Ran out of memory while reading this video's metadata. Close some apps and try again."
         }
     }
 }
@@ -65,7 +68,14 @@ enum FFmpegSampleTable {
         let io = FFmpegURLSessionIO(url: url, userAgent: userAgent)
         let ioUnmanaged = Unmanaged.passRetained(io)
         let bufSize = 64 * 1024
-        let ioBuffer = av_malloc(bufSize)!.assumingMemoryBound(to: UInt8.self)
+        // av_malloc returns NULL on allocation failure — guard rather than
+        // force-unwrap so a memory-pressure scenario throws cleanly instead of
+        // trapping the app.
+        guard let ioBufferRaw = av_malloc(bufSize) else {
+            ioUnmanaged.release()
+            throw SampleTableError.allocationFailed
+        }
+        let ioBuffer = ioBufferRaw.assumingMemoryBound(to: UInt8.self)
         let readCB: @convention(c) (UnsafeMutableRawPointer?,
                                     UnsafeMutablePointer<UInt8>?,
                                     Int32) -> Int32 = { opaque, buf, size in

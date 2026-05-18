@@ -56,6 +56,14 @@ struct YoutyApp: App {
               let urlParam = components.queryItems?.first(where: { $0.name == "url" })?.value,
               !urlParam.isEmpty
         else { return }
+        // Reject anything that isn't `http(s)://` before it reaches the
+        // ingestion pipeline. Without this, a caller could craft
+        // `youty://save?url=javascript:…` or `youty://save?url=file:///…`
+        // and have us hand that string downstream.
+        guard let inner = URL(string: urlParam),
+              let scheme = inner.scheme?.lowercased(),
+              scheme == "https" || scheme == "http"
+        else { return }
         IngestionFunnel.shared.ingest(urlString: urlParam, source: "scheme")
     }
 }
