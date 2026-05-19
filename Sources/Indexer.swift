@@ -223,6 +223,16 @@ enum Indexer {
             throw IndexerError.vaultMismatch("video.md has no video_id / post_id field")
         }
 
+        // Purge any frame rows embedded by an older model (e.g. a vault
+        // indexed with MobileCLIP-S2 before the SigLIP migration). The
+        // call is idempotent — after the first save under the new model
+        // every row matches and this becomes a no-op COUNT(*) query.
+        // Without this, mixed-model vectors would coexist in vec_frames
+        // and silently degrade `search_frames` retrieval quality.
+        _ = try? await IndexStore.shared.purgeStaleFrameVectors(
+            currentModel: siglipModelIdentifier
+        )
+
         let bundleFolder = videoMdURL.deletingLastPathComponent()
         let folderPath = relativePath(of: bundleFolder, under: vaultRoot)
 
@@ -264,7 +274,7 @@ enum Indexer {
                                  path: rel,
                                  phash: phash,
                                  embedding: v,
-                                 modelVersion: mobileCLIPModelIdentifier)
+                                 modelVersion: siglipModelIdentifier)
         }
 
         // Ensure a `videos` row exists for FK satisfaction. If the bundle has
@@ -290,7 +300,7 @@ enum Indexer {
         try await IndexStore.shared.upsertVideo(videoRow)
         try await IndexStore.shared.replaceFrames(videoID: parsed.qualifiedID, rows: rows)
         try? await IndexStore.shared.setMeta(key: "current_frame_model",
-                                              value: mobileCLIPModelIdentifier)
+                                              value: siglipModelIdentifier)
         return (rows.count, droppedCount)
     }
 

@@ -3,7 +3,7 @@ import Foundation
 // Lightweight local search over the vault — used by AppIntents
 // (SearchYoutyVaultIntent + GetYoutyTranscriptIntent) and the menu bar
 // popover's recents list. Deliberately does *not* depend on the SQLite
-// vector index, MobileCLIP, or any embedder — those are heavier than the
+// vector index, SigLIP, or any embedder — those are heavier than the
 // 50-ms budget AppIntents typically have, and Shortcuts users mostly want
 // keyword recall ("the Karpathy video I saved last week").
 //

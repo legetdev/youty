@@ -4,9 +4,14 @@ import CoreGraphics
 import ImageIO
 import AppKit
 
-// MobileCLIP-S2 image embedder. Loads JPEGs from disk, resizes to 256x256
-// RGB CVPixelBuffers, batches through the CoreML image encoder on the ANE,
-// and returns L2-normalised 512-dim float vectors.
+// SigLIP-Base-Patch16-224 image embedder. Loads JPEGs from disk, resizes
+// to 224x224 RGB CVPixelBuffers, runs the bundled CoreML image encoder on
+// the ANE, and returns L2-normalised 768-dim float vectors.
+//
+// The .mlpackage bakes in SigLIP's `[-1, 1]` normalisation (mean=0.5,
+// std=0.5 per channel) via ct.ImageType scale/bias at conversion time, so
+// the caller just hands CoreML a plain RGB pixel buffer at the target
+// size and the model handles the rest.
 
 enum FrameEmbedderError: LocalizedError {
     case cannotDecode(URL)
@@ -27,17 +32,17 @@ enum FrameEmbedderError: LocalizedError {
 
 enum FrameEmbedder {
 
-    /// Embeds a batch of JPEG URLs into 512-dim L2-normalised fp32 vectors.
-    /// Runs the model one image at a time — CoreML/ANE batch dim is fixed
-    /// at 1 in the published Apple model. Throughput on M-series ~3-5 ms/img.
+    /// Embeds a batch of JPEG URLs into 768-dim L2-normalised fp32 vectors.
+    /// Runs the model one image at a time — CoreML batch dim is fixed at 1
+    /// in the bundled SigLIP package. Throughput on M-series ~5-8 ms/img.
     static func embedFrames(_ urls: [URL]) async throws -> [[Float]] {
         guard !urls.isEmpty else { return [] }
-        let encoder = try await MobileCLIPLoader.shared.imageEncoder()
+        let encoder = try await SigLIPLoader.shared.imageEncoder()
         let model = encoder.model
         var out: [[Float]] = []
         out.reserveCapacity(urls.count)
         for url in urls {
-            guard let buffer = makePixelBuffer(at: url, size: mobileCLIPImageInputSize) else {
+            guard let buffer = makePixelBuffer(at: url, size: siglipImageInputSize) else {
                 throw FrameEmbedderError.cannotResize(url)
             }
             let input = try MLDictionaryFeatureProvider(dictionary: [
@@ -49,9 +54,9 @@ enum FrameEmbedder {
             } catch {
                 throw FrameEmbedderError.predictionFailed(error.localizedDescription)
             }
-            guard let arr = prediction.featureValue(for: "final_emb_1")?.multiArrayValue,
-                  arr.count == mobileCLIPEmbeddingDim else {
-                throw FrameEmbedderError.unexpectedOutputShape("expected [1,\(mobileCLIPEmbeddingDim)]")
+            guard let arr = prediction.featureValue(for: "embedding")?.multiArrayValue,
+                  arr.count == siglipEmbeddingDim else {
+                throw FrameEmbedderError.unexpectedOutputShape("expected [1,\(siglipEmbeddingDim)]")
             }
             out.append(l2Normalise(extractFloats(from: arr)))
         }
@@ -59,8 +64,8 @@ enum FrameEmbedder {
     }
 
     /// Loads a JPEG, center-crops to square, resizes to NxN, returns a
-    /// 32ARGB CVPixelBuffer. ANE-compatible pixel format per Apple's
-    /// reference iOS app for MobileCLIP.
+    /// 32ARGB CVPixelBuffer. ANE-compatible pixel format; matches the
+    /// `ImageType(color_layout=RGB)` declared at conversion time.
     private static func makePixelBuffer(at url: URL, size: Int) -> CVPixelBuffer? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cg  = CGImageSourceCreateImageAtIndex(src, 0, nil) else {

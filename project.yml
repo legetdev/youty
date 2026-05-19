@@ -43,6 +43,13 @@ targets:
         buildPhase: resources
       - path: Vendor/ffmpeg/licenses
         buildPhase: resources
+      # SigLIP image encoder + its Apache-2.0 license text. The .mlpackage
+      # ships inside the app bundle so the indexer can compile + load it
+      # on first use without any runtime download.
+      - path: Vendor/siglip/models/SigLIP-Base-224_image.mlpackage
+        buildPhase: resources
+      - path: Vendor/siglip/licenses
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leget.youty
@@ -106,6 +113,15 @@ targets:
           - "YoutyAppIntents.swift"
           - "DebugRunner.swift"
       - path: Sources/IndexSchema.sql
+        buildPhase: resources
+      # CLI binary uses the same bundled SigLIP image encoder as the Mac
+      # app — frame embedding happens during `youty save`. Resource is
+      # picked up by the binary's enclosing bundle (or, if the CLI was
+      # invoked standalone, via the bundle-walking fallback in
+      # SigLIPLoader.bundledModelURL()).
+      - path: Vendor/siglip/models/SigLIP-Base-224_image.mlpackage
+        buildPhase: resources
+      - path: Vendor/siglip/licenses
         buildPhase: resources
       - path: CLI
     settings:

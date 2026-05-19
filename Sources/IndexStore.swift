@@ -62,7 +62,7 @@ struct IndexStats: Sendable {
     let frameCount: Int
     let lastRebuildMs: Int?           // unix epoch ms, nil if never rebuilt
     let textModelID: String?          // e.g. "gemini-embedding-001@768"
-    let frameModelID: String?         // e.g. "mobileclip-s2@512"
+    let frameModelID: String?         // e.g. "siglip-base-patch16-224@768"
     let vaultRoot: String?
     let dbBytes: Int64                // index.db + index.db-wal size
 }
@@ -239,6 +239,35 @@ actor IndexStore {
     func deleteVideo(videoID: String) throws {
         try openIfNeeded()
         try execBound("DELETE FROM videos WHERE video_id = ?;", text: videoID)
+    }
+
+    /// Drops every `frames` row whose `model_version` doesn't match the
+    /// caller's current frame-model identifier, then records that
+    /// identifier in `index_meta`. Called once per app session at the
+    /// start of any frame-indexing path — if the binary has been
+    /// upgraded to a new frame model (e.g. MobileCLIP-S2 → SigLIP),
+    /// existing vectors live in a different embedding space and must be
+    /// re-computed before any retrieval can correctly compare new query
+    /// embeddings against them. Idempotent — once the table is purged,
+    /// subsequent calls are no-ops because the rows now all match.
+    /// Returns the number of stale rows dropped (for logging).
+    @discardableResult
+    func purgeStaleFrameVectors(currentModel: String) throws -> Int {
+        try openIfNeeded()
+        let countSQL = "SELECT COUNT(*) FROM frames WHERE model_version <> ?;"
+        let countStmt = try prepare(countSQL)
+        bindText(countStmt, 1, currentModel)
+        var stale = 0
+        if sqlite3_step(countStmt) == SQLITE_ROW {
+            stale = Int(sqlite3_column_int64(countStmt, 0))
+        }
+        sqlite3_finalize(countStmt)
+        if stale > 0 {
+            try execBound("DELETE FROM frames WHERE model_version <> ?;", text: currentModel)
+        }
+        // Always advance the meta key so the next session sees the right value.
+        try setMeta(key: "current_frame_model", value: currentModel)
+        return stale
     }
 
     /// Aggregate stats for the Settings UI. Single round-trip through the

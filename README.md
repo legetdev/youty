@@ -93,10 +93,18 @@ FFmpeg is licensed under the GNU Lesser General Public License v2.1+
 (LGPL-2.1+) — verbatim text in
 [`Vendor/ffmpeg/licenses/COPYING.LGPLv2.1`](Vendor/ffmpeg/licenses/COPYING.LGPLv2.1).
 
+The app also bundles Google's SigLIP-Base-Patch16-224 image encoder
+(Apache License 2.0) converted to Core ML for frame embedding — verbatim
+text in [`Vendor/siglip/licenses/LICENSE`](Vendor/siglip/licenses/LICENSE),
+with attribution + conversion provenance in
+[`Vendor/siglip/licenses/NOTICE`](Vendor/siglip/licenses/NOTICE).
+
 To relink the app against a modified FFmpeg: edit the FFmpeg source
 unpacked by `Scripts/build-ffmpeg.sh`, re-run that script, then re-run
-`xcodebuild -scheme youty -configuration Release`. The exact pinned
-FFmpeg version is also shown in the app's *About* panel
+`xcodebuild -scheme youty -configuration Release`. To rebuild the SigLIP
+Core ML artifact: edit and re-run
+[`Scripts/convert-siglip-coreml.py`](Scripts/convert-siglip-coreml.py).
+Pinned versions for both also appear in the app's *About* panel
 (Settings → About).
 
 Other third-party components, their licenses, and where to find their

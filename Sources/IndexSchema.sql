@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS frames (
     frame_ms        INTEGER NOT NULL,        -- timestamp of the frame in milliseconds
     frame_path      TEXT    NOT NULL,        -- relative to vault root
     phash           INTEGER,                 -- 64-bit perceptual hash, useful for "find visually similar"
-    model_version   TEXT    NOT NULL,        -- e.g. "mobileclip2-s2@768"
+    model_version   TEXT    NOT NULL,        -- e.g. "siglip-base-patch16-224@768"
     embedding_dim   INTEGER NOT NULL,
     embedding       BLOB    NOT NULL,
     UNIQUE(video_id, frame_ms)
@@ -85,4 +85,4 @@ CREATE TABLE IF NOT EXISTS index_meta (
 -- Default rows; replaced on every indexer write that uses them.
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('schema_version', '1');
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'gemini-embedding-001@768');
-INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'mobileclip2-s2@768');
+INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'siglip-base-patch16-224@768');

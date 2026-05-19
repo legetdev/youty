@@ -30,7 +30,13 @@ dependencies = [
     "sqlite-vec>=0.1.6,<0.2.0",     # pre-1.0; breaking changes likely in 0.2
     "httpx>=0.27.0,<1.0.0",
     "numpy>=1.26.0,<3.0.0",
-    "coremltools>=9.0,<10.0.0",
+    # SigLIP-Base text encoder for the `search_frames` tool. transformers
+    # handles SigLIP's SentencePiece tokenizer cleanly; torch runs the
+    # text tower on CPU in ~50-80 ms per query on Apple Silicon. Replaces
+    # the previous coremltools dependency — frame *image* embedding now
+    # lives in the Mac app bundle (CoreML), only text queries run here.
+    "transformers>=4.40,<5",
+    "torch>=2.0,<3",
 ]
 
 [project.urls]

@@ -54,10 +54,12 @@ and similar LGPL-FFmpeg-linking apps.
 
 - **Component:** Python dependency of the MCP server (`youty-mcp`); also
   loaded as a SQLite extension by the Mac app's indexer.
-- **License:** Apache License 2.0.
+- **License:** Dual-licensed under **MIT OR Apache-2.0** — recipients
+  may choose either. Verified from the project's `pyproject.toml`
+  metadata.
 - **Project home:** <https://github.com/asg017/sqlite-vec>.
 - **Full license text:** <https://github.com/asg017/sqlite-vec/blob/main/LICENSE>
-  (Apache-2.0 standard text — also reproduced in the installed wheel).
+  (also reproduced in the installed wheel).
 
 ---
 
@@ -71,26 +73,32 @@ and similar LGPL-FFmpeg-linking apps.
 
 ---
 
-## Apple MobileCLIP-S2 (CoreML)
+## Google SigLIP-Base-Patch16-224 (image encoder, Core ML)
 
-- **Component:** ML model + tokenizer for frame embeddings. Downloaded lazily
-  on first use to `~/Library/Application Support/Youty/models/`.
-- **Source:** `https://huggingface.co/apple/coreml-mobileclip`.
-- **License:** Apple Sample Code License — see the upstream
-  `LICENSE` at <https://huggingface.co/apple/coreml-mobileclip/blob/main/LICENSE>.
-- **Note:** Apple's model weights are downloaded by the end user from
-  Apple's own HuggingFace org; Youty does not bundle or redistribute them.
-
----
-
-## OpenAI CLIP tokenizer vocabulary
-
-- **Component:** BPE vocab + merges files for the CLIP tokenizer used
-  alongside MobileCLIP-S2. Downloaded lazily from
-  `https://huggingface.co/openai/clip-vit-base-patch32`.
-- **License:** MIT — see <https://github.com/openai/CLIP/blob/main/LICENSE>.
-- **Note:** Downloaded by the end user from OpenAI's HuggingFace org;
-  Youty does not bundle or redistribute these files.
+- **Component:** ML model used by the Mac app and CLI to embed video
+  frames into a 768-dim joint vision-text vector space. Shipped as a
+  Core ML `.mlpackage` bundled inside `Youty.app/Contents/Resources/`.
+- **Source model:** `google/siglip-base-patch16-224`
+  (<https://huggingface.co/google/siglip-base-patch16-224>).
+- **License:** Apache License, Version 2.0. Verbatim text at
+  [`Vendor/siglip/licenses/LICENSE`](Vendor/siglip/licenses/LICENSE)
+  (mirrored from `google-research/big_vision`, the canonical SigLIP repo).
+  Attribution + redistribution notice at
+  [`Vendor/siglip/licenses/NOTICE`](Vendor/siglip/licenses/NOTICE).
+- **Conversion provenance:** `Scripts/convert-siglip-coreml.py` traces the
+  HuggingFace `transformers` checkpoint with PyTorch and emits a Core ML
+  `.mlpackage` at fp16 precision. SigLIP's per-channel normalization is
+  baked into `ct.ImageType` scale + bias at conversion time, so the
+  bundled model accepts plain RGB pixels at 224×224. Cosine similarity
+  vs the PyTorch reference is **0.9999** at conversion verification time
+  (see `--skip-verify` flag for the cosine check).
+- **Text encoder counterpart:** The Python MCP server (`youty-mcp`)
+  embeds user queries using the same SigLIP model via the HuggingFace
+  `transformers` library directly — see the `transformers` and `torch`
+  dependencies in [`youty-mcp/pyproject.toml`](youty-mcp/pyproject.toml).
+  Both sides land in the same vector space.
+- **Citation:** "Sigmoid Loss for Language Image Pre-Training", Zhai et
+  al., ICCV 2023 (<https://arxiv.org/abs/2303.15343>).
 
 ---
 
@@ -124,10 +132,11 @@ from PyPI by `pip` / `uv` at install time, not redistributed by this repo:
 | Package | License |
 |---|---|
 | `mcp` | MIT |
-| `sqlite-vec` | Apache-2.0 |
+| `sqlite-vec` | MIT OR Apache-2.0 (dual) |
 | `httpx` | BSD-3-Clause |
-| `numpy` | BSD-3-Clause |
-| `coremltools` | BSD-3-Clause |
+| `numpy` | `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` (composite — NumPy core is BSD-3; bundled components add the others) |
+| `transformers` | Apache-2.0 |
+| `torch` | BSD-3-Clause |
 
 Each package's full license text ships with its wheel and is
 viewable via `pip show -f <pkg>` after installation.

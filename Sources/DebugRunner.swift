@@ -535,7 +535,7 @@ enum DebugRunner {
         exit(box.code)
     }
 
-    // Headless frame indexer. Walks every bundle, runs pHash + MobileCLIP-S2,
+    // Headless frame indexer. Walks every bundle, runs pHash + SigLIP-Base,
     // writes to the `frames` table. Bundles using the legacy 4-digit-seconds
     // JPEG names are silently skipped (FRAMES_KEPT=0 each).
     private static func runIndexFramesProbe(vaultPath: String) -> Never {
@@ -563,10 +563,10 @@ enum DebugRunner {
             defer { sem.signal() }
             do {
                 let dbPath = (try? IndexStore.databasePath()) ?? "?"
-                let modelsDir = (try? MobileCLIPLoader.modelsDirectory().path) ?? "?"
+                let modelPath = (try? SigLIPLoader.bundledModelURL().path) ?? "?"
                 print("VAULT_ROOT=\(vaultURL.path)")
                 print("INDEX_DB=\(dbPath)")
-                print("MODELS_DIR=\(modelsDir)")
+                print("MODEL_PATH=\(modelPath)")
                 print("SCOPED_RESOURCE=\(scoped)")
                 let summary = try await Indexer.reindexFrames(vaultRoot: vaultURL) { line in
                     print(line)

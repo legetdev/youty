@@ -463,7 +463,7 @@ struct SettingsView: View {
                     aboutRow("FFmpeg 7.1.1", license: "LGPL-2.1+", note: "statically linked")
                     aboutRow("sqlite-vec", license: "Apache-2.0", note: nil)
                     aboutRow("SQLite", license: "public domain", note: nil)
-                    aboutRow("MobileCLIP-S2 (CoreML)", license: "Apple Sample Code", note: "downloaded on first use")
+                    aboutRow("SigLIP-Base-Patch16-224 (CoreML)", license: "Apache-2.0", note: "bundled in app")
                     aboutRow("CLIP tokenizer (OpenAI)", license: "MIT", note: "downloaded on first use")
                     aboutRow("Apple system frameworks", license: "Apple SDK Agreement", note: nil)
                     aboutRow("Google Gemini API", license: "Google API Terms", note: "your key, your calls")
@@ -485,10 +485,17 @@ struct SettingsView: View {
                 .accessibilityLabel("Show FFmpeg LGPL-2.1 license")
                 .accessibilityHint("Opens the bundled LGPL-2.1 license text")
 
+                Button("Show SigLIP license…") {
+                    openBundledResource(name: "LICENSE", ext: nil)
+                }
+                .controlSize(.small)
+                .accessibilityLabel("Show SigLIP Apache-2.0 license")
+                .accessibilityHint("Opens the bundled Apache-2.0 license text for SigLIP")
+
                 Spacer()
             }
 
-            Text("To relink Youty against a modified FFmpeg, edit the source from `ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz`, then re-run `Scripts/build-ffmpeg.sh` and `xcodebuild -scheme youty -configuration Release`.")
+            Text("To relink Youty against a modified FFmpeg, edit the source from `ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz`, then re-run `Scripts/build-ffmpeg.sh` and `xcodebuild -scheme youty -configuration Release`. To rebuild the SigLIP image encoder, edit and re-run `Scripts/convert-siglip-coreml.py`.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

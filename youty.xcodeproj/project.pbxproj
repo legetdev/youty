@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		050B4DACC82CCB5F6DC24D71 /* NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = 104CFBE1B3509D6A05F8A3C9 /* NOTICE */; };
 		05282DE3200F4C6E62CF738F /* YoutyShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3E5022BF40C58739B777DA01 /* YoutyShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		090209CA9B05E0C2E4924947 /* SpeechTranscriptionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */; };
 		094AA0F3BD47B61830E40854 /* TranscriptCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9277B41466B3A12A01E4AFB5 /* TranscriptCommand.swift */; };
@@ -25,12 +26,14 @@
 		27FD2A368CC924DD960BF205 /* COPYING.LGPLv3 in Resources */ = {isa = PBXBuildFile; fileRef = AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */; };
 		2B3293CD694D61AA1B68AFAD /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		2BFE4C012A3D481BFA2B24A6 /* LoginCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3DFEC917B99551FA24B633 /* LoginCommand.swift */; };
+		2C02942FDF7344437B582303 /* SigLIP-Base-224_image.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */; };
 		2E457377C0845ACCAB71F901 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F403150ACD28D7C5A9F18C /* SettingsStore.swift */; };
 		2E95A4B3792989B8DC2AA8C5 /* ShortFormPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */; };
 		348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		38606B475C50BB1F3C555BE0 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
 		3931592C71C89B67BDA4F77E /* InstagramExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26E67BEE5ACDE9AEEA6217D /* InstagramExtractor.swift */; };
 		3B5FDDCA27087A6B1C7027A4 /* PlatformRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */; };
+		426389CB5A3014EE35B6DC1F /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = BE56C34A7461D648D1C2C63A /* LICENSE */; };
 		43F7505F9C9C779E84FF8D07 /* ShortFormPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */; };
 		45E22279DB987CA8FD2FA01F /* FFmpegURLSessionIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */; };
 		4B07C74A46B6E023674F964E /* HelpCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF1C029B5D14B567ED47B9B /* HelpCommand.swift */; };
@@ -40,18 +43,22 @@
 		53450823245D09271EC7931A /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		588EEA9FD0F6E4C53048B544 /* IndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */; };
 		59E1BB6B91606B714330DFD1 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A947CCECB5098809045CC6 /* KeychainHelper.swift */; };
+		6166E886D0582F27CABAFB98 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = BE56C34A7461D648D1C2C63A /* LICENSE */; };
 		62DCC093DEC97543E737D4D5 /* SidxParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8C64BEE7581B939A220E62 /* SidxParser.swift */; };
 		6379D83C95B3F278435879B6 /* EmbedderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */; };
 		674CF57AC4E8B460F93ED637 /* MediaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4DB273A82F354414E993F7 /* MediaDownloader.swift */; };
 		67673D0D6A6B0FAB75F1F4EC /* ArgsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9633A2907501CF5C01A910E3 /* ArgsParser.swift */; };
+		68070B8D4F65C01499DFF2EB /* SigLIP-Base-224_image.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */; };
 		73B0BABFF6BDC626DCFE37C5 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
 		754CC21CEEDD77A9212895FE /* LocalFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */; };
 		76014BC216A90F0D7FF28297 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
 		7700E341676B9465D4ADD448 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */; };
 		77CE91EE8F4C30827AE1D84E /* Chunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AF6C6C447D9216143D47E6 /* Chunker.swift */; };
+		77E451F883231BD6936E6D0D /* SigLIPLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */; };
 		79615886D7973E16FA559F69 /* IndexSchema.sql in Resources */ = {isa = PBXBuildFile; fileRef = 7009AA6A6668D4D93B0A165A /* IndexSchema.sql */; };
 		79FE0CBD42E6F22C8A8C8905 /* InstagramExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26E67BEE5ACDE9AEEA6217D /* InstagramExtractor.swift */; };
 		7BFBB7156B9F481099D68889 /* FrameEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */; };
+		7C287A4C5A6D5D593CC0EE77 /* NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = 104CFBE1B3509D6A05F8A3C9 /* NOTICE */; };
 		7CD61850D4441D22AA0DF9CE /* SaveCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */; };
 		80C925A67998CA3D1A01F1EE /* FFmpegURLSessionIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */; };
 		83580BEB8F9323ED76DA8B5B /* CREDITS in Resources */ = {isa = PBXBuildFile; fileRef = 58B78E0BC198C3AE4ACB68FD /* CREDITS */; };
@@ -67,14 +74,12 @@
 		980E7FBB4C21F42002063AB9 /* GeminiEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */; };
 		98739D06255647380C8B1388 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7071A2233262A50751C78C /* DebugLog.swift */; };
 		99F278B1636D3DAA95B536B0 /* GeminiEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */; };
-		9AF161540612A6A35DF76D35 /* MobileCLIPLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25753B7780C0535CF5901FB /* MobileCLIPLoader.swift */; };
 		9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
 		A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
 		A5A27212E838E96609102929 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
-		AD608EA3D02E1867EAC7AAC8 /* MobileCLIPLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25753B7780C0535CF5901FB /* MobileCLIPLoader.swift */; };
 		B232018D44F6919E8EEB28A1 /* LocalFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */; };
 		B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73525BB1298A12906490472 /* FastFramePipeline.swift */; };
 		B7B636F3FF3274FD796D0117 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
@@ -109,6 +114,7 @@
 		F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
 		F16D38842CD9A198F1B8924C /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		F40545FAC6341ABA6C1E24AD /* SearchCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */; };
+		F7F02FC49A9FDE72E034A593 /* SigLIPLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */; };
 		FAAD514A1B9ECDA2B1D27F88 /* CLIConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE828BE532445B11DAFDF7C /* CLIConfig.swift */; };
 		FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12465B44FC685B0D846EA0E /* DebugRunner.swift */; };
 		FEDB9DC9FEB3B9CF9CDB1A47 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A947CCECB5098809045CC6 /* KeychainHelper.swift */; };
@@ -144,6 +150,7 @@
 		095F0E65E14289ABD525C24B /* youty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = youty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A043E863630199156FD846E /* youty-cli */ = {isa = PBXFileReference; includeInIndex = 0; path = "youty-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformRouter.swift; sourceTree = "<group>"; };
+		104CFBE1B3509D6A05F8A3C9 /* NOTICE */ = {isa = PBXFileReference; path = NOTICE; sourceTree = "<group>"; };
 		13370E21DD4886D040B9C4DD /* PHashFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PHashFilter.swift; sourceTree = "<group>"; };
 		176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLocalSearch.swift; sourceTree = "<group>"; };
 		27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokExtractor.swift; sourceTree = "<group>"; };
@@ -168,6 +175,7 @@
 		59F29960905AA7DA5135528E /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		61F403150ACD28D7C5A9F18C /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortFormPipeline.swift; sourceTree = "<group>"; };
+		66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SigLIPLoader.swift; sourceTree = "<group>"; };
 		6C21ECB07C9DC2F79D80010E /* CLIHostWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHostWindow.swift; sourceTree = "<group>"; };
 		7009AA6A6668D4D93B0A165A /* IndexSchema.sql */ = {isa = PBXFileReference; path = IndexSchema.sql; sourceTree = "<group>"; };
 		7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCommand.swift; sourceTree = "<group>"; };
@@ -183,14 +191,15 @@
 		9633A2907501CF5C01A910E3 /* ArgsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgsParser.swift; sourceTree = "<group>"; };
 		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
-		A25753B7780C0535CF5901FB /* MobileCLIPLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileCLIPLoader.swift; sourceTree = "<group>"; };
 		AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */ = {isa = PBXFileReference; path = COPYING.LGPLv3; sourceTree = "<group>"; };
 		B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveCommand.swift; sourceTree = "<group>"; };
 		B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStore.swift; sourceTree = "<group>"; };
 		B829B1B7B1DC76C612C7FF48 /* YoutyAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YoutyAppIntents.swift; sourceTree = "<group>"; };
 		B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbedderProtocol.swift; sourceTree = "<group>"; };
 		B9F72726E0767097CCCE629A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		BE56C34A7461D648D1C2C63A /* LICENSE */ = {isa = PBXFileReference; path = LICENSE; sourceTree = "<group>"; };
 		BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FramePipeline.swift; sourceTree = "<group>"; };
+		C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */ = {isa = PBXFileReference; path = "SigLIP-Base-224_image.mlpackage"; sourceTree = "<group>"; };
 		C870A2F3D64DB3E251183EDE /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasFramePipeline.swift; sourceTree = "<group>"; };
 		CC47826C11CFAAB99DBA696C /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
@@ -235,6 +244,8 @@
 				D7465842BED6624F7B3B6AD9 /* THIRD_PARTY_LICENSES.md */,
 				5235E5DE43C099C92508E838 /* CLI */,
 				6089A0CD3506D6B653C3958C /* licenses */,
+				8F2B36CE315536B69BF5F34E /* licenses */,
+				DDF577715040EA0D69927EF7 /* models */,
 				E52E405D239123F79A4A1BCB /* ShareExtension */,
 				D064152482EEF1C6C5964B10 /* Sources */,
 				EFF19A7977B6F5EE9C053BDC /* Products */,
@@ -263,6 +274,16 @@
 			);
 			name = licenses;
 			path = Vendor/ffmpeg/licenses;
+			sourceTree = "<group>";
+		};
+		8F2B36CE315536B69BF5F34E /* licenses */ = {
+			isa = PBXGroup;
+			children = (
+				BE56C34A7461D648D1C2C63A /* LICENSE */,
+				104CFBE1B3509D6A05F8A3C9 /* NOTICE */,
+			);
+			name = licenses;
+			path = Vendor/siglip/licenses;
 			sourceTree = "<group>";
 		};
 		D064152482EEF1C6C5964B10 /* Sources */ = {
@@ -300,7 +321,6 @@
 				DB4DB273A82F354414E993F7 /* MediaDownloader.swift */,
 				CC47826C11CFAAB99DBA696C /* MenuBarController.swift */,
 				FB6708940A3424B502A6232E /* MetadataEnricher.swift */,
-				A25753B7780C0535CF5901FB /* MobileCLIPLoader.swift */,
 				E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */,
 				28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */,
 				F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */,
@@ -311,6 +331,7 @@
 				7F0A56EE058438A3D7841601 /* SettingsView.swift */,
 				637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */,
 				8C8C64BEE7581B939A220E62 /* SidxParser.swift */,
+				66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */,
 				57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */,
 				E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */,
 				27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */,
@@ -323,6 +344,15 @@
 				B829B1B7B1DC76C612C7FF48 /* YoutyAppIntents.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		DDF577715040EA0D69927EF7 /* models */ = {
+			isa = PBXGroup;
+			children = (
+				C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */,
+			);
+			name = models;
+			path = Vendor/siglip/models;
 			sourceTree = "<group>";
 		};
 		E52E405D239123F79A4A1BCB /* ShareExtension */ = {
@@ -458,6 +488,9 @@
 				27FD2A368CC924DD960BF205 /* COPYING.LGPLv3 in Resources */,
 				83580BEB8F9323ED76DA8B5B /* CREDITS in Resources */,
 				79615886D7973E16FA559F69 /* IndexSchema.sql in Resources */,
+				6166E886D0582F27CABAFB98 /* LICENSE in Resources */,
+				050B4DACC82CCB5F6DC24D71 /* NOTICE in Resources */,
+				68070B8D4F65C01499DFF2EB /* SigLIP-Base-224_image.mlpackage in Resources */,
 				51B938667C9A94698266CC3D /* THIRD_PARTY_LICENSES.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -467,6 +500,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				CB9C7CD874C2FD238236C878 /* IndexSchema.sql in Resources */,
+				426389CB5A3014EE35B6DC1F /* LICENSE in Resources */,
+				7C287A4C5A6D5D593CC0EE77 /* NOTICE in Resources */,
+				2C02942FDF7344437B582303 /* SigLIP-Base-224_image.mlpackage in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -504,7 +540,6 @@
 				D7A3D55EA174E6C74FFC59A7 /* MP4MoofParser.swift in Sources */,
 				D2BB0FFF57E0B176F2D9BD8B /* MediaDownloader.swift in Sources */,
 				F16D38842CD9A198F1B8924C /* MetadataEnricher.swift in Sources */,
-				9AF161540612A6A35DF76D35 /* MobileCLIPLoader.swift in Sources */,
 				CB9BD576C3C677BBD4B9AC33 /* PHashFilter.swift in Sources */,
 				C68DEB5E0CA86838F5D69231 /* ParallelCapture.swift in Sources */,
 				53450823245D09271EC7931A /* PhaseIFrameExtractor.swift in Sources */,
@@ -515,6 +550,7 @@
 				2E457377C0845ACCAB71F901 /* SettingsStore.swift in Sources */,
 				43F7505F9C9C779E84FF8D07 /* ShortFormPipeline.swift in Sources */,
 				62DCC093DEC97543E737D4D5 /* SidxParser.swift in Sources */,
+				F7F02FC49A9FDE72E034A593 /* SigLIPLoader.swift in Sources */,
 				C911D05E228FB03DF52DAA34 /* SpeechTranscriptionPipeline.swift in Sources */,
 				11D4E14864EDC6A0258EA910 /* StreamFetcher.swift in Sources */,
 				38606B475C50BB1F3C555BE0 /* TikTokExtractor.swift in Sources */,
@@ -560,7 +596,6 @@
 				674CF57AC4E8B460F93ED637 /* MediaDownloader.swift in Sources */,
 				161162C6D5E59139B842928A /* MenuBarController.swift in Sources */,
 				348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */,
-				AD608EA3D02E1867EAC7AAC8 /* MobileCLIPLoader.swift in Sources */,
 				E8B97176F582159EC5144CF0 /* PHashFilter.swift in Sources */,
 				D235DE78DBDF7AED552E8AFB /* ParallelCapture.swift in Sources */,
 				9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */,
@@ -570,6 +605,7 @@
 				E3165888D2C54EB8455B0EAE /* SettingsView.swift in Sources */,
 				2E95A4B3792989B8DC2AA8C5 /* ShortFormPipeline.swift in Sources */,
 				1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */,
+				77E451F883231BD6936E6D0D /* SigLIPLoader.swift in Sources */,
 				090209CA9B05E0C2E4924947 /* SpeechTranscriptionPipeline.swift in Sources */,
 				9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */,
 				A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */,

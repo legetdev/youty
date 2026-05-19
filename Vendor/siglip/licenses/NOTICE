@@ -1,0 +1,22 @@
+SigLIP image encoder
+---------------------
+
+This product includes the Core ML conversion of Google's SigLIP-Base-
+Patch16-224 image encoder, derived from:
+
+    https://huggingface.co/google/siglip-base-patch16-224
+
+Licensed under the Apache License, Version 2.0. The full license text is
+included alongside this NOTICE at `Vendor/siglip/licenses/LICENSE`.
+
+The original model is described in:
+
+    "Sigmoid Loss for Language Image Pre-Training"
+    Zhai et al., ICCV 2023, https://arxiv.org/abs/2303.15343
+
+Source for the conversion: `Scripts/convert-siglip-coreml.py` traces the
+HuggingFace transformers checkpoint with PyTorch and emits a Core ML
+.mlpackage (fp16 precision, normalization baked into ct.ImageType). The
+emitted artifact ships in this repo at
+`Vendor/siglip/models/SigLIP-Base-224_image.mlpackage` and is bundled
+into the Mac app under `Youty.app/Contents/Resources/`.

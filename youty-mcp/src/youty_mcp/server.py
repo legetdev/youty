@@ -63,7 +63,7 @@ class _State:
     def __init__(self) -> None:
         self._conn: sqlite3.Connection | None = None
         self._embedder: GeminiEmbedder | None = None
-        self._clip_text = None  # MobileCLIPTextEncoder
+        self._clip_text = None  # SigLIPTextEncoder
         self._db_path: Path | None = None
 
     def conn(self) -> sqlite3.Connection:
@@ -85,11 +85,11 @@ class _State:
         return self._embedder
 
     def clip_text(self):
-        """Lazy MobileCLIP-S2 text encoder. Raises if coremltools is missing."""
+        """Lazy SigLIP-Base text encoder. Raises if transformers/torch missing."""
         if self._clip_text is None:
-            from .coreml_text import MobileCLIPTextEncoder
+            from .siglip_text import SigLIPTextEncoder
 
-            self._clip_text = MobileCLIPTextEncoder()
+            self._clip_text = SigLIPTextEncoder()
         return self._clip_text
 
     def close(self) -> None:
