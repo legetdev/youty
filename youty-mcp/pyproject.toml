@@ -37,6 +37,14 @@ dependencies = [
     # lives in the Mac app bundle (CoreML), only text queries run here.
     "transformers>=4.40,<5",
     "torch>=2.0,<3",
+    # SigLIP's tokenizer is SentencePiece-based; `transformers` does NOT
+    # pull this in automatically — AutoTokenizer.from_pretrained() raises
+    # ImportError without it. Caught by Scripts/verify-siglip-python.py.
+    "sentencepiece>=0.2,<1",
+    # transformers' Siglip tokenizer also pulls in a protobuf parse path
+    # for the SentencePiece model bytes; protobuf isn't auto-installed
+    # either. Same verification script catches it.
+    "protobuf>=4,<7",
 ]
 
 [project.urls]

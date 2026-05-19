@@ -151,6 +151,18 @@ else
 fi
 
 echo
+echo "== Phase R.0b — SigLIP image encoder =="
+# Loads the bundled SigLIP-Base-224 .mlmodelc / .mlpackage, runs a single
+# real prediction on a synthetic 224x224 pixel buffer, checks the output
+# is a 768-dim L2-normalised vector with no NaN/Inf. Catches:
+#   - app-bundle resource path regression (Bundle.main.url(forResource:))
+#   - CoreML model i/o schema drift after a future re-conversion
+#   - precision / palettization that produces non-finite outputs
+run "SigLIP bundled-model load + prediction" \
+    'SIGLIP_PROBE OK' \
+    "$BIN" --siglip-probe
+
+echo
 echo "== Phase Q.6 — crash hardening =="
 # Drives every weird vault state we can simulate headlessly: empty vault,
 # vault-is-a-file, garbage manifest.json (7 variants), corrupt video.md

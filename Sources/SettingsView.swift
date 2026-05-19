@@ -204,7 +204,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("AI search index")
 
-            Text("Optional. Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Your vault stays local — only the transcript text is sent to Gemini, and only with the API key you provide below.")
+            Text("Optional. Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Your vault stays local — only the transcript text is sent to Gemini, and only with the API key you provide below. Re-indexing also rebuilds the on-device frame vectors used for visual search.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -387,6 +387,7 @@ struct SettingsView: View {
                     }
                 }
                 let line = "Indexed \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
+                           (summary.framesKept > 0 ? " · \(summary.framesKept) frames" : "") +
                            (summary.videosDeleted > 0 ? " · \(summary.videosDeleted) removed" : "") +
                            (summary.failures.isEmpty ? "" : " — \(summary.failures.count) failed")
                 await MainActor.run {

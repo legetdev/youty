@@ -28,6 +28,8 @@ struct ReindexSummary: Sendable {
     var videosIndexed: Int = 0
     var chunksWritten: Int = 0
     var videosDeleted: Int = 0       // bundles in DB whose video.md is gone from disk
+    var framesKept: Int = 0          // frames re-embedded in this run (0 if frame index skipped)
+    var framesDroppedDedupe: Int = 0 // pHash-filtered duplicates dropped during frame re-embed
     var failures: [(folder: String, error: String)] = []
     var totalMs: Int = 0
 }
@@ -112,6 +114,25 @@ enum Indexer {
         // that blocks main on `sem.wait()`).
         let manifestTouched = VaultManager.rebuildManifest(at: vaultRoot)
         progress?("MANIFEST_REBUILT=\(manifestTouched)")
+
+        // Frame re-embed pass — "Re-index entire vault" must re-cover
+        // frame search too, especially after a model swap (e.g. the
+        // MobileCLIP → SigLIP migration in R.0b). Without this, the
+        // text index gets rebuilt cleanly but `search_frames` returns
+        // nothing until the user runs the CLI re-index probe by hand.
+        // Idempotent at the bundle level via `purgeStaleFrameVectors`
+        // — bundles already embedded under the current model identifier
+        // are no-ops; bundles under a stale identifier are re-embedded
+        // here once and then become no-ops on subsequent calls.
+        progress?("FRAME_REINDEX_START")
+        let frameSummary = try await reindexFrames(vaultRoot: vaultRoot,
+                                                    progress: progress)
+        summary.framesKept = frameSummary.framesKept
+        summary.framesDroppedDedupe = frameSummary.framesDroppedDedupe
+        for f in frameSummary.failures {
+            summary.failures.append(f)
+        }
+        progress?("FRAME_REINDEX_DONE kept=\(frameSummary.framesKept) dropped=\(frameSummary.framesDroppedDedupe)")
 
         summary.totalMs = Int(Date().timeIntervalSince(kickoff) * 1000)
 

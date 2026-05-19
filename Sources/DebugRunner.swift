@@ -1,6 +1,8 @@
 import Foundation
 import AppKit
 import CryptoKit
+import CoreML
+import CoreVideo
 
 // Headless verification harness. Bypasses the SwiftUI window so Phase I
 // (and the production path) can be exercised against real YouTube URLs from
@@ -47,6 +49,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--phase-l-e2e-check")
             || CommandLine.arguments.contains("--hardness-probe")
             || CommandLine.arguments.contains("--bench-indexer")
+            || CommandLine.arguments.contains("--siglip-probe")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -85,6 +88,9 @@ enum DebugRunner {
         }
         if let nStr = stringArg(args, key: "--bench-indexer") {
             runBenchIndexer(count: Int(nStr) ?? 1000)
+        }
+        if args.contains("--siglip-probe") {
+            runSigLIPProbe()
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -1058,5 +1064,128 @@ enum DebugRunner {
     private static func extractVideoID(_ urlString: String) -> String? {
         // Reuses the canonical extractor in TranscriptFetcher.
         return TranscriptFetcher.extractVideoID(from: urlString)
+    }
+
+    // SigLIP-probe — proves the bundled image encoder (Vendor/siglip/) loads
+    // and runs an actual prediction on the ANE. Creates a synthetic 224×224
+    // RGB pixel buffer (deterministic gradient), runs it through
+    // SigLIPLoader → CoreML, validates the output is a 768-dim
+    // L2-normalised vector.
+    //
+    // Catches regressions that build + accessibility audit wouldn't:
+    //   - .mlmodelc resource path resolution under Bundle.main
+    //   - CoreML model input/output schema mismatches after a conversion change
+    //   - Unexpected dtype on the output multiarray
+    private static func runSigLIPProbe() -> Never {
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            do {
+                let url = try SigLIPLoader.bundledModelURL()
+                print("MODEL_PATH=\(url.path)")
+                print("MODEL_EXT=\(url.pathExtension)")
+                let started = Date()
+                let encoder = try await SigLIPLoader.shared.imageEncoder()
+                let loadMs = Int(Date().timeIntervalSince(started) * 1000)
+                print("MODEL_LOAD_MS=\(loadMs)")
+
+                // Build a synthetic 224×224 ARGB pixel buffer with a vertical
+                // gradient so we can prove the model executes on non-trivial
+                // input (all-zeros input can produce NaN-ish embeddings on
+                // some quantized models).
+                let size = siglipImageInputSize
+                let attrs: [CFString: Any] = [
+                    kCVPixelBufferIOSurfacePropertiesKey: [:],
+                ]
+                var buffer: CVPixelBuffer?
+                guard CVPixelBufferCreate(nil, size, size,
+                                           kCVPixelFormatType_32ARGB,
+                                           attrs as CFDictionary, &buffer) == kCVReturnSuccess,
+                      let buf = buffer else {
+                    print("ERROR=cannot_create_pixel_buffer")
+                    box.code = 2
+                    return
+                }
+                CVPixelBufferLockBaseAddress(buf, [])
+                let base = CVPixelBufferGetBaseAddress(buf)!
+                let stride = CVPixelBufferGetBytesPerRow(buf)
+                for y in 0..<size {
+                    let row = base.advanced(by: y * stride)
+                    for x in 0..<size {
+                        let pixel = row.advanced(by: x * 4)
+                            .assumingMemoryBound(to: UInt8.self)
+                        pixel[0] = 255                           // A
+                        pixel[1] = UInt8(min(255, y))            // R: vertical gradient
+                        pixel[2] = UInt8(min(255, x))            // G: horizontal gradient
+                        pixel[3] = UInt8((x ^ y) & 0xFF)         // B: xor texture
+                    }
+                }
+                CVPixelBufferUnlockBaseAddress(buf, [])
+
+                let input = try MLDictionaryFeatureProvider(dictionary: [
+                    "image": MLFeatureValue(pixelBuffer: buf),
+                ])
+                let inferStart = Date()
+                let prediction = try await encoder.model.prediction(from: input)
+                let inferMs = Int(Date().timeIntervalSince(inferStart) * 1000)
+                print("INFER_MS=\(inferMs)")
+
+                guard let arr = prediction.featureValue(for: "embedding")?.multiArrayValue else {
+                    print("ERROR=missing_embedding_feature")
+                    box.code = 3
+                    return
+                }
+                guard arr.count == siglipEmbeddingDim else {
+                    print("ERROR=unexpected_dim got=\(arr.count) expected=\(siglipEmbeddingDim)")
+                    box.code = 3
+                    return
+                }
+                print("EMBED_DIM=\(arr.count)")
+                print("EMBED_DTYPE=\(arr.dataType.rawValue)")
+
+                // Spot-check: read first 4 values + verify the vector has
+                // non-trivial magnitude AND no NaN/Inf. (The Swift FrameEmbedder
+                // L2-normalises in postprocess, but the bundled wrapper already
+                // normalises inside the graph — verify both invariants hold.)
+                var sumSq: Double = 0
+                var anyNonFinite = false
+                for i in 0..<arr.count {
+                    let v: Float
+                    switch arr.dataType {
+                    case .float16:
+                        let raw = arr.dataPointer.advanced(by: i * 2).load(as: UInt16.self)
+                        v = Float(Float16(bitPattern: raw))
+                    case .float32:
+                        v = arr.dataPointer.advanced(by: i * 4).load(as: Float.self)
+                    default:
+                        v = arr[i].floatValue
+                    }
+                    if !v.isFinite { anyNonFinite = true }
+                    sumSq += Double(v) * Double(v)
+                }
+                let norm = sqrt(sumSq)
+                print("EMBED_NORM=\(String(format: "%.4f", norm))")
+                if anyNonFinite {
+                    print("ERROR=non_finite_value_in_embedding")
+                    box.code = 3
+                    return
+                }
+                // Conversion wrapper normalises in-graph → norm should be ~1.0.
+                // Accept [0.9, 1.1] window to absorb fp16 rounding.
+                guard norm > 0.9 && norm < 1.1 else {
+                    print("ERROR=unexpected_norm \(norm) — expected ~1.0")
+                    box.code = 3
+                    return
+                }
+                print("SIGLIP_PROBE OK")
+                box.code = 0
+            } catch {
+                print("ERROR=\(error.localizedDescription)")
+                box.code = 2
+            }
+        }
+        sem.wait()
+        exit(box.code)
     }
 }
