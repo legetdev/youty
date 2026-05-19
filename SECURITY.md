@@ -6,8 +6,12 @@ Found something concerning — an API-key leak, a privilege-escalation
 path, a way to execute code via a saved bundle, anything in that
 neighbourhood?
 
-Email **legetdev@gmail.com** with the subject line `youty security`.
-Please do not open a public GitHub issue.
+Use GitHub's **private security advisory** feature:
+<https://github.com/legetdev/youty/security/advisories/new>. This
+creates a confidential thread visible only to repository maintainers,
+keeps the report off public Issues, and gives us a structured place to
+coordinate a fix and a CVE if warranted. Please do not open a public
+GitHub issue for security topics.
 
 I'll acknowledge within 72 hours and aim to ship a fix within 14 days
 for anything critical, longer for lower-severity issues.
