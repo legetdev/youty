@@ -1,38 +1,71 @@
 #!/usr/bin/env bash
 # Build a drag-installable DMG from the current Release youty.app.
 #
-# Output: build/Youty.dmg
+# Output: build/Youty-<version>.dmg
 #
 # Layout: a single Finder window with youty.app on the left and an
 # Applications symlink on the right. Drag the app onto Applications to
 # install. Standard macOS convention.
 #
-# Tools used: hdiutil (built-in), osascript (built-in). No third-party.
+# Behaviour:
+#   • If `youty.app` already exists at build/release/Build/Products/Release/,
+#     it is reused as-is (Phase R workflow: release-app.sh produces the
+#     signed + notarized + stapled bundle and hands off to this script).
+#   • Otherwise the script builds the Release configuration itself.
+#   • If DEVELOPER_ID_APPLICATION_CERT is set, the produced DMG is
+#     codesigned with that identity — required before R.9 because
+#     unsigned DMGs trip the "macOS cannot verify" warning even when
+#     the inner app is notarized.
+#
+# Tools used: xcodebuild, hdiutil, osascript, codesign. All Apple
+# first-party. No third-party.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$ROOT/build/release"
 APP="$BUILD_DIR/Build/Products/Release/youty.app"
-DMG_OUT="$ROOT/build/Youty.dmg"
 VOLUME_NAME="Youty"
 
-# ---- Build the Release app ----
-echo "==> Building Release youty.app..."
-xcodebuild \
-    -project "$ROOT/youty.xcodeproj" \
-    -scheme youty \
-    -configuration Release \
-    -derivedDataPath "$BUILD_DIR" \
-    build > /tmp/youty-dmg-build.log 2>&1 || {
-        echo "error: build failed. Tail of /tmp/youty-dmg-build.log:" >&2
-        tail -20 /tmp/youty-dmg-build.log >&2
-        exit 1
-    }
+# ---- Resolve the version so the DMG filename is informative ----
+#
+# Read the source-of-truth from the built bundle if it exists, otherwise
+# from the Info.plist in the source tree. Falls back to "dev" if neither
+# is available — script still produces a DMG named Youty-dev.dmg.
+read_version() {
+    local plist="$1"
+    [ -f "$plist" ] || { echo "dev"; return; }
+    /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null || echo "dev"
+}
 
-if [ ! -d "$APP" ]; then
-    echo "error: built app not found at $APP" >&2
-    exit 1
+if [ -d "$APP" ]; then
+    VERSION=$(read_version "$APP/Contents/Info.plist")
+else
+    VERSION=$(read_version "$ROOT/Sources/Info.plist")
+fi
+
+DMG_OUT="$ROOT/build/Youty-${VERSION}.dmg"
+
+# ---- Build the Release app (only if not already built) ----
+if [ -d "$APP" ]; then
+    echo "==> Reusing existing youty.app at $APP"
+else
+    echo "==> Building Release youty.app..."
+    xcodebuild \
+        -project "$ROOT/youty.xcodeproj" \
+        -scheme youty \
+        -configuration Release \
+        -derivedDataPath "$BUILD_DIR" \
+        build > /tmp/youty-dmg-build.log 2>&1 || {
+            echo "error: build failed. Tail of /tmp/youty-dmg-build.log:" >&2
+            tail -20 /tmp/youty-dmg-build.log >&2
+            exit 1
+        }
+
+    if [ ! -d "$APP" ]; then
+        echo "error: built app not found at $APP" >&2
+        exit 1
+    fi
 fi
 
 # ---- Stage the DMG contents ----
@@ -91,7 +124,32 @@ echo "==> Compressing to $DMG_OUT..."
 hdiutil convert "$RW_DMG" -format UDZO -imagekey zlib-level=9 -o "$DMG_OUT" > /dev/null
 rm -f "$RW_DMG"
 
+# ---- Optional: codesign the DMG itself ----
+#
+# Apple's notary service only signs the .app inside; the DMG container
+# is a separate artifact. Without this, downloaded copies still trigger
+# Gatekeeper's "verify with developer" prompt even when the inner app
+# is notarized + stapled.
+if [ -n "${DEVELOPER_ID_APPLICATION_CERT:-}" ]; then
+    echo "==> Signing DMG with $DEVELOPER_ID_APPLICATION_CERT..."
+    codesign --force \
+             --sign "$DEVELOPER_ID_APPLICATION_CERT" \
+             --timestamp \
+             "$DMG_OUT" > /tmp/youty-dmg-codesign.log 2>&1 || {
+                echo "error: DMG codesign failed. Tail of /tmp/youty-dmg-codesign.log:" >&2
+                tail -10 /tmp/youty-dmg-codesign.log >&2
+                exit 1
+             }
+else
+    echo "warn: DEVELOPER_ID_APPLICATION_CERT not set — DMG is unsigned." >&2
+    echo "      Required before R.9. Set the env var and re-run." >&2
+fi
+
 # ---- Verify the result ----
 hdiutil verify "$DMG_OUT" > /dev/null
 SIZE_MB=$(du -m "$DMG_OUT" | awk '{print $1}')
-echo "==> Built $DMG_OUT (${SIZE_MB} MB)"
+echo "==> Built $DMG_OUT (${SIZE_MB} MB, version $VERSION)"
+
+if [ -n "${DEVELOPER_ID_APPLICATION_CERT:-}" ]; then
+    echo "==> Next: Scripts/sparkle-sign-and-cut.sh \"$DMG_OUT\""
+fi

@@ -1,16 +1,24 @@
-# Homebrew formula scaffold for the youty CLI.
+# typed: true
+# frozen_string_literal: true
+
+# Homebrew formula for the youty CLI.
 #
-# Lives in the main repo while Phase R is still ahead. At distribution
-# time this file will be moved to `legetdev/homebrew-youty/Formula/youty.rb`
-# and the `url` / `sha256` will point at the first tagged GitHub release.
-# Until then, users build the CLI from source via `Scripts/install-cli.sh`.
+# Lives in this repo during Phase R prep. At release time the file is
+# copied verbatim to `legetdev/homebrew-youty/Formula/youty.rb`, the
+# `url` + `sha256` placeholders are replaced against the tagged GitHub
+# release tarball, and `brew install legetdev/youty/youty` works.
 #
 # Phase R checklist for this file:
-#   1. Tag a GitHub release (e.g. `v1.0.0`).
-#   2. Replace `url` + `sha256` with the tagged tarball URL and its sha.
-#   3. Copy this file to the `homebrew-youty` tap repo.
-#   4. `brew install legetdev/youty/youty` should then work.
+#   1. Tag a GitHub release (e.g. `v1.0.0`) on the main repo.
+#   2. Replace the `url` line so it points at that tag's source tarball.
+#   3. Replace `0000…` with the tarball's actual SHA-256:
+#        curl -sL <url> | shasum -a 256
+#   4. Copy the file into the `homebrew-youty` tap repo (Formula/).
+#   5. Verify with `brew install --build-from-source legetdev/youty/youty`.
+#   6. Run `brew audit --strict --new legetdev/youty/youty` — must pass
+#      before R.9 so the tap doesn't ship with audit warnings.
 
+# Build + install the youty CLI from the tagged GitHub source release.
 class Youty < Formula
   desc "Save YouTube, Instagram, and TikTok videos to a local AI-readable knowledge base"
   homepage "https://github.com/legetdev/youty"
@@ -19,22 +27,45 @@ class Youty < Formula
   license "MIT"
   head "https://github.com/legetdev/youty.git", branch: "main"
 
+  # macOS 26 Tahoe is required: the SpeechAnalyzer + SpeechTranscriber
+  # APIs the transcript pipeline depends on shipped in that release.
   depends_on xcode: ["26.0", :build]
-  depends_on :macos => :sequoia
+  depends_on macos: :tahoe
 
   def install
-    # FFmpeg statics ship inside Vendor/ffmpeg/. No external deps required.
-    system "xcodebuild",
-           "-project", "youty.xcodeproj",
-           "-scheme", "youty-cli",
-           "-configuration", "Release",
-           "-derivedDataPath", "build",
-           "SYMROOT=#{buildpath}/build",
-           "build"
+    # FFmpeg statics live under Vendor/ffmpeg/ — built once via
+    # Scripts/build-ffmpeg.sh, committed into the repo so end users
+    # never need to install or build FFmpeg themselves.
+    xcodebuild "-project", "youty.xcodeproj",
+               "-scheme", "youty-cli",
+               "-configuration", "Release",
+               "-derivedDataPath", "build",
+               "SYMROOT=#{buildpath}/build",
+               "build"
     bin.install "build/Release/youty"
   end
 
+  def caveats
+    <<~CAVEATS
+      youty (CLI) is now installed. The Mac app is a separate download:
+        https://youtyapp.vercel.app
+
+      The MCP server (for Claude Desktop / Cursor / any MCP client) is
+      a separate Python package:
+        uv tool install youty-mcp
+
+      Quick start:
+        youty save https://www.youtube.com/watch?v=...
+        youty list
+        youty search "..."
+
+      Bug reports + questions: https://github.com/legetdev/youty/issues
+    CAVEATS
+  end
+
   test do
+    # Lightweight smoke checks — no network calls, no FFmpeg invocation,
+    # just confirm the binary runs and reports a sensible version + help.
     assert_match "youty 1.", shell_output("#{bin}/youty --version")
     assert_match "USAGE", shell_output("#{bin}/youty --help")
   end

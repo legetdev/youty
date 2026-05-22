@@ -406,7 +406,11 @@ struct OnboardingView: View {
 
     // MARK: - Canonical install copy (single source of truth)
 
-    static let cliInstallCommand = "curl -sSfL https://raw.githubusercontent.com/legetdev/youty/main/Scripts/install-cli.sh | sh"
+    /// Canonical install path is the Homebrew tap (`legetdev/homebrew-youty`,
+    /// scaffolded in `Scripts/homebrew/youty.rb`, published at R.6).
+    /// `brew install <user>/<repo>/<formula>` auto-taps + installs in one
+    /// command, so the user never has to know about the tap mechanic.
+    static let cliInstallCommand = "brew install legetdev/youty/youty"
 
     static let mcpInstallCommand = "uv tool install youty-mcp"
 
