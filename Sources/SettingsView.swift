@@ -528,6 +528,7 @@ struct SettingsView: View {
 
                 Group {
                     aboutRow("FFmpeg 7.1.1", license: "LGPL-2.1+", note: "statically linked")
+                    aboutRow("Sparkle 2.9.2", license: "MIT", note: "auto-update framework")
                     aboutRow("sqlite-vec", license: "Apache-2.0", note: nil)
                     aboutRow("SQLite", license: "public domain", note: nil)
                     aboutRow("SigLIP-Base-Patch16-224 (CoreML)", license: "Apache-2.0", note: "bundled in app")

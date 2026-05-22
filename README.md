@@ -12,16 +12,23 @@ just a folder of `.md` files and JPEGs you fully own.
 | | How | Need |
 |---|---|---|
 | **Mac app** | Download `Youty.dmg`, drag to `/Applications` | macOS 26 (Tahoe) |
-| **CLI** | `./Scripts/install-cli.sh` &nbsp;or&nbsp; `brew install legetdev/youty/youty` (post-launch) | Xcode 26 to build |
+| **CLI** | `brew install legetdev/youty/youty` (once the tap is live) &nbsp;or&nbsp; `./Scripts/install-cli.sh` from a clone | Xcode 26 to build |
 | **MCP server** | `uv tool install ./youty-mcp/dist/*.whl` | Python 3.11+, `uv` |
+
+The Mac app auto-updates via Sparkle once installed — *Check for
+Updates…* lives in the app menu (or *Settings → About*). New releases
+are EdDSA-signed; an unsigned binary will be rejected even if the
+appcast URL is hijacked.
 
 The Mac app, the `youty` CLI, and the `youty-mcp` server all read and
 write the same vault folder.
 
 ## Using it
 
-**Mac app.** Open Youty, pick a vault folder once in Settings, paste a
-video URL, hit Load → Save to Vault. The Mac app also shows up in:
+**Mac app.** First launch walks you through a four-card setup (pick a
+vault, optional Gemini key, optional CLI install, optional MCP wiring).
+The cards stay reachable from *Settings → Onboarding*. After that:
+paste a video URL, hit Load → Save to Vault. The Mac app also shows up in:
 
 - Safari / Notes / Mail's Share menu (Share → Save to Youty)
 - The macOS Services menu (right-click any URL → Save to Youty Vault)
@@ -62,23 +69,42 @@ transcribed on-device via Apple's `SpeechAnalyzer` + `SpeechTranscriber`
 
 See [`docs/privacy.md`](docs/privacy.md). The short version: vault is
 local, transcripts and frames are local, no telemetry. The only network
-calls are (a) platform fetches to scrape the video, and (b) an optional
-Gemini API call for AI-search embeddings using a key *you* provide.
+calls are (a) platform fetches to scrape the video, (b) an optional
+Gemini API call for AI-search embeddings using a key *you* provide, and
+(c) Sparkle's anonymous once-a-day check for a newer Youty release.
+
+## Terms
+
+See [`docs/terms.md`](docs/terms.md). Same posture as yt-dlp and IINA:
+Youty is a personal user-agent that loads pages you're already entitled
+to view; you're responsible for whether your use of the saved content
+complies with each platform's terms of service.
 
 ## Building from source
 
 ```bash
 xcodebuild -scheme youty     -configuration Release build   # Mac app
 xcodebuild -scheme youty-cli -configuration Release build   # CLI binary
-./Scripts/make-dmg.sh                                       # DMG installer
-./Scripts/build-mcp-wheel.sh                                # MCP wheel
+./Scripts/make-dmg.sh                                       # DMG installer (versioned filename)
+./Scripts/build-mcp-wheel.sh                                # MCP wheel + twine check
 ./Scripts/smoke-test-extractors.sh                          # full smoke
 ```
 
-No external Swift packages, no bundled binaries, no Python helpers in
-the Mac app itself. FFmpeg ships statically linked from
-`Vendor/ffmpeg/`. The MCP server is a separate Python package with its
-own pinned dependencies.
+Release pipeline (requires a Developer ID certificate + a notarytool
+keychain profile):
+
+```bash
+export DEVELOPER_ID_APPLICATION_CERT="Developer ID Application: ... (TEAMID)"
+export NOTARY_KEYCHAIN_PROFILE="youty-notary"
+./Scripts/release-app.sh                              # build → sign → notarize → staple
+./Scripts/make-dmg.sh                                 # signed versioned DMG
+./Scripts/sparkle-sign-and-cut.sh build/Youty-*.dmg   # emits the appcast <item>
+```
+
+One vetted Swift Package dependency in the Mac app (**Sparkle**, MIT,
+auto-update — pinned in `Package.resolved`). FFmpeg ships statically
+linked from `Vendor/ffmpeg/`. The MCP server is a separate Python
+package with its own pinned dependencies.
 
 ## Security
 
@@ -98,6 +124,14 @@ The app also bundles Google's SigLIP-Base-Patch16-224 image encoder
 text in [`Vendor/siglip/licenses/LICENSE`](Vendor/siglip/licenses/LICENSE),
 with attribution + conversion provenance in
 [`Vendor/siglip/licenses/NOTICE`](Vendor/siglip/licenses/NOTICE).
+
+The app also bundles Sparkle (MIT, the auto-update framework). Pinned
+at version 2.9.2 in
+[`Package.resolved`](youty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved);
+license text ships inside the framework at
+`Sparkle.framework/Versions/Current/Resources/LICENSE`. Vetted against
+the third-party checklist (MIT, 20-year track record, EdDSA-signed
+updates, single-purpose) and green-lit during Phase R.1 decisions.
 
 To relink the app against a modified FFmpeg: edit the FFmpeg source
 unpacked by `Scripts/build-ffmpeg.sh`, re-run that script, then re-run

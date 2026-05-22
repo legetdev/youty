@@ -73,6 +73,30 @@ and similar LGPL-FFmpeg-linking apps.
 
 ---
 
+## Sparkle
+
+- **Component:** Auto-update framework. Bundled inside the Mac app at
+  `Youty.app/Contents/Frameworks/Sparkle.framework`, fetched by Swift
+  Package Manager from the upstream GitHub repo at build time. Used to
+  check `https://youtyapp.vercel.app/appcast.xml` for new releases and
+  download + EdDSA-verify signed DMGs.
+- **Version:** Pinned at 2.9.2 in
+  [`Package.resolved`](youty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved).
+- **License:** MIT. The full text ships inside the framework bundle at
+  `Sparkle.framework/Versions/Current/Resources/LICENSE` and is
+  surfaced in the app's *About* panel.
+- **Project home:** <https://sparkle-project.org>.
+- **Source:** <https://github.com/sparkle-project/Sparkle>.
+- **Why this is the only third-party Swift dependency:** vetted against
+  the third-party checklist in `CLAUDE.md` (MIT, 20-year track record,
+  EdDSA-signed updates, GitHub-sponsored maintenance, single-purpose,
+  shipped in CleanShot / Bartender / iStat / Tot) and explicitly
+  green-lit during R.1 decisions on 2026-05-19. Every other component
+  here is either statically built from source, bundled as data, or an
+  Apple-provided system framework.
+
+---
+
 ## Google SigLIP-Base-Patch16-224 (image encoder, Core ML)
 
 - **Component:** ML model used by the Mac app and CLI to embed video
