@@ -80,6 +80,24 @@ final class SettingsStore: ObservableObject {
     /// surface only.
     @AppStorage("menuBarEnabled") var menuBarEnabled: Bool = false
 
+    // MARK: - Onboarding (R.2)
+
+    /// First-launch flag. When false, the OnboardingView appears as a
+    /// sheet over ContentView so the user can pick a vault and (optionally)
+    /// hook up the Gemini key, the CLI, and the MCP server. The four cards
+    /// stay reachable any time from Settings → Onboarding.
+    @AppStorage("onboardingComplete") var onboardingComplete: Bool = false
+
+    /// Set when the user presses the "Copy + open Terminal" button on the
+    /// CLI onboarding card. We can't directly observe whether they pasted
+    /// + ran the command, so this is a "user-acknowledged" flag, not a
+    /// "definitely installed" one — enough to stop nagging without
+    /// pretending we know more than we do.
+    @AppStorage("onboardingCLIDone") var onboardingCLIDone: Bool = false
+
+    /// Same shape as `onboardingCLIDone` for the MCP server card.
+    @AppStorage("onboardingMCPDone") var onboardingMCPDone: Bool = false
+
     // MARK: - Picker options (single source of truth)
 
     struct Option<Value: Hashable>: Hashable {

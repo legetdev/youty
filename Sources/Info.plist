@@ -28,6 +28,24 @@
 	<string>NSApplication</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Youty transcribes the audio of saved Instagram and TikTok videos entirely on your device to produce timestamped captions in the vault note. Audio never leaves your Mac.</string>
+	<!--
+	  Sparkle auto-update configuration. The feed is hosted alongside the
+	  landing page on Vercel; new release DMGs are signed with the EdDSA
+	  private key held in the author's macOS Keychain (backup at
+	  ~/.config/youty-sparkle/, never committed). Without a matching
+	  signature, Sparkle refuses the update — so even if the appcast URL is
+	  hijacked, an attacker cannot push a malicious binary.
+	-->
+	<key>SUFeedURL</key>
+	<string>https://youtyapp.vercel.app/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>YHWrchjvFb+EXxR0kFW+Cz51WwYrNmOKZrY908OGOVY=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUEnableInstallerLauncherService</key>
+	<false/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

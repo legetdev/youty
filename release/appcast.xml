@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Youty Sparkle appcast feed.
+
+    This file is the canonical source of truth for the auto-updater.
+    Every shipped copy of Youty fetches it (every 24 h plus on-demand)
+    from the URL declared in the app's Info.plist SUFeedURL key
+    (https://youtyapp.vercel.app/appcast.xml).
+
+    HOW TO CUT A NEW RELEASE
+    1. Build the Release configuration:
+         xcodebuild -scheme youty -configuration Release \
+                    -derivedDataPath build/release clean build
+    2. Notarize + staple the resulting youty.app via xcrun notarytool
+       (this is R.5; see Scripts/make-dmg.sh once the certificate exists).
+    3. Build the signed DMG:
+         ./Scripts/make-dmg.sh
+       Output lands in build/Youty-<version>.dmg.
+    4. Sign the DMG with the EdDSA private key kept in the macOS Keychain
+       (export with `generate_keys -p` if you only need the public side):
+         <build>/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update \
+             build/Youty-<version>.dmg
+       The output is a one-line `sparkle:edSignature="…" length="…"` pair.
+    5. Add an <item> to this file (newest first), filling in:
+         - title         human-readable version label
+         - sparkle:version          internal CFBundleVersion (integer)
+         - sparkle:shortVersionString display CFBundleShortVersionString
+         - sparkle:minimumSystemVersion macOS floor (matches LSMinimumSystemVersion)
+         - pubDate       RFC 822 date (use `date -R` on macOS)
+         - enclosure url GitHub Releases download URL
+         - enclosure sparkle:edSignature  output of sign_update above
+         - enclosure length             byte size of the DMG
+    6. Upload the DMG to the GitHub Release tagged `v<version>`.
+    7. Replace the deployed copy of this file (Vercel pulls from the
+       repo's `release/` directory; redeploy on push).
+
+    Alternative for fully-automated release cuts: Sparkle ships a
+    `generate_appcast` tool that walks a directory of signed DMGs and
+    regenerates this file end-to-end. Wire that into the release script
+    once we have more than two or three versions to maintain.
+
+    REMOVE the example <item> block below before shipping the first
+    real release; it's only here so the feed parses cleanly during
+    Phase R verification.
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+                  xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>Youty Updates</title>
+        <link>https://youtyapp.vercel.app/appcast.xml</link>
+        <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
+        <language>en</language>
+
+        <!--
+            Example item — replace at first real release. The
+            sparkle:edSignature value below is intentionally invalid so
+            that no client would ever accept this as a real update; it's
+            here only to document the expected attribute shape.
+        -->
+        <item>
+            <title>Youty 1.0.0</title>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Thu, 22 May 2026 00:00:00 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.0.0 — initial public release.</h3>
+                <p>Save YouTube, Instagram, and TikTok videos to a
+                local, AI-readable vault. Frames + transcript + manifest,
+                searchable via the bundled MCP server.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.0.0/Youty-1.0.0.dmg"
+                sparkle:edSignature="INVALID_PLACEHOLDER_SIGNATURE_REPLACE_BEFORE_SHIPPING"
+                length="0"
+                type="application/octet-stream"/>
+        </item>
+    </channel>
+</rss>

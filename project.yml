@@ -5,6 +5,11 @@ options:
     macOS: "26.0"
   xcodeVersion: "26.0"
 
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
+
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -63,6 +68,7 @@ targets:
         OTHER_LDFLAGS: "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -lsqlite3 -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox"
     dependencies:
       - target: YoutyShareExtension
+      - package: Sparkle
     entitlements:
       path: Sources/youty.entitlements
       properties:
@@ -112,6 +118,10 @@ targets:
           - "IngestionFunnel.swift"
           - "YoutyAppIntents.swift"
           - "DebugRunner.swift"
+          - "OnboardingView.swift"
+          - "IndexBadgeView.swift"
+          - "IndexStatusStore.swift"
+          - "AppUpdater.swift"
       - path: Sources/IndexSchema.sql
         buildPhase: resources
       # CLI binary uses the same bundled SigLIP image encoder as the Mac

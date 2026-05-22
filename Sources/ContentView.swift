@@ -33,6 +33,7 @@ struct ContentView: View {
     @State private var ingestionBanner: String?
     @State private var ingestionBannerTimer: DispatchWorkItem?
     @State private var lastIndexedFolder: URL?
+    @State private var showOnboarding = false
     @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
 
@@ -66,6 +67,14 @@ struct ContentView: View {
                     .padding(.horizontal, 24)
 
                 resultSection
+
+                Spacer(minLength: 8)
+
+                // Always-visible IG/TikTok ToS disclosure footer (R.2 spec).
+                // Small + calm so the main capture surface stays the focus.
+                platformDisclosureFooter
+                    .padding(.horizontal, 24)
+                    .padding(.top, 6)
             }
             .padding(.bottom, 16)
         }
@@ -87,6 +96,12 @@ struct ContentView: View {
                     // Services / AppIntent keep working all session.
                     MainWindowKeeper.shared.attach(to: window)
                 }
+            }
+            // First-launch onboarding (R.2). Skipped silently on every
+            // launch after the user marks it complete; reachable any time
+            // via Settings → Onboarding.
+            if !settings.onboardingComplete {
+                showOnboarding = true
             }
         }
         .onChange(of: funnel.dispatchID) { _, _ in
@@ -113,6 +128,32 @@ struct ContentView: View {
                 pendingInstagramURL = nil
             }
         }
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView(settings: settings,
+                           vault: vault,
+                           onDismiss: { showOnboarding = false })
+        }
+    }
+
+    /// Always-visible IG / TikTok ToS disclosure (R.2 spec). Calm, not
+    /// modal — the main capture surface stays the focus, but the user
+    /// can't miss it on first save or any save thereafter.
+    private var platformDisclosureFooter: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.tertiary)
+                .font(.system(size: 11))
+                .padding(.top, 1)
+            Text("Saving from Instagram or TikTok uses each platform's public web pages. Use may violate their terms of service and could lead to account restrictions on those platforms — Youty is a tool, you're responsible for your own use.")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(.regularMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.07), lineWidth: 0.5))
     }
 
     // MARK: - Header

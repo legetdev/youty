@@ -31,6 +31,7 @@ struct SettingsView: View {
     @State private var apiKeyInput: String = ""
     @State private var apiKeyStored: Bool = KeychainHelper.exists(account: "youty", service: "gemini-api")
     @State private var apiKeyMessage: String?
+    @State private var showOnboarding: Bool = false
 
     var body: some View {
         ZStack {
@@ -64,6 +65,9 @@ struct SettingsView: View {
                         Divider().opacity(0.35)
 
                         integrationsSection
+                        Divider().opacity(0.35)
+
+                        onboardingSection
                         Divider().opacity(0.35)
 
                         aboutSection
@@ -462,6 +466,36 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Onboarding (R.2 — reopenable from Settings)
+
+    /// Surfaces the same four-card onboarding sheet the user saw on first
+    /// launch. Required by R.2 spec — the user must be able to revisit
+    /// the cards any time after dismissing the first-run experience.
+    private var onboardingSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle("Onboarding")
+
+            Text("Re-open the first-run cards any time — pick a vault, add a Gemini key, install the CLI, wire up the MCP server.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button {
+                showOnboarding = true
+            } label: {
+                Label("Open onboarding", systemImage: "sparkles")
+            }
+            .controlSize(.small)
+            .accessibilityLabel("Open onboarding")
+            .accessibilityHint("Reopens the four-card first-run setup")
+        }
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingView(settings: settings,
+                           vault: vault,
+                           onDismiss: { showOnboarding = false })
+        }
+    }
+
     // MARK: - About (Open source notices)
 
     /// Lists every third-party component Youty bundles or builds against,
@@ -479,6 +513,12 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                 Spacer()
+                Button("Check for Updates…") {
+                    AppUpdater.checkForUpdates()
+                }
+                .controlSize(.small)
+                .accessibilityLabel("Check for Updates")
+                .accessibilityHint("Asks Sparkle to look for a newer Youty release and present an update dialog if one is available")
             }
 
             VStack(alignment: .leading, spacing: 4) {

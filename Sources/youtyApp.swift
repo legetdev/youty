@@ -50,6 +50,17 @@ struct YoutyApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultSize(width: 520, height: 560)
+        .commands {
+            // "Check for Updates…" lives under the application menu next
+            // to About — the canonical macOS location every Mac user
+            // already knows to look at.
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    AppUpdater.checkForUpdates()
+                }
+                .accessibilityLabel("Check for Updates")
+            }
+        }
 
         // Standalone Settings window. `.hiddenTitleBar` matches the main
         // app's seamless aesthetic — the traffic-light buttons sit
