@@ -7,6 +7,20 @@ import AppKit
 // Liquid-glass aesthetic — translucent HUD-style window with the same
 // material treatment as the rest of the app.
 
+// Lightweight wrapper used by the standalone Settings window so callers
+// don't have to thread environment objects + dismissal plumbing manually.
+struct SettingsHostView: View {
+    @EnvironmentObject private var settings: SettingsStore
+    @EnvironmentObject private var vault: VaultManager
+    @Environment(\.dismissWindow) private var dismissWindow
+
+    var body: some View {
+        SettingsView(settings: settings,
+                     vault: vault,
+                     onDismiss: { dismissWindow(id: "settings") })
+    }
+}
+
 struct SettingsView: View {
 
     @ObservedObject var settings: SettingsStore
@@ -23,53 +37,65 @@ struct SettingsView: View {
             VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
                 .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 0) {
                 header
+                    .padding(.horizontal, 26)
+                    // Title sits on the same y-axis as the traffic-light
+                    // buttons (centered, so they don't collide), keeping
+                    // the head space tight.
+                    .padding(.top, 14)
+                    .padding(.bottom, 14)
 
-                vaultSection
-                Divider().opacity(0.35)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        vaultSection
+                        Divider().opacity(0.35)
 
-                resolutionSection
-                Divider().opacity(0.35)
+                        resolutionSection
+                        Divider().opacity(0.35)
 
-                frameSection
-                Divider().opacity(0.35)
+                        frameSection
+                        Divider().opacity(0.35)
 
-                languageSection
-                Divider().opacity(0.35)
+                        languageSection
+                        Divider().opacity(0.35)
 
-                indexerSection
-                Divider().opacity(0.35)
+                        indexerSection
+                        Divider().opacity(0.35)
 
-                integrationsSection
-                Divider().opacity(0.35)
+                        integrationsSection
+                        Divider().opacity(0.35)
 
-                aboutSection
+                        aboutSection
+                    }
+                    .padding(.horizontal, 26)
+                    .padding(.bottom, 22)
+                }
             }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 18)
         }
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 520, height: 560)
     }
 
     // MARK: - Header
 
     private var header: some View {
-        HStack {
+        ZStack {
             Text("Settings")
-                .font(.system(size: 16, weight: .semibold))
-            Spacer()
-            Button {
-                onDismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.system(size: 17))
-                    .foregroundStyle(.secondary)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .center)
+            HStack {
+                Spacer()
+                Button {
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .font(.system(size: 17))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close settings")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close settings")
         }
     }
 

@@ -33,6 +33,8 @@ final class MenuBarController: ObservableObject {
     private var clipboardWatcher: Timer?
     private var lastClipboardCount: Int = -1
     private var sentResetTimer: DispatchWorkItem?
+    private var indexStatusObserver: AnyCancellable?
+    private var isIndexingNow: Bool = false
 
     func apply(showing: Bool) {
         if showing {
@@ -48,15 +50,24 @@ final class MenuBarController: ObservableObject {
         if statusItem != nil { return }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            let image = NSImage(systemSymbolName: "tray.and.arrow.down",
-                                accessibilityDescription: "Youty")
-            image?.isTemplate = true
-            button.image = image
             button.target = self
             button.action = #selector(togglePopover)
         }
         statusItem = item
+        applyIcon(indexing: IndexStatusStore.shared.isAnyIndexing)
         startClipboardWatcher()
+        // Observe IndexStatusStore so the status item gains a small accent
+        // dot while any saved bundle is mid-index, and loses it once
+        // everything settles back to idle.
+        indexStatusObserver = IndexStatusStore.shared.$entries
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                let indexing = IndexStatusStore.shared.isAnyIndexing
+                if indexing != self.isIndexingNow {
+                    self.applyIcon(indexing: indexing)
+                }
+            }
     }
 
     private func uninstall() {
@@ -67,6 +78,57 @@ final class MenuBarController: ObservableObject {
         }
         clipboardWatcher?.invalidate()
         clipboardWatcher = nil
+        indexStatusObserver?.cancel()
+        indexStatusObserver = nil
+    }
+
+    // Swap the status item image between the plain tray symbol and the
+    // tray-with-progress-dot composite. The dot is drawn in the accent
+    // color (non-template) so it survives the menu bar's template render
+    // pipeline — the user gets a calm "still working" signal without any
+    // animation or focus disruption.
+    private func applyIcon(indexing: Bool) {
+        isIndexingNow = indexing
+        guard let button = statusItem?.button else { return }
+        if indexing {
+            button.image = Self.makeIndexingIcon()
+            button.toolTip = "Youty — indexing in background"
+        } else {
+            let image = NSImage(systemSymbolName: "tray.and.arrow.down",
+                                accessibilityDescription: "Youty")
+            image?.isTemplate = true
+            button.image = image
+            button.toolTip = "Youty"
+        }
+    }
+
+    // Builds an 18×18 composite: the template tray symbol plus a small
+    // 5×5 accent dot in the bottom-right corner. Marked non-template so
+    // the dot keeps its accent color in both light + dark menu bars.
+    private static func makeIndexingIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let result = NSImage(size: size)
+        result.lockFocus()
+        // Base symbol — render the template manually so we control color.
+        if let base = NSImage(systemSymbolName: "tray.and.arrow.down",
+                              accessibilityDescription: "Youty") {
+            base.isTemplate = true
+            // Tint to the menu bar's text color so it reads correctly.
+            let tinted = base.copy() as! NSImage
+            tinted.lockFocus()
+            NSColor.labelColor.set()
+            let rect = NSRect(origin: .zero, size: tinted.size)
+            rect.fill(using: .sourceIn)
+            tinted.unlockFocus()
+            tinted.draw(in: NSRect(origin: .zero, size: size))
+        }
+        // Accent dot, bottom-right.
+        NSColor.controlAccentColor.setFill()
+        let dotRect = NSRect(x: size.width - 6, y: 0, width: 5, height: 5)
+        NSBezierPath(ovalIn: dotRect).fill()
+        result.unlockFocus()
+        result.isTemplate = false
+        return result
     }
 
     // MARK: - Popover

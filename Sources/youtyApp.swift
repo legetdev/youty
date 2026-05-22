@@ -19,6 +19,9 @@ struct YoutyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var menuBar = MenuBarController()
     @StateObject private var settings = SettingsStore()
+    // Hoisted from ContentView so the standalone Settings window can read
+    // + write the same vault state without having to re-derive bookmarks.
+    @StateObject private var vault = VaultManager()
 
     var body: some Scene {
         // Single-instance window. Previously this was a `WindowGroup`, but
@@ -32,6 +35,8 @@ struct YoutyApp: App {
         // paths still find a host.
         Window("youty", id: "main") {
             ContentView()
+                .environmentObject(settings)
+                .environmentObject(vault)
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
@@ -41,6 +46,19 @@ struct YoutyApp: App {
                 .onChange(of: settings.menuBarEnabled) { _, newValue in
                     menuBar.apply(showing: newValue)
                 }
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultSize(width: 520, height: 560)
+
+        // Standalone Settings window. `.hiddenTitleBar` matches the main
+        // app's seamless aesthetic — the traffic-light buttons sit
+        // directly over the glass header, and the window stays draggable
+        // from any non-control area at the top.
+        Window("Settings", id: "settings") {
+            SettingsHostView()
+                .environmentObject(settings)
+                .environmentObject(vault)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

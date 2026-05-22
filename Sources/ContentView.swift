@@ -10,19 +10,19 @@ enum AppState {
 
 struct ContentView: View {
     @StateObject private var loader = TranscriptLoader()
-    @StateObject private var vault = VaultManager()
+    @EnvironmentObject private var vault: VaultManager
     @StateObject private var videoExtractor = VideoExtractor()
     @StateObject private var playerFetcher = PlayerFetcher()
     @StateObject private var shortForm: ShortFormPipelineHolder = ShortFormPipelineHolder()
-    @StateObject private var settings = SettingsStore()
+    @EnvironmentObject private var settings: SettingsStore
     @ObservedObject private var funnel = IngestionFunnel.shared
+    @Environment(\.openWindow) private var openWindow
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var lastResult: FetchResult?
     @State private var shortFormPreview: ShortFormPreview?
     @State private var showInstagramLogin = false
     @State private var pendingInstagramURL: URL?
-    @State private var showSettings = false
     @State private var vaultSaved = false
     @State private var vaultError: String?
     @State private var frameProgress: Double = 0
@@ -32,6 +32,8 @@ struct ContentView: View {
     @State private var autoSavePending = false
     @State private var ingestionBanner: String?
     @State private var ingestionBannerTimer: DispatchWorkItem?
+    @State private var lastIndexedFolder: URL?
+    @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
 
     private struct FastFailure: Equatable {
@@ -111,11 +113,6 @@ struct ContentView: View {
                 pendingInstagramURL = nil
             }
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView(settings: settings,
-                          vault: vault,
-                          onDismiss: { showSettings = false })
-        }
     }
 
     // MARK: - Header
@@ -192,7 +189,7 @@ struct ContentView: View {
     /// pill matches by sharing identical padding + line-height).
     private var settingsPill: some View {
         Button {
-            showSettings = true
+            openWindow(id: "settings")
         } label: {
             Image(systemName: "gearshape.fill")
                 .symbolRenderingMode(.hierarchical)
@@ -210,7 +207,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .help("Settings")
         .accessibilityLabel("Settings")
-        .accessibilityHint("Open the Settings sheet to pick a vault, adjust frame density, or enter your Gemini API key")
+        .accessibilityHint("Open the Settings window to pick a vault, adjust frame density, or enter your Gemini API key")
     }
 
     private var fetchButton: some View {
@@ -404,7 +401,17 @@ struct ContentView: View {
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 case .done(let count):
-                    frameStatusRow(text: "\(count) frames saved ✓", showSpinner: false)
+                    VStack(alignment: .leading, spacing: 4) {
+                        frameStatusRow(text: "\(count) frames saved ✓", showSpinner: false)
+                        if let folder = lastIndexedFolder,
+                           let state = indexStatus.state(for: folder) {
+                            IndexBadgeView(state: state)
+                                .transition(.opacity.combined(with: .move(edge: .leading)))
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: lastIndexedFolder)
+                    .animation(.easeInOut(duration: 0.2),
+                               value: lastIndexedFolder.flatMap { indexStatus.state(for: $0) })
                 case .failed(let msg):
                     Text("Frames failed: \(msg)").font(.system(size: 11)).foregroundStyle(.red)
                 default:
@@ -631,22 +638,48 @@ struct ContentView: View {
     /// (no API key, network) are logged only — the save itself is already
     /// complete and the user shouldn't see a UI banner for an optional
     /// background step. The user can always re-run via Settings → Re-index.
+    ///
+    /// Publishes state transitions to `IndexStatusStore` so the in-app
+    /// saved-video row + menu bar item can show an Indexing… / Indexed
+    /// badge to the user.
     private func triggerIndexer(bundleFolder: URL) {
         guard settings.indexerEnabled else { return }
         guard let vaultURL = vault.vaultURL else { return }
         let videoMd = bundleFolder.appendingPathComponent("video.md")
+        lastIndexedFolder = bundleFolder
+        IndexStatusStore.shared.begin(folder: bundleFolder)
         Task.detached(priority: .background) {
             let acquired = vaultURL.startAccessingSecurityScopedResource()
             defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+            var transcriptOK = false
+            var framesOK = false
+            var lastError: String?
             do {
                 try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultURL)
+                transcriptOK = true
             } catch {
                 NSLog("[youty] indexer skipped/failed: \(error.localizedDescription)")
+                lastError = error.localizedDescription
             }
             do {
                 try await Indexer.indexFrames(videoMdURL: videoMd, vaultRoot: vaultURL)
+                framesOK = true
             } catch {
                 NSLog("[youty] frame indexer skipped/failed: \(error.localizedDescription)")
+                lastError = error.localizedDescription
+            }
+            // Frame indexing is local + offline (SigLIP CoreML) — if it
+            // succeeds, the bundle is searchable. Transcript indexing
+            // failing alone usually means "no Gemini key configured",
+            // which is the silent fallback and not a real failure.
+            await MainActor.run {
+                if framesOK || transcriptOK {
+                    IndexStatusStore.shared.markIndexed(folder: bundleFolder)
+                } else {
+                    IndexStatusStore.shared.markFailed(
+                        folder: bundleFolder,
+                        reason: lastError ?? "unknown")
+                }
             }
         }
     }

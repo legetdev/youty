@@ -29,6 +29,7 @@
 		2C02942FDF7344437B582303 /* SigLIP-Base-224_image.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */; };
 		2E457377C0845ACCAB71F901 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F403150ACD28D7C5A9F18C /* SettingsStore.swift */; };
 		2E95A4B3792989B8DC2AA8C5 /* ShortFormPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */; };
+		345B82542264F04FB42EA963 /* IndexBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */; };
 		348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		38606B475C50BB1F3C555BE0 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
 		3931592C71C89B67BDA4F77E /* InstagramExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26E67BEE5ACDE9AEEA6217D /* InstagramExtractor.swift */; };
@@ -79,8 +80,10 @@
 		9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
 		A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
 		A5A27212E838E96609102929 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
+		AB979A1A37E574D09CEB3F67 /* IndexBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
 		B232018D44F6919E8EEB28A1 /* LocalFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */; };
+		B2EEE7C38E7BE839339857BC /* IndexStatusStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F45717358DD1876523BA5D0 /* IndexStatusStore.swift */; };
 		B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73525BB1298A12906490472 /* FastFramePipeline.swift */; };
 		B7B636F3FF3274FD796D0117 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
 		BF0DD007509A7560531DCA3E /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C24CDA3E0B37271B63C03A /* ShareViewController.swift */; };
@@ -102,6 +105,7 @@
 		D2BB0FFF57E0B176F2D9BD8B /* MediaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4DB273A82F354414E993F7 /* MediaDownloader.swift */; };
 		D69DE7CD35430BAF9A4C4164 /* COPYING.LGPLv2.1 in Resources */ = {isa = PBXBuildFile; fileRef = 8DA24342EA3DFD6206EA021B /* COPYING.LGPLv2.1 */; };
 		D7A3D55EA174E6C74FFC59A7 /* MP4MoofParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */; };
+		DB0FD85C588455B7E219CAB8 /* IndexStatusStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F45717358DD1876523BA5D0 /* IndexStatusStore.swift */; };
 		DCBF400F36D41C4586EC090C /* CLIHostWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C21ECB07C9DC2F79D80010E /* CLIHostWindow.swift */; };
 		DFFD3299B503FD9D00C246D2 /* TranscriptFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */; };
 		E22A06093A2559C9726D7587 /* IngestionFunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87CBAB60A9E0C95DF447EFB3 /* IngestionFunnel.swift */; };
@@ -153,6 +157,7 @@
 		104CFBE1B3509D6A05F8A3C9 /* NOTICE */ = {isa = PBXFileReference; path = NOTICE; sourceTree = "<group>"; };
 		13370E21DD4886D040B9C4DD /* PHashFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PHashFilter.swift; sourceTree = "<group>"; };
 		176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLocalSearch.swift; sourceTree = "<group>"; };
+		1F45717358DD1876523BA5D0 /* IndexStatusStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStatusStore.swift; sourceTree = "<group>"; };
 		27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokExtractor.swift; sourceTree = "<group>"; };
 		28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParallelCapture.swift; sourceTree = "<group>"; };
 		2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptFetcher.swift; sourceTree = "<group>"; };
@@ -191,6 +196,7 @@
 		9633A2907501CF5C01A910E3 /* ArgsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgsParser.swift; sourceTree = "<group>"; };
 		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
+		AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexBadgeView.swift; sourceTree = "<group>"; };
 		AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */ = {isa = PBXFileReference; path = COPYING.LGPLv3; sourceTree = "<group>"; };
 		B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveCommand.swift; sourceTree = "<group>"; };
 		B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStore.swift; sourceTree = "<group>"; };
@@ -309,8 +315,10 @@
 				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
 				BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */,
 				E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */,
+				AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */,
 				EB507870B7D6E4EC22ED4053 /* Indexer.swift */,
 				7009AA6A6668D4D93B0A165A /* IndexSchema.sql */,
+				1F45717358DD1876523BA5D0 /* IndexStatusStore.swift */,
 				B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */,
 				DEA64626546F131BCD86B15A /* Info.plist */,
 				87CBAB60A9E0C95DF447EFB3 /* IngestionFunnel.swift */,
@@ -530,6 +538,8 @@
 				73B0BABFF6BDC626DCFE37C5 /* FramePipeline.swift in Sources */,
 				980E7FBB4C21F42002063AB9 /* GeminiEmbedder.swift in Sources */,
 				4B07C74A46B6E023674F964E /* HelpCommand.swift in Sources */,
+				AB979A1A37E574D09CEB3F67 /* IndexBadgeView.swift in Sources */,
+				DB0FD85C588455B7E219CAB8 /* IndexStatusStore.swift in Sources */,
 				588EEA9FD0F6E4C53048B544 /* IndexStore.swift in Sources */,
 				CFAB9ED082046D46CBAD1E68 /* Indexer.swift in Sources */,
 				79FE0CBD42E6F22C8A8C8905 /* InstagramExtractor.swift in Sources */,
@@ -585,6 +595,8 @@
 				9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */,
 				A5A27212E838E96609102929 /* FramePipeline.swift in Sources */,
 				99F278B1636D3DAA95B536B0 /* GeminiEmbedder.swift in Sources */,
+				345B82542264F04FB42EA963 /* IndexBadgeView.swift in Sources */,
+				B2EEE7C38E7BE839339857BC /* IndexStatusStore.swift in Sources */,
 				C7C2F5EB8D173E0123CCC064 /* IndexStore.swift in Sources */,
 				CE56642172EC7DA6552AD966 /* Indexer.swift in Sources */,
 				E22A06093A2559C9726D7587 /* IngestionFunnel.swift in Sources */,
