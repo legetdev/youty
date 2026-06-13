@@ -55,6 +55,21 @@ targets:
         buildPhase: resources
       - path: Vendor/siglip/licenses
         buildPhase: resources
+      # EmbeddingGemma on-device text encoder (Phase S.1): the Core ML model +
+      # its compact native tokenizer artifact (vocab/merges/added_tokens .bin —
+      # the 32 MB tokenizer.json is deliberately NOT shipped) + the Gemma-license
+      # NOTICE. The .mlpackage auto-compiles to .mlmodelc in the bundle. Dormant
+      # until S.2 flips the default text embedder; bundled now so v1 ships key-free.
+      - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/vocab.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/merges.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/added_tokens.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/licenses
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.leget.youty
@@ -132,6 +147,19 @@ targets:
       - path: Vendor/siglip/models/SigLIP-Base-224_image.mlpackage
         buildPhase: resources
       - path: Vendor/siglip/licenses
+        buildPhase: resources
+      # EmbeddingGemma text encoder for CLI text indexing parity (Phase S.1).
+      # Standalone CLI resolves these from the shared dir install-cli.sh
+      # populates (SharedResourceLocator); dormant until S.2.
+      - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/vocab.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/merges.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/added_tokens.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/licenses
         buildPhase: resources
       - path: CLI
     settings:

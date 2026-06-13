@@ -42,18 +42,23 @@
 		4902F8F090DC2D041DC21B2A /* SharedResourceLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */; };
 		4B07C74A46B6E023674F964E /* HelpCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF1C029B5D14B567ED47B9B /* HelpCommand.swift */; };
 		4BD5B82529814A7C359F61E2 /* FFmpegSampleTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */; };
+		4BDBFC7BF4BCB94F26C0E57E /* vocab.bin in Resources */ = {isa = PBXBuildFile; fileRef = FB0AE693701E1D33D3074EAC /* vocab.bin */; };
 		4C697166338AB1A5305A115D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F29960905AA7DA5135528E /* AppDelegate.swift */; };
+		51378A1C04876090864A764B /* merges.bin in Resources */ = {isa = PBXBuildFile; fileRef = EAAB685FE444A35328E5F8C3 /* merges.bin */; };
 		51B938667C9A94698266CC3D /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = D7465842BED6624F7B3B6AD9 /* THIRD_PARTY_LICENSES.md */; };
 		53450823245D09271EC7931A /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		553C4BACA377775492BC94F8 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E39933821E1F923B66CD21BC /* Sparkle */; };
 		588EEA9FD0F6E4C53048B544 /* IndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */; };
 		59E1BB6B91606B714330DFD1 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A947CCECB5098809045CC6 /* KeychainHelper.swift */; };
+		5EF4E27FAE42FE5B00DC2E29 /* EmbeddingGemma-300m_text.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = DF8BC0A3555C0C0A50141F3F /* EmbeddingGemma-300m_text.mlpackage */; };
 		6166E886D0582F27CABAFB98 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = BE56C34A7461D648D1C2C63A /* LICENSE */; };
 		62DCC093DEC97543E737D4D5 /* SidxParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8C64BEE7581B939A220E62 /* SidxParser.swift */; };
 		6379D83C95B3F278435879B6 /* EmbedderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */; };
+		64DED8695B174C6A50F37A7A /* vocab.bin in Resources */ = {isa = PBXBuildFile; fileRef = FB0AE693701E1D33D3074EAC /* vocab.bin */; };
 		674CF57AC4E8B460F93ED637 /* MediaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4DB273A82F354414E993F7 /* MediaDownloader.swift */; };
 		67673D0D6A6B0FAB75F1F4EC /* ArgsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9633A2907501CF5C01A910E3 /* ArgsParser.swift */; };
 		68070B8D4F65C01499DFF2EB /* SigLIP-Base-224_image.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */; };
+		6B202C3C04B44EE291A46C88 /* added_tokens.bin in Resources */ = {isa = PBXBuildFile; fileRef = 06260360B94CB43DE470BA5F /* added_tokens.bin */; };
 		73B0BABFF6BDC626DCFE37C5 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
 		754CC21CEEDD77A9212895FE /* LocalFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */; };
 		76014BC216A90F0D7FF28297 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
@@ -67,6 +72,8 @@
 		7CD61850D4441D22AA0DF9CE /* SaveCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */; };
 		80C925A67998CA3D1A01F1EE /* FFmpegURLSessionIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */; };
 		83580BEB8F9323ED76DA8B5B /* CREDITS in Resources */ = {isa = PBXBuildFile; fileRef = 58B78E0BC198C3AE4ACB68FD /* CREDITS */; };
+		83B3772E21D0CBB7CF5F2108 /* GemmaTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */; };
+		869D437C37B2EB4FECB76028 /* added_tokens.bin in Resources */ = {isa = PBXBuildFile; fileRef = 06260360B94CB43DE470BA5F /* added_tokens.bin */; };
 		86D1580BFF32100B5515B247 /* VaultLocalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */; };
 		875EDC64DC621AF33A11D999 /* MainWindowKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356CCF219ED8189DA67F3402 /* MainWindowKeeper.swift */; };
 		8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */; };
@@ -84,11 +91,14 @@
 		A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
 		A5A27212E838E96609102929 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
+		AD8623CEE0C8060DF4D79ACB /* EmbeddingGemma-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 1D84763388445C90ADAC05EE /* EmbeddingGemma-NOTICE.txt */; };
 		B232018D44F6919E8EEB28A1 /* LocalFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */; };
 		B2EEE7C38E7BE839339857BC /* IndexStatusStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F45717358DD1876523BA5D0 /* IndexStatusStore.swift */; };
 		B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73525BB1298A12906490472 /* FastFramePipeline.swift */; };
 		B7B636F3FF3274FD796D0117 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
+		BEB6C8995EEEF0928E0587BA /* merges.bin in Resources */ = {isa = PBXBuildFile; fileRef = EAAB685FE444A35328E5F8C3 /* merges.bin */; };
 		BF0DD007509A7560531DCA3E /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52C24CDA3E0B37271B63C03A /* ShareViewController.swift */; };
+		BF5A0336274E4F081EC3257E /* EmbeddingGemma-300m_text.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = DF8BC0A3555C0C0A50141F3F /* EmbeddingGemma-300m_text.mlpackage */; };
 		C197B5F7B683DDB4951CC9BF /* FFmpegSampleTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */; };
 		C419EA26BAE82522134CB0AD /* VideoExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D07EACD9853587F324A75FFB /* VideoExtractor.swift */; };
 		C5D8FC67A79B044215C17855 /* AppUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 907078E101889CD8D7B28C97 /* AppUpdater.swift */; };
@@ -109,6 +119,7 @@
 		D2BB0FFF57E0B176F2D9BD8B /* MediaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4DB273A82F354414E993F7 /* MediaDownloader.swift */; };
 		D69DE7CD35430BAF9A4C4164 /* COPYING.LGPLv2.1 in Resources */ = {isa = PBXBuildFile; fileRef = 8DA24342EA3DFD6206EA021B /* COPYING.LGPLv2.1 */; };
 		D7A3D55EA174E6C74FFC59A7 /* MP4MoofParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */; };
+		DAD567BAB79895AA31E5A511 /* EmbeddingGemmaEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34242D9DEADB386F0FE44D8 /* EmbeddingGemmaEmbedder.swift */; };
 		DCBF400F36D41C4586EC090C /* CLIHostWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C21ECB07C9DC2F79D80010E /* CLIHostWindow.swift */; };
 		DFFD3299B503FD9D00C246D2 /* TranscriptFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */; };
 		E22A06093A2559C9726D7587 /* IngestionFunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87CBAB60A9E0C95DF447EFB3 /* IngestionFunnel.swift */; };
@@ -117,14 +128,17 @@
 		E8B97176F582159EC5144CF0 /* PHashFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13370E21DD4886D040B9C4DD /* PHashFilter.swift */; };
 		E979052EADCB12AA1DA89989 /* ListCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF78DB0683DB0DBAC273AA27 /* ListCommand.swift */; };
 		ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2C2747C12D2CBE36AD416926 /* Assets.xcassets */; };
+		EF6072228D9CD1B5CC1B6667 /* GemmaTokenizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */; };
 		F06C80DA7A74AC43B01AF18C /* EmbedderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */; };
 		F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
 		F16D38842CD9A198F1B8924C /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		F40545FAC6341ABA6C1E24AD /* SearchCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */; };
 		F7F02FC49A9FDE72E034A593 /* SigLIPLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */; };
+		F9F144165A7A5C93294DB6AC /* EmbeddingGemmaEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34242D9DEADB386F0FE44D8 /* EmbeddingGemmaEmbedder.swift */; };
 		FAAD514A1B9ECDA2B1D27F88 /* CLIConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE828BE532445B11DAFDF7C /* CLIConfig.swift */; };
 		FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12465B44FC685B0D846EA0E /* DebugRunner.swift */; };
 		FEDB9DC9FEB3B9CF9CDB1A47 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A947CCECB5098809045CC6 /* KeychainHelper.swift */; };
+		FF23A5E3E006C14D301779E2 /* EmbeddingGemma-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 1D84763388445C90ADAC05EE /* EmbeddingGemma-NOTICE.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -154,12 +168,14 @@
 /* Begin PBXFileReference section */
 		001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFrameExtractor.swift; sourceTree = "<group>"; };
 		013AA49E501B8578D1468372 /* VaultResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultResolver.swift; sourceTree = "<group>"; };
+		06260360B94CB43DE470BA5F /* added_tokens.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = added_tokens.bin; sourceTree = "<group>"; };
 		095F0E65E14289ABD525C24B /* youty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = youty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A043E863630199156FD846E /* youty-cli */ = {isa = PBXFileReference; includeInIndex = 0; path = "youty-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
 		0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformRouter.swift; sourceTree = "<group>"; };
 		104CFBE1B3509D6A05F8A3C9 /* NOTICE */ = {isa = PBXFileReference; path = NOTICE; sourceTree = "<group>"; };
 		13370E21DD4886D040B9C4DD /* PHashFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PHashFilter.swift; sourceTree = "<group>"; };
 		176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultLocalSearch.swift; sourceTree = "<group>"; };
+		1D84763388445C90ADAC05EE /* EmbeddingGemma-NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "EmbeddingGemma-NOTICE.txt"; sourceTree = "<group>"; };
 		1F45717358DD1876523BA5D0 /* IndexStatusStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStatusStore.swift; sourceTree = "<group>"; };
 		27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokExtractor.swift; sourceTree = "<group>"; };
 		28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParallelCapture.swift; sourceTree = "<group>"; };
@@ -202,8 +218,10 @@
 		9633A2907501CF5C01A910E3 /* ArgsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgsParser.swift; sourceTree = "<group>"; };
 		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
+		ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaTokenizer.swift; sourceTree = "<group>"; };
 		AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexBadgeView.swift; sourceTree = "<group>"; };
 		AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */ = {isa = PBXFileReference; path = COPYING.LGPLv3; sourceTree = "<group>"; };
+		B34242D9DEADB386F0FE44D8 /* EmbeddingGemmaEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingGemmaEmbedder.swift; sourceTree = "<group>"; };
 		B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveCommand.swift; sourceTree = "<group>"; };
 		B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStore.swift; sourceTree = "<group>"; };
 		B829B1B7B1DC76C612C7FF48 /* YoutyAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YoutyAppIntents.swift; sourceTree = "<group>"; };
@@ -221,11 +239,13 @@
 		DB4DB273A82F354414E993F7 /* MediaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDownloader.swift; sourceTree = "<group>"; };
 		DD24184554CE6FFF9B2F5E0D /* FFmpegFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegFrameExtractor.swift; sourceTree = "<group>"; };
 		DEA64626546F131BCD86B15A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		DF8BC0A3555C0C0A50141F3F /* EmbeddingGemma-300m_text.mlpackage */ = {isa = PBXFileReference; path = "EmbeddingGemma-300m_text.mlpackage"; sourceTree = "<group>"; };
 		E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamFetcher.swift; sourceTree = "<group>"; };
 		E533613734AEB3CF1ABED12B /* youtyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = youtyApp.swift; sourceTree = "<group>"; };
 		E73525BB1298A12906490472 /* FastFramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastFramePipeline.swift; sourceTree = "<group>"; };
 		E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4MoofParser.swift; sourceTree = "<group>"; };
 		E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiEmbedder.swift; sourceTree = "<group>"; };
+		EAAB685FE444A35328E5F8C3 /* merges.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = merges.bin; sourceTree = "<group>"; };
 		EAE828BE532445B11DAFDF7C /* CLIConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIConfig.swift; sourceTree = "<group>"; };
 		EB507870B7D6E4EC22ED4053 /* Indexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Indexer.swift; sourceTree = "<group>"; };
 		EC7071A2233262A50751C78C /* DebugLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLog.swift; sourceTree = "<group>"; };
@@ -233,6 +253,7 @@
 		F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhaseIFrameExtractor.swift; sourceTree = "<group>"; };
 		F26E67BEE5ACDE9AEEA6217D /* InstagramExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstagramExtractor.swift; sourceTree = "<group>"; };
 		FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerFetcher.swift; sourceTree = "<group>"; };
+		FB0AE693701E1D33D3074EAC /* vocab.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = vocab.bin; sourceTree = "<group>"; };
 		FB6708940A3424B502A6232E /* MetadataEnricher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetadataEnricher.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -248,6 +269,17 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		00A61D9BEE88851848EBF924 /* tokenizer */ = {
+			isa = PBXGroup;
+			children = (
+				06260360B94CB43DE470BA5F /* added_tokens.bin */,
+				EAAB685FE444A35328E5F8C3 /* merges.bin */,
+				FB0AE693701E1D33D3074EAC /* vocab.bin */,
+			);
+			name = tokenizer;
+			path = Vendor/embeddinggemma/tokenizer;
+			sourceTree = "<group>";
+		};
 		28C654CA4B6D64A14640CBB2 /* Commands */ = {
 			isa = PBXGroup;
 			children = (
@@ -268,9 +300,12 @@
 				5235E5DE43C099C92508E838 /* CLI */,
 				6089A0CD3506D6B653C3958C /* licenses */,
 				8F2B36CE315536B69BF5F34E /* licenses */,
+				680E229D0F1401F951B3FD1C /* licenses */,
 				DDF577715040EA0D69927EF7 /* models */,
+				648DFB30606A6330E39AD9B5 /* models */,
 				E52E405D239123F79A4A1BCB /* ShareExtension */,
 				D064152482EEF1C6C5964B10 /* Sources */,
+				00A61D9BEE88851848EBF924 /* tokenizer */,
 				EFF19A7977B6F5EE9C053BDC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -291,15 +326,22 @@
 		6089A0CD3506D6B653C3958C /* licenses */ = {
 			isa = PBXGroup;
 			children = (
-				8DA24342EA3DFD6206EA021B /* COPYING.LGPLv2.1 */,
-				AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */,
-				58B78E0BC198C3AE4ACB68FD /* CREDITS */,
+				1D84763388445C90ADAC05EE /* EmbeddingGemma-NOTICE.txt */,
 			);
 			name = licenses;
-			path = Vendor/ffmpeg/licenses;
+			path = Vendor/embeddinggemma/licenses;
 			sourceTree = "<group>";
 		};
-		8F2B36CE315536B69BF5F34E /* licenses */ = {
+		648DFB30606A6330E39AD9B5 /* models */ = {
+			isa = PBXGroup;
+			children = (
+				C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */,
+			);
+			name = models;
+			path = Vendor/siglip/models;
+			sourceTree = "<group>";
+		};
+		680E229D0F1401F951B3FD1C /* licenses */ = {
 			isa = PBXGroup;
 			children = (
 				BE56C34A7461D648D1C2C63A /* LICENSE */,
@@ -307,6 +349,17 @@
 			);
 			name = licenses;
 			path = Vendor/siglip/licenses;
+			sourceTree = "<group>";
+		};
+		8F2B36CE315536B69BF5F34E /* licenses */ = {
+			isa = PBXGroup;
+			children = (
+				8DA24342EA3DFD6206EA021B /* COPYING.LGPLv2.1 */,
+				AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */,
+				58B78E0BC198C3AE4ACB68FD /* CREDITS */,
+			);
+			name = licenses;
+			path = Vendor/ffmpeg/licenses;
 			sourceTree = "<group>";
 		};
 		D064152482EEF1C6C5964B10 /* Sources */ = {
@@ -323,6 +376,7 @@
 				EC7071A2233262A50751C78C /* DebugLog.swift */,
 				A12465B44FC685B0D846EA0E /* DebugRunner.swift */,
 				B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */,
+				B34242D9DEADB386F0FE44D8 /* EmbeddingGemmaEmbedder.swift */,
 				4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */,
 				E73525BB1298A12906490472 /* FastFramePipeline.swift */,
 				453A0D43C6693B48BBE4607F /* FFmpegBridging.h */,
@@ -333,6 +387,7 @@
 				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
 				BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */,
 				E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */,
+				ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */,
 				AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */,
 				EB507870B7D6E4EC22ED4053 /* Indexer.swift */,
 				7009AA6A6668D4D93B0A165A /* IndexSchema.sql */,
@@ -377,10 +432,10 @@
 		DDF577715040EA0D69927EF7 /* models */ = {
 			isa = PBXGroup;
 			children = (
-				C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */,
+				DF8BC0A3555C0C0A50141F3F /* EmbeddingGemma-300m_text.mlpackage */,
 			);
 			name = models;
-			path = Vendor/siglip/models;
+			path = Vendor/embeddinggemma/models;
 			sourceTree = "<group>";
 		};
 		E52E405D239123F79A4A1BCB /* ShareExtension */ = {
@@ -520,11 +575,16 @@
 				D69DE7CD35430BAF9A4C4164 /* COPYING.LGPLv2.1 in Resources */,
 				27FD2A368CC924DD960BF205 /* COPYING.LGPLv3 in Resources */,
 				83580BEB8F9323ED76DA8B5B /* CREDITS in Resources */,
+				BF5A0336274E4F081EC3257E /* EmbeddingGemma-300m_text.mlpackage in Resources */,
+				FF23A5E3E006C14D301779E2 /* EmbeddingGemma-NOTICE.txt in Resources */,
 				79615886D7973E16FA559F69 /* IndexSchema.sql in Resources */,
 				6166E886D0582F27CABAFB98 /* LICENSE in Resources */,
 				050B4DACC82CCB5F6DC24D71 /* NOTICE in Resources */,
 				68070B8D4F65C01499DFF2EB /* SigLIP-Base-224_image.mlpackage in Resources */,
 				51B938667C9A94698266CC3D /* THIRD_PARTY_LICENSES.md in Resources */,
+				869D437C37B2EB4FECB76028 /* added_tokens.bin in Resources */,
+				51378A1C04876090864A764B /* merges.bin in Resources */,
+				4BDBFC7BF4BCB94F26C0E57E /* vocab.bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -532,10 +592,15 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5EF4E27FAE42FE5B00DC2E29 /* EmbeddingGemma-300m_text.mlpackage in Resources */,
+				AD8623CEE0C8060DF4D79ACB /* EmbeddingGemma-NOTICE.txt in Resources */,
 				CB9C7CD874C2FD238236C878 /* IndexSchema.sql in Resources */,
 				426389CB5A3014EE35B6DC1F /* LICENSE in Resources */,
 				7C287A4C5A6D5D593CC0EE77 /* NOTICE in Resources */,
 				2C02942FDF7344437B582303 /* SigLIP-Base-224_image.mlpackage in Resources */,
+				6B202C3C04B44EE291A46C88 /* added_tokens.bin in Resources */,
+				BEB6C8995EEEF0928E0587BA /* merges.bin in Resources */,
+				64DED8695B174C6A50F37A7A /* vocab.bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -553,6 +618,7 @@
 				E7CC5D854D4A4FFCCBE4C576 /* Chunker.swift in Sources */,
 				98739D06255647380C8B1388 /* DebugLog.swift in Sources */,
 				6379D83C95B3F278435879B6 /* EmbedderProtocol.swift in Sources */,
+				DAD567BAB79895AA31E5A511 /* EmbeddingGemmaEmbedder.swift in Sources */,
 				D0C742B94FA26C7149B2CDB4 /* FFmpegFrameExtractor.swift in Sources */,
 				4BD5B82529814A7C359F61E2 /* FFmpegSampleTable.swift in Sources */,
 				45E22279DB987CA8FD2FA01F /* FFmpegURLSessionIO.swift in Sources */,
@@ -562,6 +628,7 @@
 				2B3293CD694D61AA1B68AFAD /* FrameExtractor.swift in Sources */,
 				73B0BABFF6BDC626DCFE37C5 /* FramePipeline.swift in Sources */,
 				980E7FBB4C21F42002063AB9 /* GeminiEmbedder.swift in Sources */,
+				EF6072228D9CD1B5CC1B6667 /* GemmaTokenizer.swift in Sources */,
 				4B07C74A46B6E023674F964E /* HelpCommand.swift in Sources */,
 				588EEA9FD0F6E4C53048B544 /* IndexStore.swift in Sources */,
 				CFAB9ED082046D46CBAD1E68 /* Indexer.swift in Sources */,
@@ -611,6 +678,7 @@
 				1D3B34BB5AC912CB62DDA000 /* DebugLog.swift in Sources */,
 				FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */,
 				F06C80DA7A74AC43B01AF18C /* EmbedderProtocol.swift in Sources */,
+				F9F144165A7A5C93294DB6AC /* EmbeddingGemmaEmbedder.swift in Sources */,
 				20693B65CBBC3B960A95A6C6 /* FFmpegFrameExtractor.swift in Sources */,
 				C197B5F7B683DDB4951CC9BF /* FFmpegSampleTable.swift in Sources */,
 				80C925A67998CA3D1A01F1EE /* FFmpegURLSessionIO.swift in Sources */,
@@ -620,6 +688,7 @@
 				9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */,
 				A5A27212E838E96609102929 /* FramePipeline.swift in Sources */,
 				99F278B1636D3DAA95B536B0 /* GeminiEmbedder.swift in Sources */,
+				83B3772E21D0CBB7CF5F2108 /* GemmaTokenizer.swift in Sources */,
 				345B82542264F04FB42EA963 /* IndexBadgeView.swift in Sources */,
 				B2EEE7C38E7BE839339857BC /* IndexStatusStore.swift in Sources */,
 				C7C2F5EB8D173E0123CCC064 /* IndexStore.swift in Sources */,

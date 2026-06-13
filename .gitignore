@@ -15,6 +15,11 @@ xcuserdata/
 # Debug logs
 .playwright-mcp/
 
+# EmbeddingGemma raw tokenizer source — 32 MB build input fetched from HuggingFace.
+# Only the compact vocab/merges/added_tokens .bin artifacts are committed + shipped
+# (built by Scripts/build-gemma-tokenizer-artifact.py).
+Vendor/embeddinggemma/tokenizer/tokenizer.json
+
 # macOS
 .DS_Store
 

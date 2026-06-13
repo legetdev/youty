@@ -53,6 +53,24 @@ else
     echo "warning: SigLIP model not found at $MLPACKAGE (Git LFS not pulled?); CLI frame indexing unavailable." >&2
 fi
 
+# EmbeddingGemma on-device text encoder (Phase S.1): the Core ML model + the
+# compact native tokenizer artifact (vocab/merges/added_tokens .bin). Dormant
+# until S.2, but installed now so the CLI has it ready when the default flips.
+GEMMA_PKG="$ROOT/Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage"
+GEMMA_TOK="$ROOT/Vendor/embeddinggemma/tokenizer"
+if [ -d "$GEMMA_PKG" ] && [ -f "$GEMMA_TOK/vocab.bin" ]; then
+    echo "==> Compiling on-device text model (one-time, ~10s)…"
+    rm -rf "$RES_DIR/EmbeddingGemma-300m_text.mlmodelc"
+    if xcrun coremlcompiler compile "$GEMMA_PKG" "$RES_DIR" >/dev/null 2>&1; then
+        cp "$GEMMA_TOK/vocab.bin" "$GEMMA_TOK/merges.bin" "$GEMMA_TOK/added_tokens.bin" "$RES_DIR/"
+        echo "==> Installed on-device text model + tokenizer."
+    else
+        echo "warning: text model compile failed; CLI on-device text embedding unavailable." >&2
+    fi
+else
+    echo "warning: EmbeddingGemma model/tokenizer not found (Git LFS not pulled?); CLI on-device text embedding unavailable." >&2
+fi
+
 # Pick the destination.
 if [ -n "${YOUTY_INSTALL_DIR:-}" ]; then
     DEST="$YOUTY_INSTALL_DIR/youty"
