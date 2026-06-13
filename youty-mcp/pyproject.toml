@@ -35,8 +35,13 @@ dependencies = [
     # text tower on CPU in ~50-80 ms per query on Apple Silicon. Replaces
     # the previous coremltools dependency — frame *image* embedding now
     # lives in the Mac app bundle (CoreML), only text queries run here.
-    "transformers>=4.40,<5",
+    "transformers>=4.56,<5",
     "torch>=2.0,<3",
+    # EmbeddingGemma text-query encoder for the `search` tool when the index is
+    # built with the on-device EmbeddingGemma model (Phase S). sentence-
+    # transformers runs its full pipeline (pooling + Dense heads + task prompts)
+    # so MCP queries land in the exact space the Swift indexer wrote.
+    "sentence-transformers>=5.0,<6",
     # SigLIP's tokenizer is SentencePiece-based; `transformers` does NOT
     # pull this in automatically — AutoTokenizer.from_pretrained() raises
     # ImportError without it. Caught by Scripts/verify-siglip-python.py.

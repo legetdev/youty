@@ -58,12 +58,13 @@ def _clamp(s: str | None) -> str | None:
 
 
 class _State:
-    """Lazily-instantiated singletons (DB + Gemini + MobileCLIP text encoder)."""
+    """Lazily-instantiated singletons (DB + Gemini + SigLIP + EmbeddingGemma)."""
 
     def __init__(self) -> None:
         self._conn: sqlite3.Connection | None = None
         self._embedder: GeminiEmbedder | None = None
         self._clip_text = None  # SigLIPTextEncoder
+        self._eg_text = None  # EmbeddingGemmaTextEncoder
         self._db_path: Path | None = None
 
     def conn(self) -> sqlite3.Connection:
@@ -83,6 +84,28 @@ class _State:
         if self._embedder is None:
             self._embedder = GeminiEmbedder(get_gemini_api_key())
         return self._embedder
+
+    def current_text_model(self) -> str:
+        """Which model the index's text chunks were embedded with (index_meta)."""
+        try:
+            row = self.conn().execute(
+                "SELECT value FROM index_meta WHERE key='current_text_model'"
+            ).fetchone()
+            return (row["value"] if row else "") or ""
+        except sqlite3.Error:
+            return ""
+
+    def text_embedder(self):
+        """Pick the query embedder that MATCHES how the docs were embedded so
+        query + document vectors live in one space. An EmbeddingGemma index ->
+        the local on-device-parity encoder (no key); otherwise Gemini."""
+        if self.current_text_model().startswith("embeddinggemma"):
+            if self._eg_text is None:
+                from .embeddinggemma_text import EmbeddingGemmaTextEncoder
+
+                self._eg_text = EmbeddingGemmaTextEncoder()
+            return self._eg_text
+        return self.embedder()
 
     def clip_text(self):
         """Lazy SigLIP-Base text encoder. Raises if transformers/torch missing."""
@@ -655,8 +678,10 @@ def _do_search(
     conn = _STATE.conn()
 
     # Multi-query decomposition (best-effort, <=1.5 s, falls back silently).
+    # Decomposition uses Gemini Flash (generation); skip it on an EmbeddingGemma
+    # index so a fully on-device, key-free setup never reaches for a Gemini key.
     sub_queries: list[str] = []
-    if looks_compound(query):
+    if looks_compound(query) and not _STATE.current_text_model().startswith("embeddinggemma"):
         try:
             sub_queries = _STATE.embedder().decompose(query)
         except Exception as exc:  # noqa: BLE001 — silent fallback per spec
@@ -675,7 +700,7 @@ def _do_search(
     t_embed = time.perf_counter()
     query_vecs: list[list[float]] = []
     try:
-        embedder = _STATE.embedder()
+        embedder = _STATE.text_embedder()
         for q in all_queries:
             try:
                 query_vecs.append(embedder.embed_query(q))
