@@ -29,6 +29,30 @@ if [ ! -x "$BIN" ]; then
     exit 1
 fi
 
+# --- Shared resources the bare CLI binary can't bundle on its own ---
+# A command-line tool has no Resources/ directory, so the SQLite index
+# schema and the SigLIP image encoder live in a shared per-user dir that
+# IndexStore + SigLIPLoader consult (see SharedResourceLocator.swift).
+# Populating it here gives `youty save` the exact same full text + frame
+# indexing the Mac app performs — not a degraded capture-only mode.
+RES_DIR="$HOME/Library/Application Support/Youty/resources"
+mkdir -p "$RES_DIR"
+cp "$ROOT/Sources/IndexSchema.sql" "$RES_DIR/IndexSchema.sql"
+echo "==> Installed search-index schema."
+
+MLPACKAGE="$ROOT/Vendor/siglip/models/SigLIP-Base-224_image.mlpackage"
+if [ -d "$MLPACKAGE" ]; then
+    echo "==> Compiling image-search model (one-time, ~10s)…"
+    rm -rf "$RES_DIR/SigLIP-Base-224_image.mlmodelc"
+    if xcrun coremlcompiler compile "$MLPACKAGE" "$RES_DIR" >/dev/null 2>&1; then
+        echo "==> Installed image-search model."
+    else
+        echo "warning: image-search model compile failed; CLI frame indexing will be unavailable." >&2
+    fi
+else
+    echo "warning: SigLIP model not found at $MLPACKAGE (Git LFS not pulled?); CLI frame indexing unavailable." >&2
+fi
+
 # Pick the destination.
 if [ -n "${YOUTY_INSTALL_DIR:-}" ]; then
     DEST="$YOUTY_INSTALL_DIR/youty"

@@ -108,8 +108,13 @@ actor IndexStore {
         try exec("PRAGMA foreign_keys = ON;")
         try exec("PRAGMA busy_timeout = 5000;")
 
-        guard let url = Bundle.main.url(forResource: "IndexSchema", withExtension: "sql"),
-              let sql = try? String(contentsOf: url, encoding: .utf8) else {
+        // App resolves the schema from its own bundle. The CLI is a bare
+        // tool binary with no Resources/, so fall back to the shared
+        // install location populated by Scripts/install-cli.sh.
+        let schemaURL = Bundle.main.url(forResource: "IndexSchema", withExtension: "sql")
+            ?? SharedResourceLocator.url(named: "IndexSchema", extensions: ["sql"])
+        guard let schemaURL,
+              let sql = try? String(contentsOf: schemaURL, encoding: .utf8) else {
             throw IndexStoreError.schemaResourceMissing
         }
         try exec(sql)
@@ -388,9 +393,28 @@ actor IndexStore {
                                                       in: .userDomainMask,
                                                       appropriateFor: nil,
                                                       create: true)
-        return appSupport
+        let resolved = appSupport
             .appendingPathComponent("Youty", isDirectory: true)
             .appendingPathComponent("index.db")
+
+        // Sandboxed Mac app: `appSupport` already resolves into the app's
+        // container, so `resolved` IS the canonical index.
+        if resolved.path.contains("/Containers/dev.leget.youty/") {
+            return resolved
+        }
+
+        // Non-sandboxed (the `youty` CLI): the canonical index the app
+        // writes and the MCP server reads lives in the app's container.
+        // Target it when present so app + CLI + MCP share ONE index. This
+        // mirrors the MCP's _resolve_default_db_path exactly (prefer the
+        // container index.db when it exists, else the plain path).
+        let containerDB = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(
+                "Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db")
+        if FileManager.default.fileExists(atPath: containerDB.path) {
+            return containerDB
+        }
+        return resolved
     }
 
     // MARK: - sqlite3 helpers

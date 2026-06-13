@@ -39,6 +39,7 @@
 		426389CB5A3014EE35B6DC1F /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = BE56C34A7461D648D1C2C63A /* LICENSE */; };
 		43F7505F9C9C779E84FF8D07 /* ShortFormPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */; };
 		45E22279DB987CA8FD2FA01F /* FFmpegURLSessionIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */; };
+		4902F8F090DC2D041DC21B2A /* SharedResourceLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */; };
 		4B07C74A46B6E023674F964E /* HelpCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CF1C029B5D14B567ED47B9B /* HelpCommand.swift */; };
 		4BD5B82529814A7C359F61E2 /* FFmpegSampleTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A260561498FCF2EA1A2CF6 /* FFmpegSampleTable.swift */; };
 		4C697166338AB1A5305A115D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59F29960905AA7DA5135528E /* AppDelegate.swift */; };
@@ -99,6 +100,7 @@
 		C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
 		CB9BD576C3C677BBD4B9AC33 /* PHashFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13370E21DD4886D040B9C4DD /* PHashFilter.swift */; };
 		CB9C7CD874C2FD238236C878 /* IndexSchema.sql in Resources */ = {isa = PBXBuildFile; fileRef = 7009AA6A6668D4D93B0A165A /* IndexSchema.sql */; };
+		CBD157B29E988892CD2A1040 /* SharedResourceLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */; };
 		CE56642172EC7DA6552AD966 /* Indexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB507870B7D6E4EC22ED4053 /* Indexer.swift */; };
 		CF1301A8C4F5FAEE3CB8761E /* YoutyAppIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B829B1B7B1DC76C612C7FF48 /* YoutyAppIntents.swift */; };
 		CFAB9ED082046D46CBAD1E68 /* Indexer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB507870B7D6E4EC22ED4053 /* Indexer.swift */; };
@@ -178,6 +180,7 @@
 		57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		58B78E0BC198C3AE4ACB68FD /* CREDITS */ = {isa = PBXFileReference; path = CREDITS; sourceTree = "<group>"; };
 		59F29960905AA7DA5135528E /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedResourceLocator.swift; sourceTree = "<group>"; };
 		61F403150ACD28D7C5A9F18C /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortFormPipeline.swift; sourceTree = "<group>"; };
 		66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SigLIPLoader.swift; sourceTree = "<group>"; };
@@ -353,6 +356,7 @@
 				FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */,
 				61F403150ACD28D7C5A9F18C /* SettingsStore.swift */,
 				7F0A56EE058438A3D7841601 /* SettingsView.swift */,
+				5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */,
 				637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */,
 				8C8C64BEE7581B939A220E62 /* SidxParser.swift */,
 				66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */,
@@ -577,6 +581,7 @@
 				7CD61850D4441D22AA0DF9CE /* SaveCommand.swift in Sources */,
 				F40545FAC6341ABA6C1E24AD /* SearchCommand.swift in Sources */,
 				2E457377C0845ACCAB71F901 /* SettingsStore.swift in Sources */,
+				4902F8F090DC2D041DC21B2A /* SharedResourceLocator.swift in Sources */,
 				43F7505F9C9C779E84FF8D07 /* ShortFormPipeline.swift in Sources */,
 				62DCC093DEC97543E737D4D5 /* SidxParser.swift in Sources */,
 				F7F02FC49A9FDE72E034A593 /* SigLIPLoader.swift in Sources */,
@@ -636,6 +641,7 @@
 				9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */,
 				1164AB2D5DD0A4C678A2122E /* SettingsStore.swift in Sources */,
 				E3165888D2C54EB8455B0EAE /* SettingsView.swift in Sources */,
+				CBD157B29E988892CD2A1040 /* SharedResourceLocator.swift in Sources */,
 				2E95A4B3792989B8DC2AA8C5 /* ShortFormPipeline.swift in Sources */,
 				1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */,
 				77E451F883231BD6936E6D0D /* SigLIPLoader.swift in Sources */,

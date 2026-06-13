@@ -43,6 +43,21 @@ class Youty < Formula
                "SYMROOT=#{buildpath}/build",
                "build"
     bin.install "build/Release/youty"
+
+    # The CLI is a bare binary with no Resources/ bundle of its own, so the
+    # SQLite index schema + the SigLIP image encoder live in
+    # <prefix>/share/youty/, which SharedResourceLocator.swift checks
+    # relative to the binary. The schema is small + lives in the tarball.
+    (share/"youty").install "Sources/IndexSchema.sql"
+
+    # TODO(R.6): ship the SigLIP image encoder. It's a Git-LFS blob under
+    # Vendor/siglip/models/, which GitHub's source tarball does NOT include
+    # (it ships an LFS pointer). Before publishing the tap, add a `resource`
+    # block that downloads the .mlpackage from a release asset, then:
+    #   system "xcrun", "coremlcompiler", "compile",
+    #          resource_path, share/"youty"
+    # Until then a brew-installed CLI does full TEXT indexing on save; frame
+    # (image-search) indexing is skipped with a clear, non-fatal warning.
   end
 
   def caveats

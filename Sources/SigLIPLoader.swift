@@ -119,6 +119,14 @@ actor SigLIPLoader {
                 return candidate
             }
         }
+        // Shared install location — the standalone `youty` CLI installs a
+        // precompiled .mlmodelc here, since a bare tool binary has no
+        // Resources/ of its own. Prefer .mlmodelc to avoid recompiling the
+        // 176 MB model on every one-shot CLI invocation.
+        if let url = SharedResourceLocator.url(named: "SigLIP-Base-224_image",
+                                               extensions: ["mlmodelc", "mlpackage"]) {
+            return url
+        }
         throw SigLIPLoaderError.bundledModelMissing
     }
 
