@@ -1,0 +1,21 @@
+Gemma is provided under and subject to the Gemma Terms of Use found at
+ai.google.dev/gemma/terms.
+
+This directory contains a Core ML conversion of Google's EmbeddingGemma model:
+
+  Source model: google/embeddinggemma-300m  (Google DeepMind)
+  License:      Gemma Terms of Use  (https://ai.google.dev/gemma/terms)
+  Prohibited Use Policy: https://ai.google.dev/gemma/prohibited_use_policy
+
+Modification notice (per Gemma Terms §3.1(c)): the bundled file
+models/EmbeddingGemma-300m_text.mlpackage is a MODIFIED form of the original
+weights — converted from the HuggingFace checkpoint to Core ML (fp32 compute,
+int8-quantized weights) via Scripts/convert-embeddinggemma-coreml.py. It runs
+EmbeddingGemma's full sentence-transformers pipeline (Transformer -> mean
+pooling -> Dense 768->3072 -> Dense 3072->768 -> L2 normalize) and emits a
+768-dim, L2-normalized text embedding. Conversion fidelity vs the original
+PyTorch model: mean cosine 0.9997 (verified, Phase S.0).
+
+Use of this model is subject to the Gemma Terms of Use and the Gemma Prohibited
+Use Policy, both incorporated by reference. The full Gemma Terms text is bundled
+alongside this NOTICE before public distribution (Phase S.5).
