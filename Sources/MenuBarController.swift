@@ -82,8 +82,8 @@ final class MenuBarController: ObservableObject {
         indexStatusObserver = nil
     }
 
-    // Swap the status item image between the plain tray symbol and the
-    // tray-with-progress-dot composite. The dot is drawn in the accent
+    // Swap the status item image between the plain Y mark and the
+    // Y-with-progress-dot composite. The dot is drawn in the accent
     // color (non-template) so it survives the menu bar's template render
     // pipeline — the user gets a calm "still working" signal without any
     // animation or focus disruption.
@@ -94,24 +94,22 @@ final class MenuBarController: ObservableObject {
             button.image = Self.makeIndexingIcon()
             button.toolTip = "Youty — indexing in background"
         } else {
-            let image = NSImage(systemSymbolName: "tray.and.arrow.down",
-                                accessibilityDescription: "Youty")
+            let image = NSImage(named: "MenuBarY")
             image?.isTemplate = true
             button.image = image
             button.toolTip = "Youty"
         }
     }
 
-    // Builds an 18×18 composite: the template tray symbol plus a small
+    // Builds an 18×18 composite: the template Y mark plus a small
     // 5×5 accent dot in the bottom-right corner. Marked non-template so
     // the dot keeps its accent color in both light + dark menu bars.
     private static func makeIndexingIcon() -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let result = NSImage(size: size)
         result.lockFocus()
-        // Base symbol — render the template manually so we control color.
-        if let base = NSImage(systemSymbolName: "tray.and.arrow.down",
-                              accessibilityDescription: "Youty") {
+        // Base mark — render the template manually so we control color.
+        if let base = NSImage(named: "MenuBarY") {
             base.isTemplate = true
             // Tint to the menu bar's text color so it reads correctly.
             let tinted = base.copy() as! NSImage

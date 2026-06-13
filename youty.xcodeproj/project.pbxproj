@@ -29,6 +29,7 @@
 		2C02942FDF7344437B582303 /* SigLIP-Base-224_image.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = C8365806F1359E8E7ACAB7C1 /* SigLIP-Base-224_image.mlpackage */; };
 		2E457377C0845ACCAB71F901 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F403150ACD28D7C5A9F18C /* SettingsStore.swift */; };
 		2E95A4B3792989B8DC2AA8C5 /* ShortFormPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */; };
+		340F0E7824C853A2D8B7CFF8 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 74B2C464CAC15C4D193258F3 /* AppIcon.icon */; };
 		345B82542264F04FB42EA963 /* IndexBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */; };
 		348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		38606B475C50BB1F3C555BE0 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
@@ -65,7 +66,6 @@
 		7CD61850D4441D22AA0DF9CE /* SaveCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */; };
 		80C925A67998CA3D1A01F1EE /* FFmpegURLSessionIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */; };
 		83580BEB8F9323ED76DA8B5B /* CREDITS in Resources */ = {isa = PBXBuildFile; fileRef = 58B78E0BC198C3AE4ACB68FD /* CREDITS */; };
-		8609704C5B930A0AE41EDEAE /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 57CDA26D3414E63EDB216766 /* AppIcon.icns */; };
 		86D1580BFF32100B5515B247 /* VaultLocalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */; };
 		875EDC64DC621AF33A11D999 /* MainWindowKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356CCF219ED8189DA67F3402 /* MainWindowKeeper.swift */; };
 		8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */; };
@@ -175,7 +175,6 @@
 		4BB446E58CBBADED63AFD0D2 /* youty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = youty.entitlements; sourceTree = "<group>"; };
 		515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		52C24CDA3E0B37271B63C03A /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
-		57CDA26D3414E63EDB216766 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		58B78E0BC198C3AE4ACB68FD /* CREDITS */ = {isa = PBXFileReference; path = CREDITS; sourceTree = "<group>"; };
 		59F29960905AA7DA5135528E /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -185,6 +184,7 @@
 		6B4CA4AEF25DAF7A379921CE /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		6C21ECB07C9DC2F79D80010E /* CLIHostWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHostWindow.swift; sourceTree = "<group>"; };
 		7009AA6A6668D4D93B0A165A /* IndexSchema.sql */ = {isa = PBXFileReference; path = IndexSchema.sql; sourceTree = "<group>"; };
+		74B2C464CAC15C4D193258F3 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCommand.swift; sourceTree = "<group>"; };
 		7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameEmbedder.swift; sourceTree = "<group>"; };
 		7F0A56EE058438A3D7841601 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -310,7 +310,7 @@
 			isa = PBXGroup;
 			children = (
 				59F29960905AA7DA5135528E /* AppDelegate.swift */,
-				57CDA26D3414E63EDB216766 /* AppIcon.icns */,
+				74B2C464CAC15C4D193258F3 /* AppIcon.icon */,
 				907078E101889CD8D7B28C97 /* AppUpdater.swift */,
 				2C2747C12D2CBE36AD416926 /* Assets.xcassets */,
 				39676C399FF505D0F90D141F /* AuthLoginView.swift */,
@@ -511,7 +511,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8609704C5B930A0AE41EDEAE /* AppIcon.icns in Resources */,
+				340F0E7824C853A2D8B7CFF8 /* AppIcon.icon in Resources */,
 				ECA46273D6854E93EFF7226E /* Assets.xcassets in Resources */,
 				D69DE7CD35430BAF9A4C4164 /* COPYING.LGPLv2.1 in Resources */,
 				27FD2A368CC924DD960BF205 /* COPYING.LGPLv3 in Resources */,
@@ -760,7 +760,7 @@
 		7098D1273BEC287D12E8ED7E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Sources/youty.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -883,7 +883,7 @@
 		D148BF154954770C86D21905 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Sources/youty.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
