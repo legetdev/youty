@@ -66,6 +66,9 @@ enum HelpCommand {
       --count N           max frames per video (default: 100)
       --fps N             max frames per second (default: 1.0)
       --resolution P      source resolution: 720, 1080, 1440, 2160 (default: 1080)
+      --embedder MODE     text search embedder: local (on-device, no key) or
+                          gemini (cloud, needs a key). Default: local. Sticky —
+                          saved to config until you pass it again.
       --json              emit JSON metadata to stdout instead of just the path
       --quiet, -q         suppress progress output to stderr
       --no-index          skip the post-save SQLite index update
@@ -74,6 +77,7 @@ enum HelpCommand {
       youty save https://www.youtube.com/watch?v=GmM5Sg8RGBA
       youty save https://www.tiktok.com/@user/video/12345 --vault ~/Vault
       youty save URL --count 250 --fps 2 --json
+      youty save URL --embedder gemini      # opt into cloud embeddings
     """
 
     private static let listHelp = """

@@ -9,12 +9,15 @@ import Foundation
 
 enum IndexerError: LocalizedError {
     case missingKey
+    case localModelUnavailable
     case vaultMismatch(String)
     case noVideoMD(URL)
     var errorDescription: String? {
         switch self {
         case .missingKey:
-            return "Add a Gemini API key in Settings → AI search index to enable transcript search."
+            return "Add a Gemini API key in Settings → AI search index, or switch the embedding provider to On-device, to enable transcript search."
+        case .localModelUnavailable:
+            return "The on-device search model isn't installed. Reinstall Youty (or re-run the CLI installer) to enable local transcript search — or switch to Gemini in Settings → AI search index."
         case .vaultMismatch(let message):
             return message
         case .noVideoMD:
@@ -52,7 +55,7 @@ enum Indexer {
     static func indexBundle(videoMdURL: URL, vaultRoot: URL) async throws {
         try await indexBundle(videoMdURL: videoMdURL,
                               vaultRoot: vaultRoot,
-                              embedder: makeDefaultEmbedder())
+                              embedder: try makeDefaultEmbedder())
     }
 
     /// Indexes every `video.md` under `vaultRoot`. Used by the Settings
@@ -357,20 +360,38 @@ enum Indexer {
 
     // MARK: - Embedder selection
 
-    /// Returns the embedder selected by the current settings. v1 has only
-    /// one option (Gemini-001@768), but the switch lives here so swapping
-    /// in Voyage / CoreML stays a one-line change.
-    private static func makeDefaultEmbedder() -> Embedder {
-        return GeminiEmbedder()
+    /// Builds the text embedder for `provider`. Throws when that provider's
+    /// backing is unavailable — the on-device model files are missing, or
+    /// Gemini is selected without a key. It NEVER silently substitutes the
+    /// other provider: doing so would split the index across two embedding
+    /// spaces and silently corrupt search. Callers surface the thrown error.
+    static func makeEmbedder(for provider: EmbeddingProvider) throws -> Embedder {
+        switch provider {
+        case .local:
+            do {
+                return try EmbeddingGemmaEmbedder()
+            } catch {
+                throw IndexerError.localModelUnavailable
+            }
+        case .gemini:
+            guard KeychainHelper.exists(account: "youty", service: "gemini-api") else {
+                throw IndexerError.missingKey
+            }
+            return GeminiEmbedder()
+        }
     }
 
-    /// Used by reindexVault — pre-flights the key so the user gets a single
-    /// clear error instead of N failed per-bundle calls.
+    /// The embedder for the app's current `embeddingProvider` setting
+    /// (default on-device). Read from UserDefaults so it works off the
+    /// main actor inside the background indexing task.
+    private static func makeDefaultEmbedder() throws -> Embedder {
+        try makeEmbedder(for: .current)
+    }
+
+    /// Used by reindexVault — pre-flights the embedder once so the user
+    /// gets a single clear error instead of N failed per-bundle calls.
     private static func makeEmbedderOrThrow() throws -> Embedder {
-        guard KeychainHelper.exists(account: "youty", service: "gemini-api") else {
-            throw IndexerError.missingKey
-        }
-        return GeminiEmbedder()
+        try makeEmbedder(for: .current)
     }
 
     // MARK: - Vault walking

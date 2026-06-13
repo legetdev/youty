@@ -1,10 +1,10 @@
 import Foundation
 
 // Tiny JSON-backed config for the standalone CLI. Stored at
-// `~/Library/Application Support/Youty/cli-config.json`. The only field
-// we persist is the vault path — everything else is per-invocation
-// flags. Created on first save, never overwrites anything the user
-// passes via --vault.
+// `~/Library/Application Support/Youty/cli-config.json`. Persists the vault
+// path and the chosen embedding provider; everything else is per-invocation
+// flags. Created on first save, never overwrites anything the user passes
+// via --vault.
 //
 // The spec called for TOML at `~/.config/youty/config.toml`; we use JSON
 // instead because Swift has built-in JSON and we can't pull in a TOML
@@ -12,6 +12,9 @@ import Foundation
 
 struct CLIConfig: Codable {
     var vaultPath: String?
+    /// Raw `EmbeddingProvider` value ("local" / "gemini"). Sticky once set
+    /// via `youty save --embedder …`; absent → the on-device default.
+    var embeddingProvider: String?
 }
 
 enum CLIConfigStore {

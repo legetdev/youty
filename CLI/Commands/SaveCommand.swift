@@ -35,6 +35,11 @@ enum SaveCommand {
         let quiet = args.bool("quiet") || args.bool("q")
         let json = args.bool("json") || args.bool("j")
         let skipIndex = args.bool("no-index")
+        if let raw = args.value(for: "embedder"),
+           EmbeddingProvider(rawValue: raw.lowercased()) == nil {
+            cliStderr("error: --embedder must be 'local' (on-device) or 'gemini' (cloud).\n")
+            exit(64)
+        }
         let progressLog = ProgressLog(quiet: quiet)
 
         progressLog.stage("Vault: \(vaultResolution.url.path) (from \(vaultResolution.source.label))")
@@ -213,7 +218,7 @@ enum SaveCommand {
         }
 
         if !skipIndex {
-            await runIndexer(folder: folderURL, vaultRoot: vault.vaultURL!, progress: progress)
+            await runIndexer(folder: folderURL, vaultRoot: vault.vaultURL!, settings: settings, progress: progress)
         }
         return SavedBundle(folder: folderURL,
                            title: result.title,
@@ -254,7 +259,7 @@ enum SaveCommand {
         }
 
         if !skipIndex {
-            await runIndexer(folder: saveResult.folder, vaultRoot: vault.vaultURL!, progress: progress)
+            await runIndexer(folder: saveResult.folder, vaultRoot: vault.vaultURL!, settings: settings, progress: progress)
         }
         return SavedBundle(folder: saveResult.folder,
                            title: preview.title,
@@ -267,11 +272,16 @@ enum SaveCommand {
     @MainActor
     private static func runIndexer(folder: URL,
                                    vaultRoot: URL,
+                                   settings: SettingsStore,
                                    progress: ProgressLog) async {
-        progress.stage("Indexing for search…")
         let videoMd = folder.appendingPathComponent("video.md")
+        let provider = settings.embeddingProvider
+        progress.stage("Indexing for search… (\(provider == .local ? "on-device" : "Gemini"))")
         do {
-            try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultRoot)
+            // Build the embedder explicitly so the CLI's --embedder / config
+            // choice is honoured (the app reads the same choice from settings).
+            let embedder = try Indexer.makeEmbedder(for: provider)
+            try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultRoot, embedder: embedder)
         } catch {
             progress.stage("warning: text indexer skipped (\(error.localizedDescription))")
         }
@@ -307,6 +317,18 @@ enum SaveCommand {
         if let n = args.doubleValue(for: "fps")       { s.fpsCap = n }
         if let n = args.intValue(for: "resolution")   { s.targetResolution = n }
         if let loc = args.value(for: "locale")        { s.transcriptionLocaleIdentifier = loc }
+        // Embedding provider: --embedder wins and is persisted to cli-config;
+        // otherwise the saved cli-config value; otherwise the on-device default.
+        if let raw = args.value(for: "embedder")?.lowercased(),
+           let p = EmbeddingProvider(rawValue: raw) {
+            s.embeddingProvider = p
+            var cfg = CLIConfigStore.read()
+            cfg.embeddingProvider = p.rawValue
+            CLIConfigStore.write(cfg)
+        } else if let raw = CLIConfigStore.read().embeddingProvider,
+                  let p = EmbeddingProvider(rawValue: raw) {
+            s.embeddingProvider = p
+        }
         return s
     }
 

@@ -234,7 +234,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("AI search index")
 
-            Text("Optional. Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Your vault stays local — only the transcript text is sent to Gemini, and only with the API key you provide below. Re-indexing also rebuilds the on-device frame vectors used for visual search.")
+            Text("Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Runs fully on-device by default — no key, nothing leaves your Mac. You can opt into Gemini below for a small accuracy gain (that sends transcript text to Google and needs a key). After switching providers, re-index the vault so every video shares one embedding space. Re-indexing also rebuilds the on-device frame vectors used for visual search.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -247,64 +247,80 @@ struct SettingsView: View {
             .controlSize(.small)
             .accessibilityHint("When on, every saved video is embedded into the local search index so AI tools can find it by meaning")
 
-            // API key field. Reads + writes Keychain at account=youty,
-            // service=gemini-api so the value is never serialised to disk
-            // outside the system keychain.
+            // Provider picker — on-device by default (no key, fully local)
+            // or opt into Gemini cloud. Drives `EmbeddingProvider` everywhere.
             VStack(alignment: .leading, spacing: 6) {
+                Text("Embedding provider")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Picker("", selection: $settings.embeddingProviderRaw) {
+                    ForEach(SettingsStore.embeddingProviderOptions, id: \.value) { opt in
+                        Text(opt.label).tag(opt.value)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Embedding provider")
+                .accessibilityHint("On-device runs locally with no API key; Gemini sends transcript text to Google and needs a key")
+            }
+
+            if settings.embeddingProvider == .local {
+                // On-device — no key, nothing leaves the Mac.
                 HStack(spacing: 8) {
-                    Image(systemName: apiKeyStored ? "checkmark.seal.fill" : "key.fill")
-                        .foregroundStyle(apiKeyStored ? .green : .secondary)
+                    Image(systemName: "lock.laptopcomputer")
+                        .foregroundStyle(.green)
                         .font(.system(size: 12))
-                    Text(apiKeyStored ? "Gemini API key stored in Keychain" : "Add a Gemini API key to enable search")
+                    Text("Runs fully on-device — no API key needed, nothing leaves your Mac.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                HStack(spacing: 8) {
-                    SecureField(apiKeyStored ? "Enter a new key to replace…" : "Paste your Gemini API key",
-                                 text: $apiKeyInput)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                        )
-                        .accessibilityLabel("Gemini API key")
-                        .accessibilityHint("Paste your key from aistudio.google.com — stored only on this Mac")
-                    Button("Save") { saveAPIKey() }
-                        .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
-                        .controlSize(.small)
-                        .accessibilityLabel("Save API key")
+            } else {
+                // Gemini cloud — API key field. Reads + writes Keychain at
+                // account=youty, service=gemini-api so the value is never
+                // serialised to disk outside the system keychain.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: apiKeyStored ? "checkmark.seal.fill" : "key.fill")
+                            .foregroundStyle(apiKeyStored ? .green : .secondary)
+                            .font(.system(size: 12))
+                        Text(apiKeyStored ? "Gemini API key stored in Keychain" : "Add a Gemini API key to enable cloud search")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    HStack(spacing: 8) {
+                        SecureField(apiKeyStored ? "Enter a new key to replace…" : "Paste your Gemini API key",
+                                     text: $apiKeyInput)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                            )
+                            .accessibilityLabel("Gemini API key")
+                            .accessibilityHint("Paste your key from aistudio.google.com — stored only on this Mac")
+                        Button("Save") { saveAPIKey() }
+                            .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
+                            .controlSize(.small)
+                            .accessibilityLabel("Save API key")
+                    }
+                    if let msg = apiKeyMessage {
+                        Text(msg)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 4) {
+                        Text("Free tier covers a few thousand videos.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                        Link("Get a key →", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
+                            .font(.system(size: 11))
+                    }
                 }
-                if let msg = apiKeyMessage {
-                    Text(msg)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 4) {
-                    Text("Free tier covers a few thousand videos.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
-                    Link("Get a key →", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
-                        .font(.system(size: 11))
-                }
-            }
-
-            // Model picker — only one option for now, but the surface is in
-            // place so swapping in Voyage / on-device BGE stays one line.
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Embedding model")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Picker("", selection: $settings.embeddingModelID) {
-                    Text("Gemini Embedding 001 (768d)").tag("gemini-embedding-001@768")
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .accessibilityLabel("Embedding model")
             }
 
             // Re-index action.
@@ -383,6 +399,21 @@ struct SettingsView: View {
                         Text("Text model: \(model)")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
+                    }
+                    // Mismatch cue: the index was built with a different model
+                    // than the active provider. Search keeps working (BM25 +
+                    // the matching chunks), but re-indexing unifies the space.
+                    // S.4 adds the one-click re-embed + first-launch auto-offer.
+                    if model != settings.embeddingProvider.modelIdentifier, s.chunkCount > 0 {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.orange)
+                            Text("Built with a different model. Re-index to switch this vault to \(settings.embeddingProvider == .local ? "on-device" : "Gemini") search.")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }

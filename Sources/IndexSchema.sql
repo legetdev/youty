@@ -82,7 +82,9 @@ CREATE TABLE IF NOT EXISTS index_meta (
     value TEXT NOT NULL
 );
 
--- Default rows; replaced on every indexer write that uses them.
+-- Default rows; replaced on every indexer write that uses them. The text
+-- default is the on-device model (Phase S default provider) so an empty,
+-- never-indexed index already advertises the key-free embedding space.
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('schema_version', '1');
-INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'gemini-embedding-001@768');
+INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'embeddinggemma-300m@768');
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'siglip-base-patch16-224@768');

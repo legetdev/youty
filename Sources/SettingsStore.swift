@@ -13,6 +13,40 @@ import Foundation
 //   • SpeechTranscriptionPipeline — reads transcriptionLocaleIdentifier to
 //     decide which language model to use on the audio track.
 
+/// Which embedder turns transcript text into vectors for AI search.
+///
+/// `.local` runs Core ML EmbeddingGemma entirely on-device — no API key,
+/// nothing leaves the Mac — and is the default (Phase S). `.gemini` is the
+/// opt-in cloud path (a small accuracy gain) and needs a Gemini API key.
+///
+/// The raw value persists under `@AppStorage("embeddingProvider")`. The
+/// background `Indexer` is not `@MainActor`, so it reads the choice through
+/// `EmbeddingProvider.current` — a plain, thread-safe UserDefaults lookup.
+enum EmbeddingProvider: String, CaseIterable, Sendable {
+    case local
+    case gemini
+
+    /// The string written to `chunks.model_version` and
+    /// `index_meta.current_text_model`, so the MCP query side can match the
+    /// embedding space the documents were written in.
+    var modelIdentifier: String {
+        switch self {
+        case .local:  return "embeddinggemma-300m@768"
+        case .gemini: return "gemini-embedding-001@768"
+        }
+    }
+
+    /// UserDefaults / @AppStorage key — one source of truth for SwiftUI + Indexer.
+    static let defaultsKey = "embeddingProvider"
+
+    /// The persisted choice, readable off the main actor. Defaults to
+    /// `.local` (the key-free path) when unset or hand-edited to garbage.
+    static var current: EmbeddingProvider {
+        let raw = UserDefaults.standard.string(forKey: defaultsKey) ?? local.rawValue
+        return EmbeddingProvider(rawValue: raw) ?? .local
+    }
+}
+
 @MainActor
 final class SettingsStore: ObservableObject {
 
@@ -69,9 +103,15 @@ final class SettingsStore: ObservableObject {
     /// skips entirely — capture stays anonymous + offline.
     @AppStorage("indexerEnabled") var indexerEnabled: Bool = true
 
-    /// Identifier of the embedding model. Mirrors `chunks.model_version`
-    /// in the SQLite index so the Python MCP server can match.
-    @AppStorage("embeddingModelID") var embeddingModelID: String = "gemini-embedding-001@768"
+    /// Which embedder indexes transcript text. Default `.local` (on-device,
+    /// no key). Stored as the raw `EmbeddingProvider` value; the validated
+    /// `embeddingProvider` accessor below clamps stray values back to `.local`.
+    @AppStorage(EmbeddingProvider.defaultsKey) var embeddingProviderRaw: String = EmbeddingProvider.local.rawValue
+
+    var embeddingProvider: EmbeddingProvider {
+        get { EmbeddingProvider(rawValue: embeddingProviderRaw) ?? .local }
+        set { embeddingProviderRaw = newValue.rawValue }
+    }
 
     // MARK: - Menu bar (Phase L)
 
@@ -149,6 +189,11 @@ final class SettingsStore: ObservableObject {
         Option(label: "Korean",                  value: "ko-KR"),
         Option(label: "Chinese (Simplified)",    value: "zh-CN"),
         Option(label: "Chinese (Traditional)",   value: "zh-TW"),
+    ]
+
+    static let embeddingProviderOptions: [Option<String>] = [
+        Option(label: "On-device", value: EmbeddingProvider.local.rawValue),
+        Option(label: "Gemini",    value: EmbeddingProvider.gemini.rawValue),
     ]
 
     // MARK: - Convenience: resolve transcription locale to a Locale value
