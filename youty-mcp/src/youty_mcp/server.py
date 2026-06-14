@@ -16,6 +16,7 @@ import logging
 import os
 import sqlite3
 import struct
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,7 @@ class _State:
         self._embedder: GeminiEmbedder | None = None
         self._clip_text = None  # SigLIPTextEncoder
         self._eg_text = None  # EmbeddingGemmaTextEncoder
+        self._eg_lock = threading.Lock()  # guards _eg_text creation
         self._db_path: Path | None = None
 
     def conn(self) -> sqlite3.Connection:
@@ -101,11 +103,35 @@ class _State:
         the local on-device-parity encoder (no key); otherwise Gemini."""
         if self.current_text_model().startswith("embeddinggemma"):
             if self._eg_text is None:
-                from .embeddinggemma_text import EmbeddingGemmaTextEncoder
+                with self._eg_lock:
+                    if self._eg_text is None:
+                        from .embeddinggemma_text import EmbeddingGemmaTextEncoder
 
-                self._eg_text = EmbeddingGemmaTextEncoder()
+                        self._eg_text = EmbeddingGemmaTextEncoder()
             return self._eg_text
         return self.embedder()
+
+    def warm_text_embedder(self) -> None:
+        """Force-load the on-device EG query encoder so the user's FIRST `search`
+        doesn't pay the one-time torch / sentence-transformers import + model
+        load (~5-7 s). Touches NO database — the sqlite connection is
+        main-thread-only (check_same_thread), so this is safe on the startup
+        daemon thread. The caller checks `current_text_model` on the main thread
+        and only warms for an EmbeddingGemma index. The torch model loaded here
+        is reused by queries on the event-loop thread (PyTorch CPU models carry
+        no thread affinity). Any failure is non-fatal — the first query then
+        loads lazily, exactly as before."""
+        try:
+            with self._eg_lock:
+                if self._eg_text is None:
+                    from .embeddinggemma_text import EmbeddingGemmaTextEncoder
+
+                    self._eg_text = EmbeddingGemmaTextEncoder()
+            t0 = time.perf_counter()
+            self._eg_text.embed_query("warmup")  # forces import + model load + first inference
+            _log.info("EmbeddingGemma query encoder warmed in %.1fs", time.perf_counter() - t0)
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("text-embedder warm-up failed (first query will load lazily): %s", exc)
 
     def clip_text(self):
         """Lazy SigLIP-Base text encoder. Raises if transformers/torch missing."""
@@ -904,6 +930,18 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         _log.error("startup failed: %s", exc)
         raise
+    # Warm the on-device query encoder in the background so the user's first
+    # `search` is fast (~100 ms) instead of paying the one-time torch import +
+    # model load. The index check runs HERE on the main thread (sqlite is
+    # main-thread-only); the daemon thread then loads only the torch model and
+    # never touches the DB. Never blocks stdio startup or shutdown; a query
+    # arriving mid-warm safely waits on the shared load lock.
+    try:
+        if _STATE.current_text_model().startswith("embeddinggemma"):
+            threading.Thread(target=_STATE.warm_text_embedder,
+                             name="eg-warm", daemon=True).start()
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("could not start embedder warm-up thread: %s", exc)
     try:
         mcp.run()
     finally:

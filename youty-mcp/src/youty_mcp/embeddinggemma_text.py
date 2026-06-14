@@ -20,6 +20,7 @@ run `hf auth login` once. Embeds in ~30 ms warm on Apple Silicon (PyTorch CPU).
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
@@ -34,21 +35,27 @@ class EmbeddingGemmaTextEncoder:
 
     def __init__(self) -> None:
         self._model = None  # sentence_transformers.SentenceTransformer
+        # Guards the one-time load so a background warm-up (server startup) and a
+        # concurrent first query can't both load the model. Double-checked below.
+        self._lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:
             return
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:
-            raise RuntimeError(
-                "sentence-transformers is required for EmbeddingGemma search. "
-                "Reinstall youty-mcp via `uv tool install youty-mcp` or `pipx install youty-mcp`."
-            ) from exc
+        with self._lock:
+            if self._model is not None:
+                return
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise RuntimeError(
+                    "sentence-transformers is required for EmbeddingGemma search. "
+                    "Reinstall youty-mcp via `uv tool install youty-mcp` or `pipx install youty-mcp`."
+                ) from exc
 
-        _log.info("Loading EmbeddingGemma text encoder (%s) …", HF_MODEL_ID)
-        # CPU keeps it deterministic + avoids MPS quirks; one query is fast enough.
-        self._model = SentenceTransformer(HF_MODEL_ID, device="cpu")
+            _log.info("Loading EmbeddingGemma text encoder (%s) …", HF_MODEL_ID)
+            # CPU keeps it deterministic + avoids MPS quirks; one query is fast enough.
+            self._model = SentenceTransformer(HF_MODEL_ID, device="cpu")
 
     def embed_query(self, text: str, *, dim: int = EMBEDDING_DIM) -> list[float]:
         """Return an L2-normalized 768-d query embedding (same space as the docs)."""
