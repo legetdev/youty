@@ -226,8 +226,10 @@ struct ContentView: View {
                 HStack(spacing: 8) {
                     Button("Re-embed now") { acceptMigration() }
                         .buttonStyle(.borderedProminent).controlSize(.regular)
+                        .accessibilityHint("Re-embeds your saved videos on-device in the background; search keeps working while it runs")
                     Button("Later") { dismissMigration() }
                         .controlSize(.regular)
+                        .accessibilityHint("Dismisses this offer; you can re-embed any time from Settings, AI search index")
                     Spacer()
                 }
             }

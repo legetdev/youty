@@ -151,9 +151,12 @@ def search(
     meaning (German ↔ English), and surfaces ranked chunks with frame
     paths and timestamps.
 
-    Internally runs Gemini-embedding-001 (dense) + SQLite FTS5 (BM25)
-    fused via RRF. Compound questions get auto-decomposed into ≤3
-    sub-queries via Gemini Flash; you don't need to split them yourself.
+    Internally runs a dense embedder + SQLite FTS5 (BM25) fused via RRF.
+    The dense embedder matches whatever the index was built with: the
+    on-device EmbeddingGemma model by default (no API key), or Gemini if
+    the user opted into it. On a Gemini index, compound questions get
+    auto-decomposed into ≤3 sub-queries via Gemini Flash; you don't need to
+    split them yourself either way.
 
     Args:
         query: The user's natural-language question, in any language.

@@ -163,6 +163,20 @@ run "SigLIP bundled-model load + prediction" \
     "$BIN" --siglip-probe
 
 echo
+echo "== Phase S — on-device text embedder =="
+# Loads the bundled EmbeddingGemma .mlmodelc + native tokenizer artifact,
+# embeds three reference docs, and verifies: 768-dim L2-normalised finite
+# vectors, deterministic output, and semantic ordering (a related doc must
+# out-score an unrelated one). All on-device, no Gemini key. Catches:
+#   - app-bundle resource path regression (model + vocab/merges/added_tokens)
+#   - native tokenizer artifact drift
+#   - CoreML i/o schema / compute-unit precision regressions
+#   - any silent fallback to a key-requiring embedder
+run "EmbeddingGemma on-device text embedder" \
+    'EMBEDDINGGEMMA_PROBE OK' \
+    "$BIN" --embeddinggemma-probe
+
+echo
 echo "== Phase Q.6 — crash hardening =="
 # Drives every weird vault state we can simulate headlessly: empty vault,
 # vault-is-a-file, garbage manifest.json (7 variants), corrupt video.md

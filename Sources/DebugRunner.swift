@@ -50,6 +50,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--hardness-probe")
             || CommandLine.arguments.contains("--bench-indexer")
             || CommandLine.arguments.contains("--siglip-probe")
+            || CommandLine.arguments.contains("--embeddinggemma-probe")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -91,6 +92,9 @@ enum DebugRunner {
         }
         if args.contains("--siglip-probe") {
             runSigLIPProbe()
+        }
+        if args.contains("--embeddinggemma-probe") {
+            runEmbeddingGemmaProbe()
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -1187,5 +1191,99 @@ enum DebugRunner {
         }
         sem.wait()
         exit(box.code)
+    }
+
+    /// Phase S.6 self-test for the on-device text embedder. Mirrors
+    /// `--siglip-probe` but goes further: it verifies the bundled model +
+    /// native tokenizer resolve, that embeddings are well-formed (768-dim,
+    /// L2-normalized, finite), that the path is DETERMINISTIC, and — the
+    /// sophisticated part — that the vectors are SEMANTICALLY meaningful
+    /// (a related document out-scores an unrelated one). All on-device,
+    /// with no Gemini key involved at any point. Catches: bundle-resource
+    /// regressions, tokenizer-artifact drift, Core ML i/o schema changes,
+    /// compute-unit precision regressions, and any silent fallback to a
+    /// different (key-requiring) embedder.
+    private static func runEmbeddingGemmaProbe() -> Never {
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            do {
+                let started = Date()
+                // Production resolver — Bundle.main then SharedResourceLocator.
+                // No key is read; if this silently fell back to Gemini it would
+                // need one, so reaching OK proves the key-free path.
+                let embedder = try EmbeddingGemmaEmbedder()
+                let loadMs = Int(Date().timeIntervalSince(started) * 1000)
+                print("MODEL_ID=\(embedder.modelIdentifier)")
+                print("EMBED_DIM_DECLARED=\(embedder.embeddingDim)")
+                print("MODEL_LOAD_MS=\(loadMs)")
+                guard embedder.modelIdentifier.hasPrefix("embeddinggemma") else {
+                    print("ERROR=wrong_model \(embedder.modelIdentifier)"); box.code = 3; return
+                }
+
+                // Reference corpus with a known semantic relationship.
+                let queryDoc   = "how to make ultra realistic AI generated videos"
+                let relatedDoc = "a tutorial on AI video generation tools and cinematic clips"
+                let unrelDoc   = "the current price of bitcoin and the crypto market today"
+
+                let t0 = Date()
+                let vecs = try await embedder.embed([queryDoc, relatedDoc, unrelDoc])
+                let embMs = Int(Date().timeIntervalSince(t0) * 1000)
+                print("EMBED_MS_TOTAL=\(embMs) PER_DOC_MS=\(embMs / 3)")
+                guard vecs.count == 3 else { print("ERROR=embed_count \(vecs.count)"); box.code = 3; return }
+
+                // 1. Shape + finiteness + L2-norm on every vector.
+                for (i, v) in vecs.enumerated() {
+                    guard v.count == 768 else {
+                        print("ERROR=dim got=\(v.count) expected=768 idx=\(i)"); box.code = 3; return
+                    }
+                    var sumSq = 0.0
+                    for x in v {
+                        if !x.isFinite { print("ERROR=non_finite idx=\(i)"); box.code = 3; return }
+                        sumSq += Double(x) * Double(x)
+                    }
+                    let norm = sqrt(sumSq)
+                    print("VEC[\(i)] DIM=\(v.count) NORM=\(String(format: "%.4f", norm))")
+                    guard norm > 0.9 && norm < 1.1 else {
+                        print("ERROR=norm \(norm) idx=\(i) — expected ~1.0"); box.code = 3; return
+                    }
+                }
+
+                // 2. Determinism — the same input must embed identically.
+                let again = try await embedder.embed([queryDoc])
+                let det = cosineSim(vecs[0], again[0])
+                print("DETERMINISM_COSINE=\(String(format: "%.5f", det))")
+                guard det > 0.9999 else { print("ERROR=nondeterministic \(det)"); box.code = 3; return }
+
+                // 3. Semantic sanity — related must out-score unrelated, proving
+                // the vectors carry meaning, not just well-formed noise.
+                let simRelated = cosineSim(vecs[0], vecs[1])
+                let simUnrel   = cosineSim(vecs[0], vecs[2])
+                print("SIM_RELATED=\(String(format: "%.4f", simRelated)) SIM_UNRELATED=\(String(format: "%.4f", simUnrel))")
+                guard simRelated > simUnrel else {
+                    print("ERROR=semantics related(\(simRelated)) <= unrelated(\(simUnrel))"); box.code = 3; return
+                }
+
+                print("EMBEDDINGGEMMA_PROBE OK")
+                box.code = 0
+            } catch {
+                print("ERROR=\(error.localizedDescription)")
+                box.code = 2
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
+    /// Cosine similarity of two equal-length vectors (probe helper).
+    private static func cosineSim(_ a: [Float], _ b: [Float]) -> Double {
+        var dot = 0.0, na = 0.0, nb = 0.0
+        for i in 0..<min(a.count, b.count) {
+            dot += Double(a[i]) * Double(b[i])
+            na  += Double(a[i]) * Double(a[i])
+            nb  += Double(b[i]) * Double(b[i])
+        }
+        return dot / ((na.squareRoot() * nb.squareRoot()) + 1e-9)
     }
 }

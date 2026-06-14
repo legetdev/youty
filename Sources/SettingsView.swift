@@ -701,6 +701,10 @@ struct SettingsView: View {
             }
             Spacer()
         }
+        // Read as one phrase under VoiceOver instead of "name · license · note"
+        // fragments (the "·" separators are visual-only).
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name), \(license)" + (note.map { ", \($0)" } ?? ""))
     }
 
     /// Open a resource bundled inside Youty.app/Contents/Resources/ in the
