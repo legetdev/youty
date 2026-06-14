@@ -113,6 +113,12 @@ final class SettingsStore: ObservableObject {
         set { embeddingProviderRaw = newValue.rawValue }
     }
 
+    /// The text model we last auto-offered to migrate an existing index to
+    /// (Phase S.4). Holds the target `modelIdentifier`; when it equals the
+    /// active provider's model the launch offer has already been shown for
+    /// that target and stays quiet. Switching providers later re-arms it.
+    @AppStorage("textMigrationOfferedFor") var textMigrationOfferedFor: String = ""
+
     // MARK: - Menu bar (Phase L)
 
     /// When true, Youty installs a small NSStatusBar icon. Click it for a

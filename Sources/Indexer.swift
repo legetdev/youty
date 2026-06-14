@@ -68,9 +68,10 @@ enum Indexer {
     /// later diagnostics.
     @discardableResult
     static func reindexVault(vaultRoot: URL,
+                              embedderOverride: Embedder? = nil,
                               progress: ((String) -> Void)? = nil) async throws -> ReindexSummary {
         let kickoff = Date()
-        let embedder = try makeEmbedderOrThrow()
+        let embedder = try embedderOverride ?? makeEmbedderOrThrow()
         let bundles = enumerateBundles(at: vaultRoot)
         var summary = ReindexSummary()
         var seenIDs = Set<String>()
@@ -142,6 +143,45 @@ enum Indexer {
         // Record vault path + last rebuild so the MCP server / Settings UI
         // can show "indexed against {path} at {time}".
         try? await IndexStore.shared.setMeta(key: "vault_root", value: vaultRoot.path)
+        try? await IndexStore.shared.setMeta(key: "last_rebuild",
+                                              value: "\(Int(Date().timeIntervalSince1970 * 1000))")
+        return summary
+    }
+
+    /// Migrates the TEXT index to the current provider's model (Phase S.4),
+    /// leaving frame vectors untouched. Re-embeds only bundles whose chunks
+    /// are on a different `model_version` — `indexBundle`'s idempotent skip
+    /// turns already-current bundles into no-ops, so this is surgical and
+    /// safely resumable. Frames keep their SigLIP space (no frame pass here).
+    ///
+    /// During the run the index is briefly mixed (some bundles migrated,
+    /// some not); the MCP's dense search filters to `current_text_model`, so
+    /// un-migrated chunks fall back to BM25 instead of returning garbage —
+    /// search keeps working throughout, then is fully restored on completion.
+    @discardableResult
+    static func reindexTextEmbeddings(vaultRoot: URL,
+                                      embedderOverride: Embedder? = nil,
+                                      progress: ((String) -> Void)? = nil) async throws -> ReindexSummary {
+        let kickoff = Date()
+        let embedder = try embedderOverride ?? makeEmbedderOrThrow()
+        let bundles = enumerateBundles(at: vaultRoot)
+        var summary = ReindexSummary()
+        for url in bundles {
+            do {
+                let count = try await indexBundle(videoMdURL: url,
+                                                   vaultRoot: vaultRoot,
+                                                   embedder: embedder)
+                summary.videosIndexed += 1
+                summary.chunksWritten += count
+                progress?(count == 0 ? "SKIP \(url.path) — already on current model"
+                                     : "OK \(url.path) — \(count) chunks")
+            } catch {
+                let rel = url.path.replacingOccurrences(of: vaultRoot.path + "/", with: "")
+                summary.failures.append((folder: rel, error: error.localizedDescription))
+                progress?("FAIL \(rel) — \(error.localizedDescription)")
+            }
+        }
+        summary.totalMs = Int(Date().timeIntervalSince(kickoff) * 1000)
         try? await IndexStore.shared.setMeta(key: "last_rebuild",
                                               value: "\(Int(Date().timeIntervalSince1970 * 1000))")
         return summary

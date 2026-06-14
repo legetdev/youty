@@ -722,6 +722,9 @@ def _do_search(
         top_k=max(1, min(int(k), 50)),
         pool=50,
         platform=platform,
+        # Confine the dense side to the index's current text-embedding space so
+        # a mixed-model index (mid-migration) never returns garbage cosines.
+        model_version=_STATE.current_text_model() or None,
     )
 
     # Optional since_iso post-filter (lightweight: parse + compare unix ms).

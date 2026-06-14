@@ -34,6 +34,9 @@ struct ContentView: View {
     @State private var ingestionBannerTimer: DispatchWorkItem?
     @State private var lastIndexedFolder: URL?
     @State private var showOnboarding = false
+    @State private var migrationOffer: MigrationOffer?
+    @State private var migrationRunning = false
+    @State private var migrationDoneNote: String?
     @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
 
@@ -42,6 +45,10 @@ struct ContentView: View {
         let videoID: String
         let folderURL: URL
     }
+
+    /// Pending one-time S.4 migration offer (existing index built with a
+    /// different text model than the active provider).
+    private struct MigrationOffer: Equatable { let videos: Int; let chunks: Int }
 
     private var isValidURL: Bool {
         if TranscriptFetcher.extractVideoID(from: urlInput) != nil { return true }
@@ -103,6 +110,9 @@ struct ContentView: View {
             if !settings.onboardingComplete {
                 showOnboarding = true
             }
+            // One-time on-device migration offer (S.4) for existing indexes
+            // built with a different text model than the active provider.
+            Task { await checkMigrationOffer() }
         }
         .onChange(of: funnel.dispatchID) { _, _ in
             guard let url = funnel.inboxURL else { return }
@@ -168,6 +178,117 @@ struct ContentView: View {
             .accessibilityLabel("youty")
     }
 
+    // MARK: - On-device migration (S.4)
+
+    /// The one-time offer / progress / done banner for migrating an existing
+    /// index to the active provider's model. Non-blocking; sits above the URL
+    /// field. Search keeps working throughout (the MCP covers un-migrated
+    /// chunks with BM25), so the user only ever sees this as an improvement.
+    @ViewBuilder
+    private var migrationBanner: some View {
+        if migrationRunning {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Re-embedding for on-device search…")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+            .transition(.opacity)
+        } else if let note = migrationDoneNote {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                    .foregroundStyle(.green).font(.system(size: 12))
+                Text(note).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .transition(.opacity)
+        } else if let offer = migrationOffer {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "wand.and.stars")
+                        .foregroundStyle(Color.accentColor).font(.system(size: 14))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Search now runs on-device — no API key needed")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Re-embed your \(offer.videos) saved video\(offer.videos == 1 ? "" : "s") to switch off the Gemini key. Keyword search keeps working while it runs.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                HStack(spacing: 8) {
+                    Button("Re-embed now") { acceptMigration() }
+                        .buttonStyle(.borderedProminent).controlSize(.regular)
+                    Button("Later") { dismissMigration() }
+                        .controlSize(.regular)
+                    Spacer()
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(0.3), lineWidth: 1))
+            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        }
+    }
+
+    /// Decide whether to surface the one-time migration offer. Only for an
+    /// existing index (post-onboarding) whose text chunks aren't on the active
+    /// provider's model, and only once per target model.
+    @MainActor
+    private func checkMigrationOffer() async {
+        guard settings.onboardingComplete, !showOnboarding, vault.vaultURL != nil else { return }
+        let active = settings.embeddingProvider.modelIdentifier
+        guard settings.textMigrationOfferedFor != active else { return }
+        let scope = (try? await IndexStore.shared.textMigrationScope(activeModel: active))
+            ?? (videos: 0, chunks: 0)
+        guard scope.videos > 0 else {
+            // Nothing to migrate — remember so we don't recompute each launch.
+            settings.textMigrationOfferedFor = active
+            return
+        }
+        withAnimation { migrationOffer = MigrationOffer(videos: scope.videos, chunks: scope.chunks) }
+    }
+
+    /// User accepted: run the text-only re-embed in the background.
+    @MainActor
+    private func acceptMigration() {
+        settings.textMigrationOfferedFor = settings.embeddingProvider.modelIdentifier
+        withAnimation { migrationOffer = nil; migrationRunning = true }
+        guard let vaultURL = vault.vaultURL else { migrationRunning = false; return }
+        Task.detached {
+            let acquired = vaultURL.startAccessingSecurityScopedResource()
+            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+            let summary = try? await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL)
+            await MainActor.run {
+                withAnimation {
+                    migrationRunning = false
+                    if let s = summary {
+                        migrationDoneNote = "Now searching on-device — \(s.videosIndexed) video\(s.videosIndexed == 1 ? "" : "s") re-embedded."
+                    } else {
+                        migrationDoneNote = "Re-embed didn't finish. Open Settings → AI search index to retry."
+                    }
+                }
+                let work = DispatchWorkItem { withAnimation { migrationDoneNote = nil } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+            }
+        }
+    }
+
+    /// User chose Later: stay quiet for this target model until it changes.
+    @MainActor
+    private func dismissMigration() {
+        settings.textMigrationOfferedFor = settings.embeddingProvider.modelIdentifier
+        withAnimation { migrationOffer = nil }
+    }
+
     // MARK: - Input
 
     private var inputSection: some View {
@@ -186,6 +307,7 @@ struct ContentView: View {
                 .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
                 .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
+            migrationBanner
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
                     TextField("Paste a YouTube, TikTok or Instagram URL…", text: $urlInput)

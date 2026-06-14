@@ -368,6 +368,30 @@ actor IndexStore {
         return nil
     }
 
+    /// How much of the text index is NOT on `activeModel` — i.e. what a
+    /// provider switch would need to re-embed. Returns the count of distinct
+    /// videos and of chunks whose `model_version` differs. Both zero ⇒ the
+    /// index already matches the active model (no migration needed). Frames
+    /// are deliberately excluded — they live in their own SigLIP space.
+    func textMigrationScope(activeModel: String) throws -> (videos: Int, chunks: Int) {
+        try openIfNeeded()
+        // JOIN videos so only real, disk-backed videos count — never orphaned
+        // chunks (no videos row), which can't be re-embedded by a disk walk and
+        // would otherwise keep the migration offer alive forever.
+        let sql = """
+            SELECT COUNT(DISTINCT c.video_id), COUNT(*)
+            FROM chunks c JOIN videos v ON v.video_id = c.video_id
+            WHERE c.model_version <> ?;
+            """
+        let stmt = try prepare(sql)
+        defer { sqlite3_finalize(stmt) }
+        bindText(stmt, 1, activeModel)
+        if sqlite3_step(stmt) == SQLITE_ROW {
+            return (Int(sqlite3_column_int64(stmt, 0)), Int(sqlite3_column_int64(stmt, 1)))
+        }
+        return (0, 0)
+    }
+
     /// Convenience: updates an `index_meta` key.
     func setMeta(key: String, value: String) throws {
         try openIfNeeded()

@@ -45,8 +45,17 @@ def dense_top_k(
     query_vec: list[float],
     k: int = 50,
     platform: str | None = None,
+    model_version: str | None = None,
 ) -> list[tuple[int, float]]:
-    """Cosine top-k via sqlite-vec. Returns [(chunk_id, distance), ...] ascending."""
+    """Cosine top-k via sqlite-vec. Returns [(chunk_id, distance), ...] ascending.
+
+    When `model_version` is given, hits are filtered to chunks embedded with
+    that exact model, so a mixed-model index (mid-migration, or new saves over
+    an old index) never contributes cross-space "garbage cosine" hits — the
+    query vector only lives in one space. Chunks in the other space stay fully
+    reachable via the model-agnostic BM25 path until they are re-embedded, so
+    the result is graceful degradation, never silently wrong ranking.
+    """
     blob = struct.pack(f"<{len(query_vec)}f", *query_vec)
     # vec_chunks is partitioned by platform + chunk_type — we always restrict to
     # the three text chunk types so all rows are eligible. Platform is optional.
@@ -65,7 +74,20 @@ def dense_top_k(
         + " ORDER BY distance"
     )
     rows = conn.execute(sql, params).fetchall()
-    return [(int(r["chunk_id"]), float(r["distance"])) for r in rows]
+    hits = [(int(r["chunk_id"]), float(r["distance"])) for r in rows]
+    if model_version and hits:
+        ids = [cid for cid, _ in hits]
+        placeholders = ",".join("?" * len(ids))
+        keep = {
+            int(r["chunk_id"])
+            for r in conn.execute(
+                f"SELECT chunk_id FROM chunks "
+                f"WHERE chunk_id IN ({placeholders}) AND model_version = ?",
+                [*ids, model_version],
+            ).fetchall()
+        }
+        hits = [(cid, d) for cid, d in hits if cid in keep]
+    return hits
 
 
 def dense_top_k_frames(
@@ -373,12 +395,17 @@ def hybrid_search(
     top_k: int = 15,
     pool: int = 50,
     platform: str | None = None,
+    model_version: str | None = None,
 ) -> list[FusedHit]:
-    """Run hybrid retrieval for one or more (vector, text) query pairs and fuse."""
+    """Run hybrid retrieval for one or more (vector, text) query pairs and fuse.
+
+    `model_version` (the index's current text model) confines the dense side to
+    chunks in the query's embedding space; BM25 stays model-agnostic.
+    """
     rankings: list[list[int]] = []
     for vec, text in zip(query_vecs, query_texts):
         if vec:
-            rankings.append([cid for cid, _ in dense_top_k(conn, vec, pool, platform)])
+            rankings.append([cid for cid, _ in dense_top_k(conn, vec, pool, platform, model_version)])
         rankings.append([cid for cid, _ in sparse_top_k(conn, text, pool, platform)])
     fused = rrf_fuse(rankings)
     fused = dedupe_per_video(fused, conn, max_per_video=2)

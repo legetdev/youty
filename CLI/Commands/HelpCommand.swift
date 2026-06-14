@@ -17,6 +17,7 @@ enum HelpCommand {
           list        list saved videos in the vault
           search      keyword search across saved videos
           transcript  print a saved video's transcript
+          reindex     rebuild the search index (e.g. switch to on-device search)
           login       sign in to a platform (required once for Instagram)
 
         OPTIONS
@@ -41,6 +42,7 @@ enum HelpCommand {
         case "list":       emit(listHelp)
         case "search":     emit(searchHelp)
         case "transcript": emit(transcriptHelp)
+        case "reindex":    emit(reindexHelp)
         case "login":      emit(loginHelp)
         default:
             FileHandle.standardError.write("youty: no help topic '\(command)'\n".data(using: .utf8)!)
@@ -78,6 +80,25 @@ enum HelpCommand {
       youty save https://www.tiktok.com/@user/video/12345 --vault ~/Vault
       youty save URL --count 250 --fps 2 --json
       youty save URL --embedder gemini      # opt into cloud embeddings
+    """
+
+    private static let reindexHelp = """
+    youty reindex — rebuild the local search index for the vault.
+
+    USAGE
+      youty reindex [options]
+
+    OPTIONS
+      --text-only         re-embed transcript text only (frames untouched) —
+                          the fast path to switch an existing index to on-device
+      --embedder MODE     local (on-device, no key) or gemini (cloud, needs key).
+                          Default: saved config, else local. Sticky.
+      --vault PATH        vault folder (default: from Mac app, or pass explicitly)
+      --quiet, -q         suppress progress output to stderr
+
+    EXAMPLES
+      youty reindex                       # full rebuild (text + frames)
+      youty reindex --text-only           # migrate text to on-device, keep frames
     """
 
     private static let listHelp = """

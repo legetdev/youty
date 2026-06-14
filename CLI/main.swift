@@ -37,6 +37,7 @@ case "save":       SaveCommand.run(args)
 case "list":       ListCommand.run(args)
 case "search":     SearchCommand.run(args)
 case "transcript": TranscriptCommand.run(args)
+case "reindex":    ReindexCommand.run(args)
 case "login":      LoginCommand.run(args)
 case "help":
     if let topic = args.positionals.first {

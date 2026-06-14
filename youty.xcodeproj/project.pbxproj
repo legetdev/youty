@@ -79,6 +79,7 @@
 		8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */; };
 		9417C71FA609B112D97E513F /* VaultResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013AA49E501B8578D1468372 /* VaultResolver.swift */; };
 		95177DA36FFB1E5C7D32A1FF /* CanvasFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */; };
+		96AB39F42C6B36B4C7E6D1C8 /* ReindexCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99DAA432B550C3B593BF3522 /* ReindexCommand.swift */; };
 		97334541EF7B2EB74000A289 /* CanvasFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */; };
 		975E616FFF3737C01A2CE49C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C870A2F3D64DB3E251183EDE /* main.swift */; };
 		9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */; };
@@ -217,6 +218,7 @@
 		9277B41466B3A12A01E4AFB5 /* TranscriptCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptCommand.swift; sourceTree = "<group>"; };
 		9633A2907501CF5C01A910E3 /* ArgsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgsParser.swift; sourceTree = "<group>"; };
 		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
+		99DAA432B550C3B593BF3522 /* ReindexCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReindexCommand.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
 		ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaTokenizer.swift; sourceTree = "<group>"; };
 		AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexBadgeView.swift; sourceTree = "<group>"; };
@@ -286,6 +288,7 @@
 				2CF1C029B5D14B567ED47B9B /* HelpCommand.swift */,
 				CF78DB0683DB0DBAC273AA27 /* ListCommand.swift */,
 				8C3DFEC917B99551FA24B633 /* LoginCommand.swift */,
+				99DAA432B550C3B593BF3522 /* ReindexCommand.swift */,
 				B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */,
 				7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */,
 				9277B41466B3A12A01E4AFB5 /* TranscriptCommand.swift */,
@@ -645,6 +648,7 @@
 				53450823245D09271EC7931A /* PhaseIFrameExtractor.swift in Sources */,
 				3B5FDDCA27087A6B1C7027A4 /* PlatformRouter.swift in Sources */,
 				76014BC216A90F0D7FF28297 /* PlayerFetcher.swift in Sources */,
+				96AB39F42C6B36B4C7E6D1C8 /* ReindexCommand.swift in Sources */,
 				7CD61850D4441D22AA0DF9CE /* SaveCommand.swift in Sources */,
 				F40545FAC6341ABA6C1E24AD /* SearchCommand.swift in Sources */,
 				2E457377C0845ACCAB71F901 /* SettingsStore.swift in Sources */,

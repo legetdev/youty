@@ -323,6 +323,16 @@ struct SettingsView: View {
                 }
             }
 
+            // Migration card (S.4) — appears only when the index was built
+            // with a different model than the active provider. A text-only
+            // re-embed (frames untouched), so it's the fast path.
+            if let s = indexerProgress.stats,
+               let model = s.textModelID,
+               model != settings.embeddingProvider.modelIdentifier,
+               s.chunkCount > 0 {
+                migrationCard()
+            }
+
             // Re-index action.
             HStack(spacing: 10) {
                 Button {
@@ -400,21 +410,6 @@ struct SettingsView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
-                    // Mismatch cue: the index was built with a different model
-                    // than the active provider. Search keeps working (BM25 +
-                    // the matching chunks), but re-indexing unifies the space.
-                    // S.4 adds the one-click re-embed + first-launch auto-offer.
-                    if model != settings.embeddingProvider.modelIdentifier, s.chunkCount > 0 {
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.orange)
-                            Text("Built with a different model. Re-index to switch this vault to \(settings.embeddingProvider == .local ? "on-device" : "Gemini") search.")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
                 }
             }
             .padding(.top, 2)
@@ -450,6 +445,81 @@ struct SettingsView: View {
                 let line = "Indexed \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
                            (summary.framesKept > 0 ? " · \(summary.framesKept) frames" : "") +
                            (summary.videosDeleted > 0 ? " · \(summary.videosDeleted) removed" : "") +
+                           (summary.failures.isEmpty ? "" : " — \(summary.failures.count) failed")
+                await MainActor.run {
+                    self.indexerProgress.lastStatus = line
+                    self.indexerProgress.isRunning = false
+                    self.indexerProgress.refreshStats()
+                }
+            } catch {
+                await MainActor.run {
+                    self.indexerProgress.lastStatus = "Failed: \(error.localizedDescription)"
+                    self.indexerProgress.isRunning = false
+                }
+            }
+        }
+    }
+
+    /// Contextual migration card shown when the index's text model differs
+    /// from the active provider (Phase S.4). Offers a text-only re-embed.
+    @ViewBuilder
+    private func migrationCard() -> some View {
+        let target = settings.embeddingProvider
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(target == .local ? "Switch this vault to on-device search"
+                                          : "Switch this vault to Gemini search")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(target == .local
+                         ? "Your index was built with Gemini. Re-embed it on-device so search needs no API key — keyword search keeps working while it runs."
+                         : "Re-embed your index with Gemini — keyword search keeps working while it runs.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Button {
+                runTextReembed()
+            } label: {
+                HStack(spacing: 6) {
+                    if indexerProgress.isRunning {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    Text(indexerProgress.isRunning
+                         ? "Re-embedding…"
+                         : "Re-embed for \(target == .local ? "on-device" : "Gemini") search")
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+            .controlSize(.regular)
+            .disabled(indexerProgress.isRunning || vault.vaultURL == nil)
+            .accessibilityHint("Re-embeds only transcript text with the selected provider; frame search is untouched")
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1))
+    }
+
+    /// Text-only re-embed (frames untouched) — the S.4 migration path.
+    private func runTextReembed() {
+        guard let vaultURL = vault.vaultURL else { return }
+        indexerProgress.isRunning = true
+        indexerProgress.lastStatus = "Re-embedding transcript text…"
+        Task.detached {
+            let acquired = vaultURL.startAccessingSecurityScopedResource()
+            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+            do {
+                let summary = try await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL) { line in
+                    Task { @MainActor in self.indexerProgress.lastStatus = line }
+                }
+                let line = "Re-embedded \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
                            (summary.failures.isEmpty ? "" : " — \(summary.failures.count) failed")
                 await MainActor.run {
                     self.indexerProgress.lastStatus = line
