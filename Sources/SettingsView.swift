@@ -633,9 +633,10 @@ struct SettingsView: View {
                     aboutRow("sqlite-vec", license: "Apache-2.0", note: nil)
                     aboutRow("SQLite", license: "public domain", note: nil)
                     aboutRow("SigLIP-Base-Patch16-224 (CoreML)", license: "Apache-2.0", note: "bundled in app")
+                    aboutRow("EmbeddingGemma-300m (CoreML)", license: "Gemma Terms", note: "on-device text search")
                     aboutRow("CLIP tokenizer (OpenAI)", license: "MIT", note: "downloaded on first use")
                     aboutRow("Apple system frameworks", license: "Apple SDK Agreement", note: nil)
-                    aboutRow("Google Gemini API", license: "Google API Terms", note: "your key, your calls")
+                    aboutRow("Google Gemini API", license: "Google API Terms", note: "optional, your key")
                 }
             }
 
@@ -661,10 +662,17 @@ struct SettingsView: View {
                 .accessibilityLabel("Show SigLIP Apache-2.0 license")
                 .accessibilityHint("Opens the bundled Apache-2.0 license text for SigLIP")
 
+                Button("Show Gemma notice…") {
+                    openBundledResource(name: "EmbeddingGemma-NOTICE", ext: "txt")
+                }
+                .controlSize(.small)
+                .accessibilityLabel("Show EmbeddingGemma Gemma Terms notice")
+                .accessibilityHint("Opens the bundled Gemma Terms of Use notice for the on-device text model")
+
                 Spacer()
             }
 
-            Text("To relink Youty against a modified FFmpeg, edit the source from `ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz`, then re-run `Scripts/build-ffmpeg.sh` and `xcodebuild -scheme youty -configuration Release`. To rebuild the SigLIP image encoder, edit and re-run `Scripts/convert-siglip-coreml.py`.")
+            Text("To relink Youty against a modified FFmpeg, edit the source from `ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz`, then re-run `Scripts/build-ffmpeg.sh` and `xcodebuild -scheme youty -configuration Release`. To rebuild the SigLIP image encoder, edit and re-run `Scripts/convert-siglip-coreml.py`; for the on-device text model, `Scripts/convert-embeddinggemma-coreml.py`.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

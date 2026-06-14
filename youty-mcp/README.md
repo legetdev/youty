@@ -28,21 +28,34 @@ uv sync                       # creates .venv, installs deps
 ```
 
 Dependencies: `mcp`, `sqlite-vec`, `httpx`, `numpy`, `transformers`,
-`torch`, `sentencepiece`, `protobuf`. Python ≥ 3.11. The Python side
-embeds query text via `transformers.SiglipTextModel`; frame image
-embeddings are handled by the Mac app's bundled CoreML encoder, so
+`sentence-transformers`, `torch`, `sentencepiece`, `protobuf`. Python ≥ 3.11.
+Text queries are embedded with EmbeddingGemma (on-device default) or Gemini,
+matching how the index was built; frame queries use SigLIP via `transformers`.
+Frame *image* embeddings come from the Mac app's bundled CoreML encoder, so
 this server never needs `coremltools` itself.
 
-## Gemini API key (required for text search)
+## Text search: on-device by default — no key
 
-```bash
-security add-generic-password -a youty -s gemini-api -w 'YOUR_GEMINI_KEY'
-```
+The server embeds each query with the **same model the index was built with**,
+read from `index_meta.current_text_model`, so query and document vectors share
+one space:
 
-The server pulls the key from Keychain at first query. Sent via
-`x-goog-api-key` header — never appears in URLs or HTTP logs.
+- **On-device (default).** Google's EmbeddingGemma, run locally via
+  `sentence-transformers`. No key, no Gemini call. The weights download from
+  HuggingFace on the first text `search` (one-time per machine, ~1.2 GB, cached
+  in `~/.cache/huggingface/`).
+- **Gemini (opt-in).** Only when the index was built with the Gemini provider.
+  Then the server needs your key:
 
-For CI / non-Mac: set `YOUTY_GEMINI_API_KEY` instead.
+  ```bash
+  security add-generic-password -a youty -s gemini-api -w 'YOUR_GEMINI_KEY'
+  ```
+
+  Pulled from Keychain at first query, sent via the `x-goog-api-key` header —
+  never in URLs or logs. For CI / non-Mac: set `YOUTY_GEMINI_API_KEY`.
+
+If a Gemini-built index is queried with no key available, search degrades to
+BM25 keyword retrieval rather than failing.
 
 ## SigLIP weights (auto-downloaded for frame-text queries)
 
@@ -116,8 +129,8 @@ window → "Re-index entire vault", or run headless:
 ## Troubleshooting
 
 - **`search` returns 0 results** — the index is empty. Save a video from
-  the Mac app (with the Gemini key in Keychain and indexer enabled in
-  Settings) or run `--reindex` on an existing vault.
+  the Mac app (indexer enabled in Settings) or run `--reindex` on an
+  existing vault. No key needed — text indexing is on-device by default.
 - **`search_frames` is slow** on the first call — the SigLIP text
   encoder downloads ~370 MB of weights from HuggingFace into
   `~/.cache/huggingface/` (one-time per machine). On the Mac-app side

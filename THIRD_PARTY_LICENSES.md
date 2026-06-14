@@ -126,6 +126,47 @@ and similar LGPL-FFmpeg-linking apps.
 
 ---
 
+## Google EmbeddingGemma-300m (text encoder, Core ML)
+
+- **Component:** ML model used by the Mac app and CLI to embed transcript
+  text into a 768-dim vector space for AI search. This is the **default**
+  text embedder (Phase S) — fully on-device, no API key, nothing leaves the
+  Mac. Shipped as a Core ML `.mlpackage` bundled inside
+  `Youty.app/Contents/Resources/` and installed into the CLI's shared
+  resource directory by [`Scripts/install-cli.sh`](Scripts/install-cli.sh).
+- **Source model:** `google/embeddinggemma-300m` (Google DeepMind)
+  (<https://huggingface.co/google/embeddinggemma-300m>).
+- **License:** **Gemma Terms of Use** — this is *not* an OSI open-source
+  license. It permits commercial use and redistribution of the model and
+  derivatives, subject to the use restrictions in the Gemma Prohibited Use
+  Policy and the attribution + modification-notice requirements of §3.1.
+  - Gemma Terms of Use: <https://ai.google.dev/gemma/terms>
+  - Gemma Prohibited Use Policy: <https://ai.google.dev/gemma/prohibited_use_policy>
+- **Required NOTICE + modification notice:** verbatim at
+  [`Vendor/embeddinggemma/licenses/EmbeddingGemma-NOTICE.txt`](Vendor/embeddinggemma/licenses/EmbeddingGemma-NOTICE.txt),
+  bundled into the app + CLI. It carries the mandated "Gemma is provided
+  under and subject to the Gemma Terms of Use" attribution and records that
+  the shipped weights are a MODIFIED (Core ML, int8-quantized) form. The
+  authoritative terms are the versions Google hosts at the URLs above.
+- **Conversion provenance:** [`Scripts/convert-embeddinggemma-coreml.py`](Scripts/convert-embeddinggemma-coreml.py)
+  exports the sentence-transformers checkpoint via `torch.export` and emits
+  a Core ML `.mlpackage` (fp32 compute, int8-quantized weights) running the
+  full pipeline (Transformer → mean pool → Dense 768→3072 → Dense 3072→768
+  → L2 normalize). Conversion fidelity vs the PyTorch reference: mean cosine
+  **0.9997** (verified, Phase S.0).
+- **Native tokenizer (no third-party dependency):** a from-scratch Swift BPE
+  tokenizer ([`Sources/GemmaTokenizer.swift`](Sources/GemmaTokenizer.swift))
+  reproduces Gemma's tokenizer bit-for-bit from a compact binary artifact
+  (`Vendor/embeddinggemma/tokenizer/*.bin`) built by
+  [`Scripts/build-gemma-tokenizer-artifact.py`](Scripts/build-gemma-tokenizer-artifact.py).
+- **Text encoder counterpart:** the Python MCP server (`youty-mcp`) embeds
+  user queries with the same checkpoint via `sentence-transformers`, so
+  query + document vectors share one space. The model is fetched from
+  HuggingFace on first use and cached locally.
+- **Citation:** EmbeddingGemma, Google DeepMind, 2025.
+
+---
+
 ## Apple system frameworks
 
 The app links against Apple-provided system frameworks (Foundation, AppKit,
@@ -137,9 +178,12 @@ Agreement; they are neither bundled with nor redistributed by Youty.
 
 ## Google Gemini API
 
-The Mac app and MCP server make optional outbound HTTPS requests to
-Google's Generative Language API (`generativelanguage.googleapis.com`)
-using an API key the *user* supplies in Settings. The Gemini API and the
+The Mac app and MCP server can *optionally* make outbound HTTPS requests
+to Google's Generative Language API (`generativelanguage.googleapis.com`)
+for text-search embeddings, using an API key the *user* supplies in
+Settings. This is **off by default** — the default text embedder is the
+on-device EmbeddingGemma model above (no key, no network). Gemini is an
+opt-in upgrade for a small accuracy gain. The Gemini API and the
 embeddings it returns are governed by Google's API Terms of Service:
 <https://ai.google.dev/terms>.
 
@@ -160,6 +204,7 @@ from PyPI by `pip` / `uv` at install time, not redistributed by this repo:
 | `httpx` | BSD-3-Clause |
 | `numpy` | `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` (composite — NumPy core is BSD-3; bundled components add the others) |
 | `transformers` | Apache-2.0 |
+| `sentence-transformers` | Apache-2.0 |
 | `torch` | BSD-3-Clause |
 
 Each package's full license text ships with its wheel and is

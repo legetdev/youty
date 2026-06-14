@@ -26,7 +26,8 @@ write the same vault folder.
 ## Using it
 
 **Mac app.** First launch walks you through a four-card setup (pick a
-vault, optional Gemini key, optional CLI install, optional MCP wiring).
+vault; AI search works on-device with no key; optional CLI install;
+optional MCP wiring).
 The cards stay reachable from *Settings → Onboarding*. After that:
 paste a video URL, hit Load → Save to Vault. The Mac app also shows up in:
 
@@ -68,10 +69,13 @@ transcribed on-device via Apple's `SpeechAnalyzer` + `SpeechTranscriber`
 ## Privacy
 
 See [`docs/privacy.md`](docs/privacy.md). The short version: vault is
-local, transcripts and frames are local, no telemetry. The only network
-calls are (a) platform fetches to scrape the video, (b) an optional
-Gemini API call for AI-search embeddings using a key *you* provide, and
-(c) Sparkle's anonymous once-a-day check for a newer Youty release.
+local, transcripts and frames are local, **AI search is on-device**, no
+telemetry. Text search uses Google's EmbeddingGemma converted to Core ML
+and runs entirely on your Mac — no API key, nothing leaves the device. The
+only network calls are (a) platform fetches to scrape the video, (b)
+Sparkle's anonymous once-a-day check for a newer Youty release, and (c) —
+*only if you opt into Gemini cloud search* — a Gemini embeddings call using
+a key *you* provide.
 
 ## Terms
 
@@ -124,6 +128,16 @@ The app also bundles Google's SigLIP-Base-Patch16-224 image encoder
 text in [`Vendor/siglip/licenses/LICENSE`](Vendor/siglip/licenses/LICENSE),
 with attribution + conversion provenance in
 [`Vendor/siglip/licenses/NOTICE`](Vendor/siglip/licenses/NOTICE).
+
+The app also bundles Google's EmbeddingGemma-300m text encoder, converted
+to Core ML for on-device AI search (the default — no API key). It is
+distributed under the **Gemma Terms of Use** (not an OSI license;
+commercial use + redistribution permitted with attribution) — the required
+NOTICE + modification record is in
+[`Vendor/embeddinggemma/licenses/EmbeddingGemma-NOTICE.txt`](Vendor/embeddinggemma/licenses/EmbeddingGemma-NOTICE.txt),
+and the canonical terms live at <https://ai.google.dev/gemma/terms>. A
+from-scratch Swift BPE tokenizer reproduces Gemma's tokenizer with no
+third-party dependency.
 
 The app also bundles Sparkle (MIT, the auto-update framework). Pinned
 at version 2.9.2 in

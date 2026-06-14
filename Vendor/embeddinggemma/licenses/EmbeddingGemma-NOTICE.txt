@@ -17,5 +17,8 @@ pooling -> Dense 768->3072 -> Dense 3072->768 -> L2 normalize) and emits a
 PyTorch model: mean cosine 0.9997 (verified, Phase S.0).
 
 Use of this model is subject to the Gemma Terms of Use and the Gemma Prohibited
-Use Policy, both incorporated by reference. The full Gemma Terms text is bundled
-alongside this NOTICE before public distribution (Phase S.5).
+Use Policy, both incorporated by reference. The authoritative, always-current
+versions are the ones Google hosts at the URLs above; this NOTICE travels with
+every redistribution of the converted model, satisfying the attribution and
+modification-notice obligations of Gemma Terms of Use §3.1. Anyone who further
+distributes this artifact (or a derivative) must pass along these same terms.

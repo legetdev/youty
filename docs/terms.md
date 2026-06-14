@@ -2,9 +2,9 @@
 
 Youty is a personal user-agent. It loads the same public web pages your
 browser would, parses what it finds, and saves the result to a folder on
-your Mac. Nothing about that result is sent anywhere unless you have
-explicitly enabled AI-search indexing and supplied your own Gemini API
-key.
+your Mac. AI search over what you save runs on-device by default; nothing
+about that result is sent anywhere unless you explicitly switch the
+embedding provider to Gemini and supply your own API key.
 
 These terms describe what you can expect from Youty and what is on you.
 They are deliberately short.
