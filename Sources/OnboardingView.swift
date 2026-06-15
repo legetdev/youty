@@ -53,8 +53,8 @@ struct OnboardingView: View {
 
                         vaultCard
                         aiSearchCard
-                        cliCard
                         mcpCard
+                        cliCard
 
                         disclosureCard
                     }
@@ -167,9 +167,9 @@ struct OnboardingView: View {
     }
 
     private var cliCard: some View {
-        card(number: 3, title: "Install the `youty` CLI", required: false, done: cliDone) {
+        card(number: 4, title: "youty CLI (for developers)", required: false, done: cliDone) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Save, search and read transcripts from your terminal — same pipeline as the app, same vault. The button below copies the install command to your clipboard and opens Terminal so you can paste + run it. (Youty doesn't run anything outside the sandbox; this is yours to execute.)")
+                Text("For developers and scripting. Save, list, and read transcripts from your terminal, or pipe JSON into your own tools. Its search is fast keyword matching over titles and tags — for meaning-based search, use the MCP above. The button copies the install command and opens Terminal so you can paste + run it.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -202,9 +202,9 @@ struct OnboardingView: View {
     }
 
     private var mcpCard: some View {
-        card(number: 4, title: "Wire up the MCP server", required: false, done: mcpDone) {
+        card(number: 3, title: "Connect your AI assistant (MCP)", required: false, done: mcpDone) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Lets Claude Desktop, Cursor, and any other MCP-compatible AI search your vault directly. Two steps — install the server, then paste the JSON snippet into your client's config.")
+                Text("The main way to use Youty agentically. Point Claude Desktop, Cursor, or any MCP client at your vault and it searches everything you've saved by meaning — across transcripts and frames, not just titles. Two steps: install the server, then paste the JSON snippet into your client's config.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
