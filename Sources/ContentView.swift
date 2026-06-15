@@ -715,7 +715,7 @@ struct ContentView: View {
         // folder. For a BACKGROUND ingest (Share / Services / Shortcuts / menu
         // bar), never pop a modal folder picker the user didn't initiate — show
         // the non-blocking error banner and release the funnel instead
-        // (CLAUDE.md: blocking dialogs only for destructive actions).
+        // (blocking dialogs are reserved for destructive actions only).
         if vault.vaultURL == nil {
             if allowVaultPrompt {
                 vault.chooseVault()

@@ -88,7 +88,7 @@ and similar LGPL-FFmpeg-linking apps.
 - **Project home:** <https://sparkle-project.org>.
 - **Source:** <https://github.com/sparkle-project/Sparkle>.
 - **Why this is the only third-party Swift dependency:** vetted against
-  the third-party checklist in `CLAUDE.md` (MIT, 20-year track record,
+  the project's third-party checklist (MIT, 20-year track record,
   EdDSA-signed updates, GitHub-sponsored maintenance, single-purpose,
   shipped in CleanShot / Bartender / iStat / Tot) and explicitly
   green-lit on 2026-05-19. Every other component
