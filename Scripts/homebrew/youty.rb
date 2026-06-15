@@ -27,12 +27,28 @@ class Youty < Formula
   license "MIT"
   head "https://github.com/legetdev/youty.git", branch: "main"
 
+  # On-device Core ML model weights (EmbeddingGemma + SigLIP). These live
+  # outside git — too large for the repo — and ship as a release asset, so the
+  # source tarball above doesn't contain them. Fetched here and laid into
+  # Vendor/ before the build. Bump url + sha256 in lockstep with `version`.
+  resource "models" do
+    url "https://github.com/legetdev/youty/releases/download/v1.0.0/youty-models-1.0.0.tar.gz"
+    sha256 "c3139d78af916c3a77ab57986b9729b26d243a1544b2555011b1d59c2560b6d7"
+  end
+
   # macOS 26 Tahoe is required: the SpeechAnalyzer + SpeechTranscriber
   # APIs the transcript pipeline depends on shipped in that release.
   depends_on xcode: ["26.0", :build]
   depends_on macos: :tahoe
 
   def install
+    # The model weights aren't in the git source tarball (externalized to keep
+    # the repo lean). Merge the release-asset tarball's Vendor/ tree into the
+    # source so xcodebuild finds the .mlpackage build inputs.
+    resource("models").stage do
+      cp_r "Vendor/.", buildpath/"Vendor"
+    end
+
     # FFmpeg statics live under Vendor/ffmpeg/ — built once via
     # Scripts/build-ffmpeg.sh, committed into the repo so end users
     # never need to install or build FFmpeg themselves.
@@ -50,12 +66,13 @@ class Youty < Formula
     # relative to the binary. The schema is small + lives in the tarball.
     (share/"youty").install "Sources/IndexSchema.sql"
 
-    # TODO(R.6): ship the SigLIP image encoder. It's a Git-LFS blob under
-    # Vendor/siglip/models/, which GitHub's source tarball does NOT include
-    # (it ships an LFS pointer). Before publishing the tap, add a `resource`
-    # block that downloads the .mlpackage from a release asset, then:
+    # TODO(D.4): install the compiled SigLIP image encoder into share/youty so
+    # a brew-installed CLI also does frame (image-search) indexing. The weights
+    # are now present at build time via the `models` resource above; what's left
+    # is compiling the .mlpackage to share/youty for SharedResourceLocator to
+    # find at runtime, e.g.:
     #   system "xcrun", "coremlcompiler", "compile",
-    #          resource_path, share/"youty"
+    #          "Vendor/siglip/models/SigLIP-Base-224_image.mlpackage", share/"youty"
     # Until then a brew-installed CLI does full TEXT indexing on save; frame
     # (image-search) indexing is skipped with a clear, non-fatal warning.
   end

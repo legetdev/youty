@@ -76,6 +76,9 @@ echo "==> Team ID:      ${TEAM_ID:-<unknown>}"
 
 # ---- Build ----
 
+# On-device models live outside git; fetch them if missing (no-op otherwise).
+"$ROOT/Scripts/fetch-models.sh"
+
 echo "==> Building Release youty.app..."
 xcodebuild \
     -project "$ROOT/youty.xcodeproj" \

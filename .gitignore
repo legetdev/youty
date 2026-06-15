@@ -15,9 +15,20 @@ xcuserdata/
 # Debug logs
 .playwright-mcp/
 
+# On-device Core ML model weights (EmbeddingGemma + SigLIP) — NOT committed.
+# Too large for a lean public repo and would burn the Git-LFS bandwidth quota.
+# Published as a checksummed GitHub Release asset and fetched into Vendor/ via
+# Scripts/fetch-models.sh. The tiny Manifest.json companions stay tracked so the
+# .mlpackages reassemble. End users get these bundled inside the shipped DMG.
+Vendor/embeddinggemma/models/**/*.bin
+Vendor/embeddinggemma/models/**/*.mlmodel
+Vendor/embeddinggemma/tokenizer/*.bin
+Vendor/siglip/models/**/*.bin
+Vendor/siglip/models/**/*.mlmodel
+
 # EmbeddingGemma raw tokenizer source — 32 MB build input fetched from HuggingFace.
-# Only the compact vocab/merges/added_tokens .bin artifacts are committed + shipped
-# (built by Scripts/build-gemma-tokenizer-artifact.py).
+# The compact vocab/merges/added_tokens .bin artifacts ship in the models asset
+# above (built by Scripts/build-gemma-tokenizer-artifact.py).
 Vendor/embeddinggemma/tokenizer/tokenizer.json
 
 # macOS

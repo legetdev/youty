@@ -12,6 +12,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# On-device models live outside git; fetch them if missing (no-op otherwise).
+"$ROOT/Scripts/fetch-models.sh"
+
 echo "==> Building youty-cli (Release)…"
 xcodebuild \
     -project "$ROOT/youty.xcodeproj" \

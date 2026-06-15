@@ -1,5 +1,0 @@
-Vendor/siglip/models/**/*.bin filter=lfs diff=lfs merge=lfs -text
-Vendor/siglip/models/**/*.mlmodel filter=lfs diff=lfs merge=lfs -text
-Vendor/embeddinggemma/models/**/*.bin filter=lfs diff=lfs merge=lfs -text
-Vendor/embeddinggemma/models/**/*.mlmodel filter=lfs diff=lfs merge=lfs -text
-Vendor/embeddinggemma/tokenizer/*.bin filter=lfs diff=lfs merge=lfs -text

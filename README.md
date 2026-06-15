@@ -86,6 +86,15 @@ complies with each platform's terms of service.
 
 ## Building from source
 
+The on-device Core ML models (~415 MB) aren't committed — they're fetched from
+the matching GitHub Release. Run this once before building (it's a checksummed,
+idempotent no-op once they're in place); `install-cli.sh` and `release-app.sh`
+call it for you:
+
+```bash
+./Scripts/fetch-models.sh                                   # models → Vendor/ (one-time)
+```
+
 ```bash
 xcodebuild -scheme youty     -configuration Release build   # Mac app
 xcodebuild -scheme youty-cli -configuration Release build   # CLI binary

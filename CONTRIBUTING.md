@@ -30,6 +30,14 @@ welcome.
 
 ## Building
 
+The on-device Core ML models (~415 MB) live outside git and are fetched from
+the matching GitHub Release. Grab them once (checksummed, idempotent; the
+install/release scripts also call it automatically):
+
+```bash
+./Scripts/fetch-models.sh
+```
+
 This is an XcodeGen project. After changing `project.yml` (or adding/removing
 source files), regenerate:
 
