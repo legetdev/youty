@@ -69,11 +69,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 {
   "mcpServers": {
     "youty": {
-      "command": "uv",
-      "args": [
-        "--directory", "~/AI/youty/youty-mcp",
-        "run", "youty-mcp"
-      ]
+      "command": "uvx",
+      "args": ["youty-mcp"]
     }
   }
 }
@@ -85,7 +82,7 @@ AI influencers, and what tools should I use? Use my Youty vault."_
 ## Claude Code wiring
 
 ```bash
-claude mcp add youty -- uv --directory ~/AI/youty/youty-mcp run youty-mcp
+claude mcp add youty -- uvx youty-mcp
 ```
 
 ## Tests

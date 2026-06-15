@@ -171,5 +171,7 @@ targets:
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/lib
         OTHER_LDFLAGS: "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -lsqlite3 -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox -framework Foundation -framework AppKit -framework WebKit -framework Speech"
         SKIP_INSTALL: NO
-        ENABLE_HARDENED_RUNTIME: NO
+        # Hardened runtime is required for Developer ID signing + notarization;
+        # without it Gatekeeper blocks the brew-installed CLI on other machines.
+        ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic

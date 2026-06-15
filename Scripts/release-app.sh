@@ -136,12 +136,17 @@ echo "==> Signing nested binaries..."
 # references it.
 SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
 if [ -d "$SPARKLE" ]; then
-    find "$SPARKLE/Versions/Current/Resources" -type f \( -name "Autoupdate" -o -name "fileop" -o -name "Updater" \) | while read -r helper; do
-        sign_one "$helper"
-    done
-    if [ -d "$SPARKLE/Versions/Current/Resources/Updater.app" ]; then
-        sign_one "$SPARKLE/Versions/Current/Resources/Updater.app"
-    fi
+    # Sparkle 2.x nests its helpers directly under Versions/Current (NOT
+    # under Resources/): the two XPC services, the Autoupdate CLI, and the
+    # Updater.app. Each is a separately-loaded executable that notarization
+    # validates individually, so each needs its own Developer ID signature +
+    # secure timestamp. Sign strictly inner-to-outer so every seal is valid
+    # before the framework (and then the app) seals over it.
+    SPV="$SPARKLE/Versions/Current"
+    sign_one "$SPV/XPCServices/Downloader.xpc"
+    sign_one "$SPV/XPCServices/Installer.xpc"
+    sign_one "$SPV/Autoupdate"
+    sign_one "$SPV/Updater.app"
     sign_one "$SPARKLE"
 fi
 

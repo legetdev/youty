@@ -80,8 +80,12 @@ mkdir -p "$ROOT/build"
 RW_DMG="$ROOT/build/.youty-rw.dmg"
 rm -f "$RW_DMG" "$DMG_OUT"
 
-# Size = app size + 10 MB headroom for view-options metadata.
-SIZE_KB=$(du -sk "$STAGE" | awk '{print $1 + 10000}')
+# Size = staged content + generous headroom. A fixed 10 MB slack is too
+# tight once HFS+ catalog overhead, the /Applications symlink, and the
+# Finder .DS_Store are written — hdiutil then fails with "No space left on
+# device" (the *image* is full, not the host disk). Use 25% + 50 MB, which
+# comfortably covers the metadata for any app size.
+SIZE_KB=$(du -sk "$STAGE" | awk '{print int($1 * 1.25) + 50000}')
 hdiutil create \
     -volname "$VOLUME_NAME" \
     -srcfolder "$STAGE" \
@@ -143,6 +147,38 @@ if [ -n "${DEVELOPER_ID_APPLICATION_CERT:-}" ]; then
 else
     echo "warn: DEVELOPER_ID_APPLICATION_CERT not set — DMG is unsigned." >&2
     echo "      Required before R.9. Set the env var and re-run." >&2
+fi
+
+# ---- Notarize + staple the DMG itself ----
+#
+# The inner .app is notarized by release-app.sh, but the DMG *container* is a
+# distinct artifact Gatekeeper assesses on download. It must be notarized and
+# stapled too, otherwise `spctl -a -t open` reports "Unnotarized Developer ID"
+# and the user sees a scare prompt. Stapling lets the DMG validate offline.
+if [ -n "${DEVELOPER_ID_APPLICATION_CERT:-}" ] && [ -z "${SKIP_NOTARY:-}" ]; then
+    if [ -z "${NOTARY_KEYCHAIN_PROFILE:-}" ]; then
+        echo "error: NOTARY_KEYCHAIN_PROFILE not set — cannot notarize the DMG." >&2
+        echo "       Set it (or SKIP_NOTARY=1 to skip) and re-run." >&2
+        exit 1
+    fi
+    echo "==> Notarizing DMG via profile '$NOTARY_KEYCHAIN_PROFILE'..."
+    xcrun notarytool submit "$DMG_OUT" \
+        --keychain-profile "$NOTARY_KEYCHAIN_PROFILE" \
+        --wait --timeout 30m > /tmp/youty-dmg-notarize.log 2>&1 || {
+            echo "error: DMG notarization failed. Tail of /tmp/youty-dmg-notarize.log:" >&2
+            tail -15 /tmp/youty-dmg-notarize.log >&2
+            exit 1
+        }
+    grep -q "status: Accepted" /tmp/youty-dmg-notarize.log || {
+        echo "error: DMG notarization not Accepted. Tail of log:" >&2
+        tail -15 /tmp/youty-dmg-notarize.log >&2
+        exit 1
+    }
+    echo "==> Stapling notary ticket to DMG..."
+    xcrun stapler staple "$DMG_OUT" > /dev/null 2>&1 || {
+        echo "error: stapling the DMG failed." >&2
+        exit 1
+    }
 fi
 
 # ---- Verify the result ----

@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in the app, CLI, or MCP server isn't working as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Two by-design behaviors are **not** bugs, please don't file them:
+        - YouTube videos without captions save with no transcript (there is no audio-ASR fallback).
+        - Instagram requires a one-time in-app login.
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Which surface?
+      options:
+        - Mac app
+        - youty CLI
+        - youty-mcp (MCP server)
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Which video platform?
+      options:
+        - YouTube
+        - Instagram
+        - TikTok
+        - Not platform-specific
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 26.1"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Youty version
+      placeholder: "e.g. 1.0.0 (Youty ▸ About, or `youty --version`)"
+    validations:
+      required: true
