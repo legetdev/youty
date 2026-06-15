@@ -84,6 +84,10 @@ def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
 
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    # The Swift app writes this same DB (WAL mode); wait briefly for its write
+    # lock rather than failing when an incremental promotion lands during an
+    # in-app save.
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
@@ -101,23 +105,11 @@ def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     # Promote: vec0 + FTS5.
     conn.executescript(_PROMOTION_DDL)
 
-    # Backfill vec_chunks for any chunks that don't yet have an entry.
-    _backfill_vec_chunks(conn)
+    # Populate the search tables from the base rows (force on startup). The same
+    # routine runs incrementally before each query (see `sync_index`), so a video
+    # saved while the server is running becomes searchable without a restart.
+    sync_index(conn, force=True)
 
-    # Backfill vec_frames for any new frame rows.
-    _backfill_vec_frames(conn)
-
-    # Drop vec0 rows whose chunk/frame no longer exists. Swift re-saves +
-    # re-embeds DELETE+INSERT chunks (new AUTOINCREMENT ids), so without this the
-    # vec0 tables accumulate dead vectors that dilute the dense KNN pool forever.
-    _prune_orphan_vectors(conn)
-
-    # Backfill FTS5 (content table mode handles deletes via the trigger pattern,
-    # but the simplest correctness contract on startup is: ensure every chunk_id
-    # has a matching FTS row).
-    _backfill_fts(conn)
-
-    conn.commit()
     return conn
 
 
@@ -226,6 +218,61 @@ def _backfill_fts(conn: sqlite3.Connection) -> None:
         "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('fts_indexed_count', ?)",
         (str(n_chunks),),
     )
+
+
+def sync_index(conn: sqlite3.Connection, *, force: bool = False) -> bool:
+    """Incrementally promote newly-saved base rows into the vec0 + FTS5 search
+    tables, and prune vectors for rows the Swift app deleted on a re-save.
+
+    Cheap + safe to call before every query: when nothing has changed it runs
+    only a few indexed COUNT/MAX probes and returns False. When the Mac app or
+    CLI has saved, re-saved, or removed a video since the last call, it promotes
+    just the delta — copying the embedding BLOBs the indexer already wrote, with
+    no model inference — and returns True. This is what makes a video saved while
+    the server is running searchable without restarting it.
+    """
+    if not force and not _index_changed(conn):
+        return False
+    _backfill_vec_chunks(conn)
+    _backfill_vec_frames(conn)
+    # Swift re-saves DELETE+INSERT chunks (new AUTOINCREMENT ids); drop the dead
+    # vectors so they don't dilute the dense KNN pool.
+    _prune_orphan_vectors(conn)
+    _backfill_fts(conn)
+    conn.commit()
+    return True
+
+
+def _index_changed(conn: sqlite3.Connection) -> bool:
+    """Has the base index gained or lost rows since the search tables were last
+    promoted? Compares base vs promoted by row COUNT (catches additions and
+    deletions) and MAX id (catches re-saves, which mint new AUTOINCREMENT ids),
+    plus the FTS5 count the keyword index tracks. On any error returns True, so
+    sync re-promotes defensively rather than serve a stale index."""
+    try:
+        def _agg(sql: str) -> int:
+            return int(conn.execute(sql).fetchone()[0])
+        # New or re-saved rows mint ids beyond what's already promoted.
+        if _agg("SELECT COALESCE(MAX(chunk_id), 0) FROM chunks") > \
+           _agg("SELECT COALESCE(MAX(chunk_id), 0) FROM vec_chunks"):
+            return True
+        if _agg("SELECT COALESCE(MAX(frame_id), 0) FROM frames") > \
+           _agg("SELECT COALESCE(MAX(frame_id), 0) FROM vec_frames"):
+            return True
+        # Deletions leave more promoted rows than base rows (orphans to prune).
+        if _agg("SELECT COUNT(*) FROM chunks") < _agg("SELECT COUNT(*) FROM vec_chunks"):
+            return True
+        if _agg("SELECT COUNT(*) FROM frames") < _agg("SELECT COUNT(*) FROM vec_frames"):
+            return True
+        # Keyword index (FTS5) divergence — tracked via index_meta.
+        n_chunks = _agg("SELECT COUNT(*) FROM chunks")
+        row = conn.execute(
+            "SELECT value FROM index_meta WHERE key='fts_indexed_count'"
+        ).fetchone()
+        last_fts = int(row["value"]) if row and row["value"] else -1
+        return last_fts != n_chunks
+    except sqlite3.Error:
+        return True
 
 
 # ───────── vault root resolution ─────────

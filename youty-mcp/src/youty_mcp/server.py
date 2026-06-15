@@ -390,6 +390,7 @@ def find_similar(video_id: str, k: int = 10) -> dict[str, Any]:
     `search` results, scored by `1 - cosine_distance` (higher = closer).
     """
     conn = _STATE.conn()
+    _db.sync_index(conn)  # promote any video saved since startup (no restart needed)
     # Confine to the index's current text-embedding space so a mixed-model index
     # (mid-migration) never averages two spaces into a meaningless centroid or
     # compares across spaces — the same guard `search` applies. NULL skips it.
@@ -494,6 +495,7 @@ def _do_search_frames(
     """Inner impl, callable from tests without MCP framing."""
     t_total = time.perf_counter()
     conn = _STATE.conn()
+    _db.sync_index(conn)  # promote any video saved since startup (no restart needed)
 
     n_frames = int(
         conn.execute("SELECT COUNT(*) AS n FROM frames").fetchone()["n"]
@@ -696,6 +698,7 @@ def _do_search(
     """Inner implementation, callable from tests without MCP framing."""
     t_total = time.perf_counter()
     conn = _STATE.conn()
+    _db.sync_index(conn)  # promote any video saved since startup (no restart needed)
 
     # Text search is on-device only: one query, embedded with EmbeddingGemma.
     # (There is no cloud query-decomposition step — the dense encoder handles
