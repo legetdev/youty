@@ -141,8 +141,7 @@ final class MenuBarController: ObservableObject {
         saveStatus = .idle
         let pop = NSPopover()
         pop.behavior = .transient
-        pop.contentSize = NSSize(width: 320, height: 150)
-        pop.contentViewController = NSHostingController(
+        let host = NSHostingController(
             rootView: MenuBarPopoverView(controller: self,
                                           onSave: { [weak self] urlString in
                                               self?.commitSave(urlString: urlString)
@@ -152,6 +151,11 @@ final class MenuBarController: ObservableObject {
                                               MainWindowKeeper.shared.reveal()
                                           })
         )
+        // Auto-size the popover to its SwiftUI content (updates when the view
+        // switches between the paste row and the "Sent" confirmation), so there
+        // is no fixed-height blank space below the button.
+        host.sizingOptions = [.preferredContentSize]
+        pop.contentViewController = host
         popover = pop
         pop.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
@@ -223,11 +227,9 @@ struct MenuBarPopoverView: View {
             } else {
                 pasteRow
             }
-            Spacer(minLength: 0)
-            footer
         }
         .padding(14)
-        .frame(width: 320, height: 150)
+        .frame(width: 320)
     }
 
     private var header: some View {
@@ -276,6 +278,10 @@ struct MenuBarPopoverView: View {
                     .accessibilityLabel("Use clipboard URL")
                     .accessibilityHint("Fill the field with the URL currently on your clipboard")
                 }
+                Spacer(minLength: 8)
+                Text("⏎ to save")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
             }
         }
     }
@@ -298,12 +304,4 @@ struct MenuBarPopoverView: View {
         .transition(.opacity.combined(with: .scale(scale: 0.96)))
     }
 
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Text("⏎ to save")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-        }
-    }
 }
