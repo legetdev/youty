@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_text      TEXT    NOT NULL,        -- raw chunk text (no metadata prefix) — needed for rerank + display
     chunk_start_ms  INTEGER,                 -- NULL for header/description; ms offset for body
     chunk_end_ms    INTEGER,                 -- NULL for header/description; ms offset for body
-    model_version   TEXT    NOT NULL,        -- e.g. "gemini-embedding-001@768"
+    model_version   TEXT    NOT NULL,        -- e.g. "embeddinggemma-300m@768"
     embedding_dim   INTEGER NOT NULL,
     embedding       BLOB    NOT NULL,        -- fp32 little-endian, length = embedding_dim * 4
     UNIQUE(video_id, chunk_type, chunk_index)
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS frames (
     frame_ms        INTEGER NOT NULL,        -- timestamp of the frame in milliseconds
     frame_path      TEXT    NOT NULL,        -- relative to vault root
     phash           INTEGER,                 -- 64-bit perceptual hash, useful for "find visually similar"
-    model_version   TEXT    NOT NULL,        -- e.g. "mobileclip2-s2@768"
+    model_version   TEXT    NOT NULL,        -- e.g. "siglip-base-patch16-224@768"
     embedding_dim   INTEGER NOT NULL,
     embedding       BLOB    NOT NULL,
     UNIQUE(video_id, frame_ms)
@@ -82,7 +82,10 @@ CREATE TABLE IF NOT EXISTS index_meta (
     value TEXT NOT NULL
 );
 
--- Default rows; replaced on every indexer write that uses them.
+-- Default rows; replaced on every indexer write that uses them. These MUST match
+-- Sources/IndexSchema.sql (the Swift writer): on a DB created MCP-first (empty
+-- vault) these are what `search` dispatches on, so they must name the shipped
+-- on-device models — not the legacy cloud / MobileCLIP ones.
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('schema_version', '1');
-INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'gemini-embedding-001@768');
-INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'mobileclip2-s2@768');
+INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'embeddinggemma-300m@768');
+INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'siglip-base-patch16-224@768');

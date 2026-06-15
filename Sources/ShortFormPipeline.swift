@@ -40,14 +40,14 @@ enum ShortFormPipelineError: LocalizedError {
             return "Pick a vault folder in Settings before saving."
         case .noVideoTrack:
             return "The downloaded post had no playable video. It may be a photo-only post or a carousel without video."
-        case .downloadFailed(let e):
-            return "Couldn't download the video. Check your internet connection and try again. (\(e.localizedDescription))"
-        case .framesFailed(let e):
-            return "Couldn't extract frames from the video. Try a different post. (\(e.localizedDescription))"
-        case .speechFailed(let e):
-            return "Couldn't transcribe the audio. The video will still be saved without a transcript. (\(e.localizedDescription))"
-        case .writeFailed(let e):
-            return "Couldn't write to the vault folder. Check that the folder still exists and Youty can write to it. (\(e.localizedDescription))"
+        case .downloadFailed:
+            return "Couldn't download the video. Check your internet connection and try again."
+        case .framesFailed:
+            return "Couldn't extract frames from the video. Try a different post."
+        case .speechFailed:
+            return "Couldn't transcribe the audio. The video will still be saved without a transcript."
+        case .writeFailed:
+            return "Couldn't write to the vault folder. Check that the folder still exists and Youty can write to it."
         }
     }
 }

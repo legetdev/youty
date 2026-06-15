@@ -43,6 +43,7 @@ youty save https://www.youtube.com/watch?v=...
 youty list --platform youtube
 youty search "ai influencers"
 youty transcript <url-or-id>
+youty reindex --text-only  # re-embed the vault for on-device search
 youty login instagram      # one-time, only for Instagram saves
 ```
 
@@ -69,13 +70,12 @@ transcribed on-device via Apple's `SpeechAnalyzer` + `SpeechTranscriber`
 ## Privacy
 
 See [`docs/privacy.md`](docs/privacy.md). The short version: vault is
-local, transcripts and frames are local, **AI search is on-device**, no
-telemetry. Text search uses Google's EmbeddingGemma converted to Core ML
-and runs entirely on your Mac — no API key, nothing leaves the device. The
-only network calls are (a) platform fetches to scrape the video, (b)
-Sparkle's anonymous once-a-day check for a newer Youty release, and (c) —
-*only if you opt into Gemini cloud search* — a Gemini embeddings call using
-a key *you* provide.
+local, transcripts and frames are local, **AI search is 100% on-device**,
+no telemetry. Text search uses Google's EmbeddingGemma converted to Core ML
+and runs entirely on your Mac — no API key, no provider option, nothing
+leaves the device. The only network calls are (a) platform fetches to
+scrape the video, and (b) Sparkle's anonymous once-a-day check for a newer
+Youty release.
 
 ## Terms
 

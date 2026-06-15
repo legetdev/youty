@@ -1,0 +1,76 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tileGrad" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#4C63A0"/>
+      <stop offset="0.5" stop-color="#1D2D58"/>
+      <stop offset="1" stop-color="#080F2A"/>
+    </linearGradient>
+    <radialGradient id="tileGloss" cx="0.5" cy="0.02" r="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.26"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ambient" cx="0.5" cy="0.42" r="0.5">
+      <stop offset="0" stop-color="#6E8FE6" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#6E8FE6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="yBody" x1="0.2" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#FAFCFF"/>
+      <stop offset="0.42" stop-color="#C2D6FF"/>
+      <stop offset="0.78" stop-color="#7CA0F2"/>
+      <stop offset="1" stop-color="#5B82E6"/>
+    </linearGradient>
+    <linearGradient id="ySheen" x1="0.1" y1="0" x2="0.6" y2="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="0.38" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="yBottomShade" x1="0" y1="0.4" x2="0" y2="1">
+      <stop offset="0.4" stop-color="#16306F" stop-opacity="0"/>
+      <stop offset="1" stop-color="#11265C" stop-opacity="0.6"/>
+    </linearGradient>
+    <linearGradient id="bottomRim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0.86" stop-color="#CFE0FF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#EAF2FF" stop-opacity="0.85"/>
+    </linearGradient>
+    <filter id="castBlur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <filter id="glassSpec" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="7" result="bump"/>
+      <feSpecularLighting in="bump" surfaceScale="7" specularConstant="1.05" specularExponent="20" lighting-color="#ffffff" result="spec">
+        <fePointLight x="300" y="40" z="220"/>
+      </feSpecularLighting>
+      <feComposite in="spec" in2="SourceAlpha" operator="in" result="specClip"/>
+      <feMerge>
+        <feMergeNode in="SourceGraphic"/>
+        <feMergeNode in="specClip"/>
+      </feMerge>
+    </filter>
+    <clipPath id="yClip">
+      <path d="M1.13919e-05 1.23978e-05H127.699L210.085 171.364H213.381L295.767 1.23978e-05H423.466L268.58 289.176V421.818H154.886V289.176L1.13919e-05 1.23978e-05Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Y cast shadow -->
+  <g transform="translate(268,288) scale(1.15)" filter="url(#castBlur)">
+    <path d="M1.13919e-05 1.23978e-05H127.699L210.085 171.364H213.381L295.767 1.23978e-05H423.466L268.58 289.176V421.818H154.886V289.176L1.13919e-05 1.23978e-05Z" fill="#03091E" fill-opacity="0.55"/>
+  </g>
+
+  <!-- Squircle tile -->
+  <rect x="96" y="96" width="832" height="832" rx="200" fill="url(#tileGrad)"/>
+  <rect x="96" y="96" width="832" height="832" rx="200" fill="url(#ambient)"/>
+  <rect x="96" y="96" width="832" height="832" rx="200" fill="url(#tileGloss)"/>
+  <rect x="97.75" y="97.75" width="828.5" height="828.5" rx="198.25" fill="none" stroke="#AEC2FF" stroke-opacity="0.28" stroke-width="2.5"/>
+
+  <!-- Y glass body -->
+  <g transform="translate(268,269) scale(1.15)">
+    <g filter="url(#glassSpec)">
+      <g clip-path="url(#yClip)">
+        <rect x="0" y="0" width="424" height="422" fill="url(#yBody)"/>
+        <rect x="0" y="0" width="424" height="422" fill="url(#yBottomShade)"/>
+        <rect x="0" y="0" width="424" height="422" fill="url(#bottomRim)"/>
+        <rect x="0" y="0" width="424" height="422" fill="url(#ySheen)"/>
+      </g>
+    </g>
+    <path d="M1.13919e-05 1.23978e-05H127.699L210.085 171.364H213.381L295.767 1.23978e-05H423.466L268.58 289.176V421.818H154.886V289.176L1.13919e-05 1.23978e-05Z" fill="none" stroke="#F2F7FF" stroke-opacity="0.55" stroke-width="2.5"/>
+  </g>
+</svg>

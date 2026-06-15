@@ -61,7 +61,7 @@ struct IndexStats: Sendable {
     let chunkCount: Int
     let frameCount: Int
     let lastRebuildMs: Int?           // unix epoch ms, nil if never rebuilt
-    let textModelID: String?          // e.g. "gemini-embedding-001@768"
+    let textModelID: String?          // e.g. "embeddinggemma-300m@768"
     let frameModelID: String?         // e.g. "siglip-base-patch16-224@768"
     let vaultRoot: String?
     let dbBytes: Int64                // index.db + index.db-wal size

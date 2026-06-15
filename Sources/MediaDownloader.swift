@@ -25,8 +25,8 @@ enum MediaDownloaderError: LocalizedError {
             return "Couldn't download the video — the server refused or returned an error. Try a different post."
         case .empty:
             return "The video download was empty. Try a different post."
-        case .underlying(let e):
-            return "Couldn't download the video: \(e.localizedDescription)"
+        case .underlying:
+            return "Couldn't download the video. Check your internet connection and try again."
         }
     }
 }

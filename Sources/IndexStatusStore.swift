@@ -4,7 +4,7 @@ import Combine
 // Process-wide, observable index-state store.
 //
 // Tracks which saved bundles are currently being indexed in the background
-// (transcript embed via Gemini + frame embed via SigLIP) and which have
+// (transcript embed on-device + frame embed via SigLIP) and which have
 // finished. The in-app saved-video row and the menu bar item both observe
 // this store so the user always knows whether a freshly-saved video is
 // fully searchable yet.

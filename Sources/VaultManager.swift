@@ -98,20 +98,40 @@ final class VaultManager: NSObject, ObservableObject {
         let group = DispatchGroup()
         let lock = NSLock()
         var encoded: [(name: String, data: Data)] = []
+        var encodeFailures = 0
         for frame in frames {
             group.enter()
             queue.async {
-                let ms = Int(frame.timestamp * 1000)
+                // Round (not truncate) so float drift can't shift the ms-stem
+                // off the documented exact-millisecond contract.
+                let ms = Int((frame.timestamp * 1000).rounded())
                 let name = String(format: "%08d.jpg", ms)
                 if let data = frame.image.jpegData(compressionQuality: 0.85) {
                     lock.lock(); encoded.append((name, data)); lock.unlock()
+                } else {
+                    lock.lock(); encodeFailures += 1; lock.unlock()
                 }
                 group.leave()
             }
         }
         group.wait()
+        // All-or-nothing (hard requirement: no partial / silently-padded bundle).
+        // A failed encode aborts before any write; a failed write removes what was
+        // already written and throws, so the caller surfaces it rather than
+        // shipping a bundle with fewer frames than were extracted.
+        guard encodeFailures == 0 else {
+            throw VaultError.frameWriteFailed("\(encodeFailures) of \(frames.count) frame(s) failed to JPEG-encode")
+        }
+        var written: [URL] = []
         for (name, data) in encoded {
-            try? data.write(to: folderURL.appendingPathComponent(name))
+            let url = folderURL.appendingPathComponent(name)
+            do {
+                try data.write(to: url)
+                written.append(url)
+            } catch {
+                for w in written { try? FileManager.default.removeItem(at: w) }
+                throw VaultError.frameWriteFailed("couldn't write \(name): \(error.localizedDescription)")
+            }
         }
     }
 
@@ -410,21 +430,40 @@ final class VaultManager: NSObject, ObservableObject {
         let collapsed = String(cleaned)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        return String(collapsed.prefix(80)).trimmingCharacters(in: .whitespaces)
+        let result = String(collapsed.prefix(80)).trimmingCharacters(in: .whitespaces)
+        // Reject a component that is only dots (".", "..") — it would resolve to
+        // the current/parent directory. Empty → bundleFolderName falls back to
+        // the video_id, keeping the write inside the platform folder.
+        if result.allSatisfy({ $0 == "." }) { return "" }
+        return result
     }
 
     // MARK: - Note composition
 
+    /// Double-quoted YAML scalar with `\`, `"`, and newlines escaped. Without
+    /// this, a video title containing a quote or newline would corrupt the
+    /// frontmatter and let arbitrary YAML keys be injected into the note that
+    /// the MCP / AI consumers parse. (The short-form path already escapes; this
+    /// brings the YouTube path to parity.)
+    private func yamlQuoted(_ s: String) -> String {
+        let escaped = s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        return "\"\(escaped)\""
+    }
+
     private func composeNote(metadata: VideoMetadata, segments: [TranscriptSegment]) -> String {
-        let tags = metadata.tags.map { "\"\($0)\"" }.joined(separator: ", ")
+        let tags = metadata.tags.map { yamlQuoted($0) }.joined(separator: ", ")
 
         var lines: [String] = [
             "---",
-            "title: \"\(metadata.title)\"",
+            "title: \(yamlQuoted(metadata.title))",
             "platform: youtube",
             "video_id: \(metadata.videoID)",
             "url: https://www.youtube.com/watch?v=\(metadata.videoID)",
-            "channel: \"\(metadata.channel)\"",
+            "channel: \(yamlQuoted(metadata.channel))",
             "duration: \"\(formatDuration(metadata.durationSeconds))\"",
             "date_saved: \(metadata.dateSaved)",
             "tags: [\(tags)]",
@@ -486,12 +525,15 @@ final class VaultManager: NSObject, ObservableObject {
 
 enum VaultError: LocalizedError {
     case noVault, accessDenied
+    case frameWriteFailed(String)
     var errorDescription: String? {
         switch self {
         case .noVault:
             return "Pick a vault folder in Settings before saving."
         case .accessDenied:
             return "Youty can't write to the chosen vault folder. Pick a folder you own, or grant access in System Settings → Privacy & Security → Files & Folders."
+        case .frameWriteFailed(let detail):
+            return "Couldn't save all frames for this video (\(detail)). The bundle wasn't written with partial frames — try saving again."
         }
     }
 }

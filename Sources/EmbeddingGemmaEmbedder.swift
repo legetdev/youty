@@ -3,14 +3,18 @@ import CoreML
 
 /// On-device text `Embedder` backed by the Core ML EmbeddingGemma model + the
 /// native `GemmaTokenizer`. Produces 768-d L2-normalized document embeddings
-/// equivalent to the cloud Gemini path, with no API key and no third-party
-/// dependency. See docs/s1-native-embedder.md.
+/// fully on-device — no API key, no network, no third-party dependency. This is
+/// Youty's only text embedder. See docs/s1-native-embedder.md.
 ///
 /// The Core ML model runs EmbeddingGemma's full pipeline internally (mean pool,
 /// Dense heads, normalize); Swift only tokenizes -> pads -> predicts.
 final class EmbeddingGemmaEmbedder: Embedder, @unchecked Sendable {
 
-    let modelIdentifier = "embeddinggemma-300m@768"
+    /// Single source of truth for the on-device text embedding space, written
+    /// to `chunks.model_version` + `index_meta.current_text_model` so the MCP
+    /// query side matches the space the documents were embedded in.
+    static let modelIdentifier = "embeddinggemma-300m@768"
+    var modelIdentifier: String { Self.modelIdentifier }
     let embeddingDim = 768
 
     /// Fixed sequence length the Core ML model was converted at.

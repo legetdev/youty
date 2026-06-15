@@ -69,8 +69,8 @@ enum InstagramExtractorError: LocalizedError {
             return "Sign in to Instagram inside Youty to save Reels. Paste any Reel URL and the sign-in window will appear."
         case .noVideo:
             return "Instagram returned no video for this post. It may be private, deleted, or a photo-only post."
-        case .pageLoadFailed(let e):
-            return "Couldn't load the Instagram page. Check your internet connection and try again. (\(e.localizedDescription))"
+        case .pageLoadFailed:
+            return "Couldn't load the Instagram page. Check your internet connection and try again."
         case .scrapeFailed:
             return "Youty couldn't read this Instagram post. Try a different post."
         case .malformedResponse:

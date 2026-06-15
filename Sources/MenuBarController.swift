@@ -249,7 +249,7 @@ struct MenuBarPopoverView: View {
 
     private var pasteRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Paste a YouTube, TikTok or Instagram URL", text: $controller.pasted)
+            TextField("Paste a YouTube, Instagram, or TikTok URL", text: $controller.pasted)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12))
                 .onSubmit { onSave(controller.pasted) }
@@ -301,7 +301,7 @@ struct MenuBarPopoverView: View {
     private var footer: some View {
         HStack {
             Spacer()
-            Text("⌘V to paste · ⏎ to save")
+            Text("⏎ to save")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         }

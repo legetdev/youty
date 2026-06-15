@@ -8,16 +8,13 @@ import Foundation
 // it with Task.detached so indexing never blocks the UI.
 
 enum IndexerError: LocalizedError {
-    case missingKey
     case localModelUnavailable
     case vaultMismatch(String)
     case noVideoMD(URL)
     var errorDescription: String? {
         switch self {
-        case .missingKey:
-            return "Add a Gemini API key in Settings → AI search index, or switch the embedding provider to On-device, to enable transcript search."
         case .localModelUnavailable:
-            return "The on-device search model isn't installed. Reinstall Youty (or re-run the CLI installer) to enable local transcript search — or switch to Gemini in Settings → AI search index."
+            return "The on-device search model isn't available. Reinstalling Youty restores it."
         case .vaultMismatch(let message):
             return message
         case .noVideoMD:
@@ -55,7 +52,7 @@ enum Indexer {
     static func indexBundle(videoMdURL: URL, vaultRoot: URL) async throws {
         try await indexBundle(videoMdURL: videoMdURL,
                               vaultRoot: vaultRoot,
-                              embedder: try makeDefaultEmbedder())
+                              embedder: try await makeDefaultEmbedder())
     }
 
     /// Indexes every `video.md` under `vaultRoot`. Used by the Settings
@@ -148,7 +145,7 @@ enum Indexer {
         return summary
     }
 
-    /// Migrates the TEXT index to the current provider's model (Phase S.4),
+    /// Re-embeds the TEXT index with the on-device model (Phase S.4),
     /// leaving frame vectors untouched. Re-embeds only bundles whose chunks
     /// are on a different `model_version` — `indexBundle`'s idempotent skip
     /// turns already-current bundles into no-ops, so this is surgical and
@@ -248,8 +245,7 @@ enum Indexer {
             }
         }
 
-        // Embed all chunks in one batch (Gemini batch endpoint handles ≥2,
-        // single endpoint for 1).
+        // Embed all chunks in one batch through the on-device embedder.
         let inputs = chunks.map { $0.embeddingInput }
         let vectors = try await embedder.embed(inputs)
         guard vectors.count == chunks.count else {
@@ -262,7 +258,19 @@ enum Indexer {
 
         let store = IndexStore.shared
         try await store.replaceChunks(videoID: videoRow.videoID, rows: chunkRows)
-        try await store.setMeta(key: "current_text_model", value: embedder.modelIdentifier)
+        // Only advertise this model as the index's query model when the WHOLE
+        // (disk-backed) index is now on it. A routine save into an index built
+        // with a different model must NOT silently flip the global key — that
+        // would evict the majority other-model chunks from dense search. The
+        // migration path (reindexTextEmbeddings) re-embeds every bundle, so its
+        // final bundle makes the index uniform and flips the key here. Until
+        // then the meta keeps pointing at the model the bulk can be queried in;
+        // the lone off-model chunk is reachable via BM25 (the MCP filter excludes
+        // it from dense), never silently wrong.
+        let offModel = try await store.textMigrationScope(activeModel: embedder.modelIdentifier).chunks
+        if offModel == 0 {
+            try await store.setMeta(key: "current_text_model", value: embedder.modelIdentifier)
+        }
 
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         NSLog("[indexer] %@ chunks=%d in %dms", videoRow.videoID, chunkRows.count, ms)
@@ -342,7 +350,7 @@ enum Indexer {
         }
 
         // Ensure a `videos` row exists for FK satisfaction. If the bundle has
-        // never been text-indexed (e.g. no Gemini key configured), we still
+        // never been text-indexed (e.g. the on-device model was unavailable), we still
         // want frame indexing to succeed — frames are independently useful.
         let tagsJSON: String = {
             guard !parsed.tags.isEmpty else { return "[]" }
@@ -400,38 +408,42 @@ enum Indexer {
 
     // MARK: - Embedder selection
 
-    /// Builds the text embedder for `provider`. Throws when that provider's
-    /// backing is unavailable — the on-device model files are missing, or
-    /// Gemini is selected without a key. It NEVER silently substitutes the
-    /// other provider: doing so would split the index across two embedding
-    /// spaces and silently corrupt search. Callers surface the thrown error.
-    static func makeEmbedder(for provider: EmbeddingProvider) throws -> Embedder {
-        switch provider {
-        case .local:
-            do {
-                return try EmbeddingGemmaEmbedder()
-            } catch {
-                throw IndexerError.localModelUnavailable
-            }
-        case .gemini:
-            guard KeychainHelper.exists(account: "youty", service: "gemini-api") else {
-                throw IndexerError.missingKey
-            }
-            return GeminiEmbedder()
+    /// Builds the on-device text embedder. Throws `localModelUnavailable` when
+    /// the bundled Core ML model / tokenizer can't be loaded. Youty embeds text
+    /// 100% on-device — there is no cloud path and never a silent substitute.
+    static func makeEmbedder() throws -> Embedder {
+        do {
+            return try EmbeddingGemmaEmbedder()
+        } catch {
+            throw IndexerError.localModelUnavailable
         }
     }
 
-    /// The embedder for the app's current `embeddingProvider` setting
-    /// (default on-device). Read from UserDefaults so it works off the
-    /// main actor inside the background indexing task.
-    private static func makeDefaultEmbedder() throws -> Embedder {
-        try makeEmbedder(for: .current)
+    /// Caches the per-save text embedder so routine background saves don't each
+    /// reload the ~296 MB Core ML model, and two concurrent saves don't load it
+    /// twice (~600 MB peak). The actor serialises construction: a second save
+    /// arriving mid-load waits and reuses the one instance.
+    private actor EmbedderCache {
+        static let shared = EmbedderCache()
+        private var cached: Embedder?
+        func embedder() throws -> Embedder {
+            if let c = cached { return c }
+            let made = try Indexer.makeEmbedder()
+            cached = made
+            return made
+        }
+    }
+
+    /// The on-device text embedder, cached so repeated saves reuse one model.
+    /// Safe to call off the main actor inside the background indexing task.
+    private static func makeDefaultEmbedder() async throws -> Embedder {
+        try await EmbedderCache.shared.embedder()
     }
 
     /// Used by reindexVault — pre-flights the embedder once so the user
     /// gets a single clear error instead of N failed per-bundle calls.
     private static func makeEmbedderOrThrow() throws -> Embedder {
-        try makeEmbedder(for: .current)
+        try makeEmbedder()
     }
 
     // MARK: - Vault walking

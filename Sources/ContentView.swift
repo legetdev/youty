@@ -76,12 +76,6 @@ struct ContentView: View {
                 resultSection
 
                 Spacer(minLength: 8)
-
-                // Always-visible IG/TikTok ToS disclosure footer (R.2 spec).
-                // Small + calm so the main capture surface stays the focus.
-                platformDisclosureFooter
-                    .padding(.horizontal, 24)
-                    .padding(.top, 6)
             }
             .padding(.bottom, 16)
         }
@@ -145,27 +139,6 @@ struct ContentView: View {
         }
     }
 
-    /// Always-visible IG / TikTok ToS disclosure (R.2 spec). Calm, not
-    /// modal — the main capture surface stays the focus, but the user
-    /// can't miss it on first save or any save thereafter.
-    private var platformDisclosureFooter: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(.tertiary)
-                .font(.system(size: 11))
-                .padding(.top, 1)
-            Text("Saving from Instagram or TikTok uses each platform's public web pages. Use may violate their terms of service and could lead to account restrictions on those platforms — Youty is a tool, you're responsible for your own use.")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(.regularMaterial.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.07), lineWidth: 0.5))
-    }
-
     // MARK: - Header
 
     private var header: some View {
@@ -218,7 +191,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Search now runs on-device — no API key needed")
                             .font(.system(size: 12, weight: .semibold))
-                        Text("Re-embed your \(offer.videos) saved video\(offer.videos == 1 ? "" : "s") to switch off the Gemini key. Keyword search keeps working while it runs.")
+                        Text("Re-embed your \(offer.videos) saved video\(offer.videos == 1 ? "" : "s") for on-device search. Keyword search keeps working while it runs.")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -247,7 +220,7 @@ struct ContentView: View {
     @MainActor
     private func checkMigrationOffer() async {
         guard settings.onboardingComplete, !showOnboarding, vault.vaultURL != nil else { return }
-        let active = settings.embeddingProvider.modelIdentifier
+        let active = EmbeddingGemmaEmbedder.modelIdentifier
         guard settings.textMigrationOfferedFor != active else { return }
         let scope = (try? await IndexStore.shared.textMigrationScope(activeModel: active))
             ?? (videos: 0, chunks: 0)
@@ -262,32 +235,50 @@ struct ContentView: View {
     /// User accepted: run the text-only re-embed in the background.
     @MainActor
     private func acceptMigration() {
-        settings.textMigrationOfferedFor = settings.embeddingProvider.modelIdentifier
         withAnimation { migrationOffer = nil; migrationRunning = true }
         guard let vaultURL = vault.vaultURL else { migrationRunning = false; return }
+        let target = EmbeddingGemmaEmbedder.modelIdentifier
         Task.detached {
             let acquired = vaultURL.startAccessingSecurityScopedResource()
             defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
-            let summary = try? await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL)
-            await MainActor.run {
-                withAnimation {
-                    migrationRunning = false
-                    if let s = summary {
+            do {
+                let s = try await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL)
+                await MainActor.run {
+                    // Only suppress the offer AFTER a successful re-embed, so a
+                    // failure (e.g. the on-device model not yet installed) leaves
+                    // it to retry next launch instead of silently burning the prompt.
+                    settings.textMigrationOfferedFor = target
+                    withAnimation {
+                        migrationRunning = false
                         migrationDoneNote = "Now searching on-device — \(s.videosIndexed) video\(s.videosIndexed == 1 ? "" : "s") re-embedded."
-                    } else {
-                        migrationDoneNote = "Re-embed didn't finish. Open Settings → AI search index to retry."
                     }
+                    scheduleMigrationNoteDismiss()
                 }
-                let work = DispatchWorkItem { withAnimation { migrationDoneNote = nil } }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+            } catch {
+                await MainActor.run {
+                    // Surface the real cause directly — the IndexerError message
+                    // is already plain language and names the fix.
+                    withAnimation {
+                        migrationRunning = false
+                        migrationDoneNote = error.localizedDescription
+                    }
+                    scheduleMigrationNoteDismiss()
+                }
             }
         }
+    }
+
+    /// Auto-clear the migration result note after a few seconds.
+    @MainActor
+    private func scheduleMigrationNoteDismiss() {
+        let work = DispatchWorkItem { withAnimation { migrationDoneNote = nil } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
     }
 
     /// User chose Later: stay quiet for this target model until it changes.
     @MainActor
     private func dismissMigration() {
-        settings.textMigrationOfferedFor = settings.embeddingProvider.modelIdentifier
+        settings.textMigrationOfferedFor = EmbeddingGemmaEmbedder.modelIdentifier
         withAnimation { migrationOffer = nil }
     }
 
@@ -312,7 +303,7 @@ struct ContentView: View {
             migrationBanner
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
-                    TextField("Paste a YouTube, TikTok or Instagram URL…", text: $urlInput)
+                    TextField("Paste a YouTube, Instagram, or TikTok URL…", text: $urlInput)
                         .textFieldStyle(.plain)
                         .font(.system(size: 14))
                         .focused($inputFocused)
@@ -372,7 +363,7 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .help("Settings")
         .accessibilityLabel("Settings")
-        .accessibilityHint("Open the Settings window to pick a vault, adjust frame density, or enter your Gemini API key")
+        .accessibilityHint("Open the Settings window to pick a vault or adjust frame density")
     }
 
     private var fetchButton: some View {
@@ -516,7 +507,7 @@ struct ContentView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.red)
                                 .font(.system(size: 11))
-                            Text("Couldn't grab frames the fast way — \(failure.reason)")
+                            Text("Couldn't capture frames automatically.")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -531,7 +522,7 @@ struct ContentView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: "tortoise.fill").font(.system(size: 11))
-                                Text("Try the slower extractor instead")
+                                Text("Capture frames anyway")
                                     .font(.system(size: 12, weight: .medium))
                             }
                             .frame(maxWidth: .infinity)
@@ -577,8 +568,8 @@ struct ContentView: View {
                     .animation(.easeInOut(duration: 0.2), value: lastIndexedFolder)
                     .animation(.easeInOut(duration: 0.2),
                                value: lastIndexedFolder.flatMap { indexStatus.state(for: $0) })
-                case .failed(let msg):
-                    Text("Frames failed: \(msg)").font(.system(size: 11)).foregroundStyle(.red)
+                case .failed:
+                    Text("Couldn't capture frames — the video is still saved.").font(.system(size: 11)).foregroundStyle(.secondary)
                 default:
                     EmptyView()
                 }
@@ -608,9 +599,16 @@ struct ContentView: View {
 
     private func fetch() async {
         withAnimation(.spring(duration: 0.3)) { state = .loading }
-        // Reset cross-platform state on every new fetch.
+        // Reset cross-platform state on every new fetch, including any save
+        // status carried over from a previously loaded video (frame count,
+        // saved/error banners, index target) so the new video starts clean.
         shortFormPreview = nil
         lastResult = nil
+        vaultSaved = false
+        vaultError = nil
+        fastFailure = nil
+        lastIndexedFolder = nil
+        vault.frameState = .idle
         switch detectedPlatform {
         case .youtube:
             do {
@@ -674,7 +672,7 @@ struct ContentView: View {
             finishExternalIngest()
             return
         }
-        saveToVault()
+        saveToVault(allowVaultPrompt: false)
         // applyOutcome / save error handlers call finishExternalIngest()
         // once the save settles. We don't await here so the UI updates as
         // the frame pipeline progresses.
@@ -710,13 +708,23 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: work)
     }
 
-    private func saveToVault() {
+    private func saveToVault(allowVaultPrompt: Bool = true) {
         vaultError = nil
 
-        // No vault configured — prompt the user to choose one first
+        // No vault configured. For a user-initiated save, prompt them to pick a
+        // folder. For a BACKGROUND ingest (Share / Services / Shortcuts / menu
+        // bar), never pop a modal folder picker the user didn't initiate — show
+        // the non-blocking error banner and release the funnel instead
+        // (CLAUDE.md: blocking dialogs only for destructive actions).
         if vault.vaultURL == nil {
-            vault.chooseVault()
-            guard vault.vaultURL != nil else { return }
+            if allowVaultPrompt {
+                vault.chooseVault()
+                guard vault.vaultURL != nil else { return }
+            } else {
+                vaultError = VaultError.noVault.localizedDescription
+                finishExternalIngest()
+                return
+            }
         }
 
         // Short-form (Instagram / TikTok) path.
@@ -750,7 +758,7 @@ struct ContentView: View {
 
         // YouTube path (unchanged).
         guard let result = lastResult else {
-            vaultError = "Nothing to save yet. Paste a URL and tap Load first."
+            vaultError = "Nothing to save yet. Load a video first."
             finishExternalIngest()
             return
         }
@@ -834,9 +842,9 @@ struct ContentView: View {
                 lastError = error.localizedDescription
             }
             // Frame indexing is local + offline (SigLIP CoreML) — if it
-            // succeeds, the bundle is searchable. Transcript indexing
-            // failing alone usually means "no Gemini key configured",
-            // which is the silent fallback and not a real failure.
+            // succeeds, the bundle is searchable. Transcript indexing failing
+            // alone usually means the on-device text model wasn't available;
+            // frames are independently useful, so it's not a hard failure.
             await MainActor.run {
                 if framesOK || transcriptOK {
                     IndexStatusStore.shared.markIndexed(folder: bundleFolder)

@@ -29,33 +29,20 @@ uv sync                       # creates .venv, installs deps
 
 Dependencies: `mcp`, `sqlite-vec`, `httpx`, `numpy`, `transformers`,
 `sentence-transformers`, `torch`, `sentencepiece`, `protobuf`. Python ≥ 3.11.
-Text queries are embedded with EmbeddingGemma (on-device default) or Gemini,
-matching how the index was built; frame queries use SigLIP via `transformers`.
-Frame *image* embeddings come from the Mac app's bundled CoreML encoder, so
-this server never needs `coremltools` itself.
+Text queries are embedded on-device with EmbeddingGemma, matching how the
+index was built; frame queries use SigLIP via `transformers`. Frame *image*
+embeddings come from the Mac app's bundled CoreML encoder, so this server
+never needs `coremltools` itself.
 
-## Text search: on-device by default — no key
+## Text search: 100% on-device — no key, zero config
 
-The server embeds each query with the **same model the index was built with**,
-read from `index_meta.current_text_model`, so query and document vectors share
-one space:
-
-- **On-device (default).** Google's EmbeddingGemma, run locally via
-  `sentence-transformers`. No key, no Gemini call. The weights download from
-  HuggingFace on the first text `search` (one-time per machine, ~1.2 GB, cached
-  in `~/.cache/huggingface/`).
-- **Gemini (opt-in).** Only when the index was built with the Gemini provider.
-  Then the server needs your key:
-
-  ```bash
-  security add-generic-password -a youty -s gemini-api -w 'YOUR_GEMINI_KEY'
-  ```
-
-  Pulled from Keychain at first query, sent via the `x-goog-api-key` header —
-  never in URLs or logs. For CI / non-Mac: set `YOUTY_GEMINI_API_KEY`.
-
-If a Gemini-built index is queried with no key available, search degrades to
-BM25 keyword retrieval rather than failing.
+The server embeds each query on-device with **the same model the index was
+built with**, read from `index_meta.current_text_model`, so query and document
+vectors share one space. That model is Google's EmbeddingGemma, run locally via
+`sentence-transformers` — no key, no provider option, no cloud call of any kind.
+The weights download from HuggingFace on the first text `search` (one-time per
+machine, ~1.2 GB, cached in `~/.cache/huggingface/`); every query after that is
+fully offline.
 
 ## SigLIP weights (auto-downloaded for frame-text queries)
 
@@ -105,7 +92,7 @@ claude mcp add youty -- uv --directory ~/AI/youty/youty-mcp run youty-mcp
 
 ```bash
 uv run pytest -q          # 21 passing
-uv run python tests/smoke_live.py    # one-shot live Gemini smoke (uses Keychain key)
+uv run python tests/smoke_live.py    # one-shot live on-device search smoke
 ```
 
 ## Index location

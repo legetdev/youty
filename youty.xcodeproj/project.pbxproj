@@ -49,7 +49,6 @@
 		53450823245D09271EC7931A /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		553C4BACA377775492BC94F8 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E39933821E1F923B66CD21BC /* Sparkle */; };
 		588EEA9FD0F6E4C53048B544 /* IndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */; };
-		59E1BB6B91606B714330DFD1 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A947CCECB5098809045CC6 /* KeychainHelper.swift */; };
 		5EF4E27FAE42FE5B00DC2E29 /* EmbeddingGemma-300m_text.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = DF8BC0A3555C0C0A50141F3F /* EmbeddingGemma-300m_text.mlpackage */; };
 		6166E886D0582F27CABAFB98 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = BE56C34A7461D648D1C2C63A /* LICENSE */; };
 		62DCC093DEC97543E737D4D5 /* SidxParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8C64BEE7581B939A220E62 /* SidxParser.swift */; };
@@ -83,9 +82,7 @@
 		97334541EF7B2EB74000A289 /* CanvasFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */; };
 		975E616FFF3737C01A2CE49C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C870A2F3D64DB3E251183EDE /* main.swift */; };
 		9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */; };
-		980E7FBB4C21F42002063AB9 /* GeminiEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */; };
 		98739D06255647380C8B1388 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7071A2233262A50751C78C /* DebugLog.swift */; };
-		99F278B1636D3DAA95B536B0 /* GeminiEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */; };
 		9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
@@ -138,7 +135,6 @@
 		F9F144165A7A5C93294DB6AC /* EmbeddingGemmaEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34242D9DEADB386F0FE44D8 /* EmbeddingGemmaEmbedder.swift */; };
 		FAAD514A1B9ECDA2B1D27F88 /* CLIConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE828BE532445B11DAFDF7C /* CLIConfig.swift */; };
 		FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12465B44FC685B0D846EA0E /* DebugRunner.swift */; };
-		FEDB9DC9FEB3B9CF9CDB1A47 /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88A947CCECB5098809045CC6 /* KeychainHelper.swift */; };
 		FF23A5E3E006C14D301779E2 /* EmbeddingGemma-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 1D84763388445C90ADAC05EE /* EmbeddingGemma-NOTICE.txt */; };
 /* End PBXBuildFile section */
 
@@ -210,7 +206,6 @@
 		7F0A56EE058438A3D7841601 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegURLSessionIO.swift; sourceTree = "<group>"; };
 		87CBAB60A9E0C95DF447EFB3 /* IngestionFunnel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestionFunnel.swift; sourceTree = "<group>"; };
-		88A947CCECB5098809045CC6 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		8C3DFEC917B99551FA24B633 /* LoginCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginCommand.swift; sourceTree = "<group>"; };
 		8C8C64BEE7581B939A220E62 /* SidxParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidxParser.swift; sourceTree = "<group>"; };
 		8DA24342EA3DFD6206EA021B /* COPYING.LGPLv2.1 */ = {isa = PBXFileReference; lastKnownFileType = text.man; path = COPYING.LGPLv2.1; sourceTree = "<group>"; };
@@ -246,7 +241,6 @@
 		E533613734AEB3CF1ABED12B /* youtyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = youtyApp.swift; sourceTree = "<group>"; };
 		E73525BB1298A12906490472 /* FastFramePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FastFramePipeline.swift; sourceTree = "<group>"; };
 		E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4MoofParser.swift; sourceTree = "<group>"; };
-		E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiEmbedder.swift; sourceTree = "<group>"; };
 		EAAB685FE444A35328E5F8C3 /* merges.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = merges.bin; sourceTree = "<group>"; };
 		EAE828BE532445B11DAFDF7C /* CLIConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIConfig.swift; sourceTree = "<group>"; };
 		EB507870B7D6E4EC22ED4053 /* Indexer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Indexer.swift; sourceTree = "<group>"; };
@@ -389,7 +383,6 @@
 				7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */,
 				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
 				BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */,
-				E9417D0FC8D802B2E46B2194 /* GeminiEmbedder.swift */,
 				ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */,
 				AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */,
 				EB507870B7D6E4EC22ED4053 /* Indexer.swift */,
@@ -399,7 +392,6 @@
 				DEA64626546F131BCD86B15A /* Info.plist */,
 				87CBAB60A9E0C95DF447EFB3 /* IngestionFunnel.swift */,
 				F26E67BEE5ACDE9AEEA6217D /* InstagramExtractor.swift */,
-				88A947CCECB5098809045CC6 /* KeychainHelper.swift */,
 				001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */,
 				356CCF219ED8189DA67F3402 /* MainWindowKeeper.swift */,
 				DB4DB273A82F354414E993F7 /* MediaDownloader.swift */,
@@ -630,13 +622,11 @@
 				7BFBB7156B9F481099D68889 /* FrameEmbedder.swift in Sources */,
 				2B3293CD694D61AA1B68AFAD /* FrameExtractor.swift in Sources */,
 				73B0BABFF6BDC626DCFE37C5 /* FramePipeline.swift in Sources */,
-				980E7FBB4C21F42002063AB9 /* GeminiEmbedder.swift in Sources */,
 				EF6072228D9CD1B5CC1B6667 /* GemmaTokenizer.swift in Sources */,
 				4B07C74A46B6E023674F964E /* HelpCommand.swift in Sources */,
 				588EEA9FD0F6E4C53048B544 /* IndexStore.swift in Sources */,
 				CFAB9ED082046D46CBAD1E68 /* Indexer.swift in Sources */,
 				79FE0CBD42E6F22C8A8C8905 /* InstagramExtractor.swift in Sources */,
-				59E1BB6B91606B714330DFD1 /* KeychainHelper.swift in Sources */,
 				E979052EADCB12AA1DA89989 /* ListCommand.swift in Sources */,
 				B232018D44F6919E8EEB28A1 /* LocalFrameExtractor.swift in Sources */,
 				2BFE4C012A3D481BFA2B24A6 /* LoginCommand.swift in Sources */,
@@ -691,7 +681,6 @@
 				8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */,
 				9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */,
 				A5A27212E838E96609102929 /* FramePipeline.swift in Sources */,
-				99F278B1636D3DAA95B536B0 /* GeminiEmbedder.swift in Sources */,
 				83B3772E21D0CBB7CF5F2108 /* GemmaTokenizer.swift in Sources */,
 				345B82542264F04FB42EA963 /* IndexBadgeView.swift in Sources */,
 				B2EEE7C38E7BE839339857BC /* IndexStatusStore.swift in Sources */,
@@ -699,7 +688,6 @@
 				CE56642172EC7DA6552AD966 /* Indexer.swift in Sources */,
 				E22A06093A2559C9726D7587 /* IngestionFunnel.swift in Sources */,
 				3931592C71C89B67BDA4F77E /* InstagramExtractor.swift in Sources */,
-				FEDB9DC9FEB3B9CF9CDB1A47 /* KeychainHelper.swift in Sources */,
 				754CC21CEEDD77A9212895FE /* LocalFrameExtractor.swift in Sources */,
 				C6324A47E444EB299EAC6DB6 /* MP4MoofParser.swift in Sources */,
 				875EDC64DC621AF33A11D999 /* MainWindowKeeper.swift in Sources */,

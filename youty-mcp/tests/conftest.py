@@ -97,8 +97,16 @@ def seeded_db(tmp_path: Path) -> tuple[Path, Path]:
             VALUES (?,?,?,?,?,?,?,?,?)
             """,
             (c[0], c[1], c[2], c[3], c[4], c[5],
-             "gemini-embedding-001@768", 768, _vec(c[6])),
+             "embeddinggemma-300m@768", 768, _vec(c[6])),
         )
+    # The seeded chunks are on-device EmbeddingGemma embeddings — declare it so
+    # the index is coherent (matching the schema default). This keeps the dense
+    # model_version filter + find_similar's space guard matched to the seeds,
+    # exactly as a real on-device index would be.
+    conn.execute(
+        "INSERT OR REPLACE INTO index_meta(key, value) VALUES "
+        "('current_text_model', 'embeddinggemma-300m@768')"
+    )
     conn.commit()
     conn.close()
     return db_path, vault

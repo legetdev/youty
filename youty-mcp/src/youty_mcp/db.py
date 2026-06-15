@@ -58,10 +58,16 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 
 CREATE VIRTUAL TABLE IF NOT EXISTS vec_frames USING vec0(
     frame_id   INTEGER PRIMARY KEY,
-    embedding  float[512],
+    embedding  float[768],
     platform   TEXT PARTITION KEY
 );
 """
+
+# Frame + chunk embeddings are both 768-d (SigLIP-Base for frames since R.0b,
+# on-device EmbeddingGemma for text). The expected vec0 vector width — used to detect
+# and rebuild a stale virtual table left from an older model (e.g. the 512-d
+# MobileCLIP-S2 frame encoder).
+_VEC_DIM = 768
 
 # Possible default vault locations to scan if index_meta.vault_root is missing.
 _FALLBACK_VAULT_PARENTS = [
@@ -86,6 +92,12 @@ def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     conn.executescript(schema_sql)
 
+    # Drop any vec0 virtual table left at a stale vector width (e.g. a 512-d
+    # vec_frames from the pre-R.0b MobileCLIP-S2 era) so the promotion DDL below
+    # recreates it at the current 768 width and the backfill repopulates it.
+    # vec0 tables are derived data — safe to rebuild from chunks/frames.
+    _migrate_stale_vec_tables(conn)
+
     # Promote: vec0 + FTS5.
     conn.executescript(_PROMOTION_DDL)
 
@@ -95,6 +107,11 @@ def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     # Backfill vec_frames for any new frame rows.
     _backfill_vec_frames(conn)
 
+    # Drop vec0 rows whose chunk/frame no longer exists. Swift re-saves +
+    # re-embeds DELETE+INSERT chunks (new AUTOINCREMENT ids), so without this the
+    # vec0 tables accumulate dead vectors that dilute the dense KNN pool forever.
+    _prune_orphan_vectors(conn)
+
     # Backfill FTS5 (content table mode handles deletes via the trigger pattern,
     # but the simplest correctness contract on startup is: ensure every chunk_id
     # has a matching FTS row).
@@ -102,6 +119,35 @@ def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
 
     conn.commit()
     return conn
+
+
+def _migrate_stale_vec_tables(conn: sqlite3.Connection) -> None:
+    """Drop vec_chunks / vec_frames if declared at a vector width other than the
+    current one (so the CREATE … IF NOT EXISTS in the promotion DDL rebuilds them
+    correctly). vec0 tables are fully derivable from the base chunks/frames rows."""
+    for name in ("vec_chunks", "vec_frames"):
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        if row and row["sql"] and f"float[{_VEC_DIM}]" not in row["sql"]:
+            conn.execute(f"DROP TABLE {name}")
+
+
+def _prune_orphan_vectors(conn: sqlite3.Connection) -> None:
+    """Delete vec0 rows whose backing chunk/frame row is gone (deleted by a Swift
+    re-save/re-embed, which mints new ids). Computed in Python + deleted by primary
+    key so it works regardless of vec0's WHERE-clause support."""
+    for vec_table, base_table, id_col in (
+        ("vec_chunks", "chunks", "chunk_id"),
+        ("vec_frames", "frames", "frame_id"),
+    ):
+        try:
+            vec_ids = {r[0] for r in conn.execute(f"SELECT {id_col} FROM {vec_table}")}
+            live_ids = {r[0] for r in conn.execute(f"SELECT {id_col} FROM {base_table}")}
+        except sqlite3.OperationalError:
+            continue
+        for orphan in vec_ids - live_ids:
+            conn.execute(f"DELETE FROM {vec_table} WHERE {id_col} = ?", (orphan,))
 
 
 def _backfill_vec_chunks(conn: sqlite3.Connection) -> None:
@@ -123,7 +169,7 @@ def _backfill_vec_chunks(conn: sqlite3.Connection) -> None:
         blob = r["embedding"]
         dim = r["embedding_dim"]
         # vec_chunks is declared float[768]; only insert vectors matching that width.
-        if dim != 768 or not blob or len(blob) != dim * 4:
+        if dim != _VEC_DIM or not blob or len(blob) != dim * 4:
             continue
         conn.execute(
             "INSERT INTO vec_chunks(chunk_id, embedding, platform, chunk_type) VALUES (?, ?, ?, ?)",
@@ -147,8 +193,8 @@ def _backfill_vec_frames(conn: sqlite3.Connection) -> None:
     for r in rows:
         blob = r["embedding"]
         dim = r["embedding_dim"]
-        # vec_frames is declared float[512]; only insert vectors matching that width.
-        if dim != 512 or not blob or len(blob) != dim * 4:
+        # vec_frames is declared float[768] (SigLIP-Base); only insert matching width.
+        if dim != _VEC_DIM or not blob or len(blob) != dim * 4:
             continue
         conn.execute(
             "INSERT INTO vec_frames(frame_id, embedding, platform) VALUES (?, ?, ?)",

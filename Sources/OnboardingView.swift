@@ -3,8 +3,7 @@ import AppKit
 
 // First-launch onboarding (R.2). Four cards, completable in any order:
 //   1. Pick a vault folder — required to save anything.
-//   2. AI search — ready on-device by default (no key). Optionally paste a
-//      Gemini key to switch text search to Google's cloud model.
+//   2. AI search — runs 100% on-device (no key, nothing to configure).
 //   3. Install the `youty` command-line binary — copies the install
 //      command + opens Terminal so the user can see what runs.
 //   4. Wire up the `youty-mcp` server for Claude Desktop / Cursor /
@@ -23,18 +22,10 @@ struct OnboardingView: View {
     @ObservedObject var vault: VaultManager
     let onDismiss: () -> Void
 
-    // Forces the gemini-key card to re-read the keychain whenever a save
-    // happens, so the row flips from "pending" to "done" without a
-    // window-cycle.
-    @State private var apiKeyStored: Bool = KeychainHelper.exists(account: "youty",
-                                                                    service: "gemini-api")
-    @State private var apiKeyInput: String = ""
-    @State private var apiKeyError: String?
     @State private var cliCopyConfirmed: Bool = false
     @State private var mcpCopyConfirmed: Bool = false
 
     private var vaultDone: Bool { vault.vaultURL != nil }
-    private var geminiDone: Bool { apiKeyStored }
     /// "Done" for CLI/MCP is heuristic — we can't detect whether the
     /// user actually pasted the command into their terminal. Storing a
     /// "user pressed the button" flag in AppStorage is enough signal to
@@ -61,7 +52,7 @@ struct OnboardingView: View {
                         intro
 
                         vaultCard
-                        geminiCard
+                        aiSearchCard
                         cliCard
                         mcpCard
 
@@ -105,7 +96,7 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Welcome.")
                 .font(.system(size: 18, weight: .semibold))
-            Text("Three quick steps to get the most out of Youty. The vault is required; everything else is optional and reachable from Settings → Onboarding any time.")
+            Text("A few quick steps to get the most out of Youty. The vault is required; everything else is optional and reachable from Settings → Onboarding any time.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -152,51 +143,23 @@ struct OnboardingView: View {
         }
     }
 
-    private var geminiCard: some View {
-        // Search is ready on-device out of the box, so this card reads as
-        // "done" by default (S.5). Pasting a Gemini key is a purely optional
-        // cloud upgrade that also flips the provider to Gemini.
-        card(number: 2, title: "AI search — ready on-device", required: false, done: true) {
+    private var aiSearchCard: some View {
+        // AI search runs 100% on-device — nothing to configure, so this card is
+        // purely informational and reads as "done" by default.
+        card(number: 2, title: "AI search — on-device", required: false, done: true) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Searching your saved videos by meaning runs fully on-device — no API key, nothing leaves your Mac. It works the moment you save your first video.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("Optional: prefer Google's cloud model for a small accuracy gain? Paste a Gemini key to switch to it — that sends transcript text to Google when indexing and searching. You can switch back any time in Settings.")
+                Text("Searching your saved videos by meaning runs 100% on-device — no API key, no account, nothing leaves your Mac. It works the moment you save your first video.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
-                    SecureField(geminiDone ? "Replace stored key…" : "Paste a Gemini key (optional)",
-                                text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
                         .font(.system(size: 12))
-                        .onSubmit { saveGeminiKey() }
-                        .accessibilityLabel("Gemini API key (optional)")
-                    Button(geminiDone ? "Replace" : "Use Gemini") {
-                        saveGeminiKey()
-                    }
-                    .controlSize(.small)
-                    .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                if let err = apiKeyError {
-                    Text(err).font(.system(size: 11)).foregroundStyle(.red)
-                }
-
-                HStack(spacing: 12) {
-                    Link("Get a key →", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
-                        .font(.system(size: 11))
-                    if geminiDone {
-                        Text("✓ Using Gemini cloud search")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Using on-device search — no key needed")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("Ready to go — nothing to set up.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                     Spacer()
                 }
             }
@@ -389,22 +352,6 @@ struct OnboardingView: View {
     }
 
     // MARK: - Actions
-
-    private func saveGeminiKey() {
-        let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try KeychainHelper.write(trimmed, account: "youty", service: "gemini-api")
-            // Pasting a key here is an explicit "use Gemini" — flip the
-            // provider so the key actually takes effect (default is on-device).
-            settings.embeddingProvider = .gemini
-            apiKeyStored = true
-            apiKeyInput = ""
-            apiKeyError = nil
-        } catch {
-            apiKeyError = "Couldn't store key: \(error.localizedDescription)"
-        }
-    }
 
     private func copyToClipboard(_ text: String) {
         let pb = NSPasteboard.general

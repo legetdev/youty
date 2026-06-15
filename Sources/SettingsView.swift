@@ -28,9 +28,6 @@ struct SettingsView: View {
     let onDismiss: () -> Void
 
     @StateObject private var indexerProgress = IndexerProgress()
-    @State private var apiKeyInput: String = ""
-    @State private var apiKeyStored: Bool = KeychainHelper.exists(account: "youty", service: "gemini-api")
-    @State private var apiKeyMessage: String?
     @State private var showOnboarding: Bool = false
 
     var body: some View {
@@ -234,7 +231,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("AI search index")
 
-            Text("Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Runs fully on-device by default — no key, nothing leaves your Mac. You can opt into Gemini below for a small accuracy gain (that sends transcript text to Google and needs a key). After switching providers, re-index the vault so every video shares one embedding space. Re-indexing also rebuilds the on-device frame vectors used for visual search.")
+            Text("Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Runs 100% on-device — no API key, nothing leaves your Mac. Re-indexing rebuilds the on-device text and frame vectors used for search.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -247,88 +244,23 @@ struct SettingsView: View {
             .controlSize(.small)
             .accessibilityHint("When on, every saved video is embedded into the local search index so AI tools can find it by meaning")
 
-            // Provider picker — on-device by default (no key, fully local)
-            // or opt into Gemini cloud. Drives `EmbeddingProvider` everywhere.
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Embedding provider")
-                    .font(.system(size: 11))
+            // 100% on-device — no key, nothing leaves the Mac.
+            HStack(spacing: 8) {
+                Image(systemName: "lock.laptopcomputer")
+                    .foregroundStyle(.green)
+                    .font(.system(size: 12))
+                Text("Runs 100% on-device — no API key needed, nothing leaves your Mac.")
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                Picker("", selection: $settings.embeddingProviderRaw) {
-                    ForEach(SettingsStore.embeddingProviderOptions, id: \.value) { opt in
-                        Text(opt.label).tag(opt.value)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel("Embedding provider")
-                .accessibilityHint("On-device runs locally with no API key; Gemini sends transcript text to Google and needs a key")
+                Spacer()
             }
 
-            if settings.embeddingProvider == .local {
-                // On-device — no key, nothing leaves the Mac.
-                HStack(spacing: 8) {
-                    Image(systemName: "lock.laptopcomputer")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 12))
-                    Text("Runs fully on-device — no API key needed, nothing leaves your Mac.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            } else {
-                // Gemini cloud — API key field. Reads + writes Keychain at
-                // account=youty, service=gemini-api so the value is never
-                // serialised to disk outside the system keychain.
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Image(systemName: apiKeyStored ? "checkmark.seal.fill" : "key.fill")
-                            .foregroundStyle(apiKeyStored ? .green : .secondary)
-                            .font(.system(size: 12))
-                        Text(apiKeyStored ? "Gemini API key stored in Keychain" : "Add a Gemini API key to enable cloud search")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    HStack(spacing: 8) {
-                        SecureField(apiKeyStored ? "Enter a new key to replace…" : "Paste your Gemini API key",
-                                     text: $apiKeyInput)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                            )
-                            .accessibilityLabel("Gemini API key")
-                            .accessibilityHint("Paste your key from aistudio.google.com — stored only on this Mac")
-                        Button("Save") { saveAPIKey() }
-                            .disabled(apiKeyInput.trimmingCharacters(in: .whitespaces).isEmpty)
-                            .controlSize(.small)
-                            .accessibilityLabel("Save API key")
-                    }
-                    if let msg = apiKeyMessage {
-                        Text(msg)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack(spacing: 4) {
-                        Text("Free tier covers a few thousand videos.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                        Link("Get a key →", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
-                            .font(.system(size: 11))
-                    }
-                }
-            }
-
-            // Migration card (S.4) — appears only when the index was built
-            // with a different model than the active provider. A text-only
-            // re-embed (frames untouched), so it's the fast path.
+            // Migration card (S.4) — appears only when the index was built with
+            // an older model than the on-device embedder (e.g. a legacy index).
+            // A text-only re-embed (frames untouched), so it's the fast path.
             if let s = indexerProgress.stats,
                let model = s.textModelID,
-               model != settings.embeddingProvider.modelIdentifier,
+               model != EmbeddingGemmaEmbedder.modelIdentifier,
                s.chunkCount > 0 {
                 migrationCard()
             }
@@ -385,8 +317,8 @@ struct SettingsView: View {
                     Image(systemName: "shippingbox.fill")
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
-                    Text("\(s.videoCount) videos · \(s.chunkCount) chunks" +
-                         (s.frameCount > 0 ? " · \(s.frameCount) frame vectors" : "") +
+                    Text("\(s.videoCount) videos" +
+                         (s.frameCount > 0 ? " · \(s.frameCount) frames" : "") +
                          "  ·  \(formatBytes(s.dbBytes)) on disk")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -396,36 +328,13 @@ struct SettingsView: View {
                         Image(systemName: "clock")
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
-                        Text("Last full reindex: \(formatRelativeTime(unixMs: lastMs))")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                if let model = s.textModelID {
-                    HStack(spacing: 6) {
-                        Image(systemName: "cpu")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                        Text("Text model: \(model)")
+                        Text("Last updated: \(formatRelativeTime(unixMs: lastMs))")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
                 }
             }
             .padding(.top, 2)
-        }
-    }
-
-    private func saveAPIKey() {
-        let trimmed = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        do {
-            try KeychainHelper.write(trimmed, account: "youty", service: "gemini-api")
-            apiKeyInput = ""
-            apiKeyStored = true
-            apiKeyMessage = "Key saved. New saves will be indexed automatically."
-        } catch {
-            apiKeyMessage = "Couldn't save key. \(error.localizedDescription)"
         }
     }
 
@@ -453,30 +362,27 @@ struct SettingsView: View {
                 }
             } catch {
                 await MainActor.run {
-                    self.indexerProgress.lastStatus = "Failed: \(error.localizedDescription)"
+                    self.indexerProgress.lastStatus = "Couldn't finish — \(error.localizedDescription)"
                     self.indexerProgress.isRunning = false
                 }
             }
         }
     }
 
-    /// Contextual migration card shown when the index's text model differs
-    /// from the active provider (Phase S.4). Offers a text-only re-embed.
+    /// Contextual migration card shown when the index's text model is older
+    /// than the on-device embedder (e.g. a legacy index). Offers a text-only
+    /// re-embed to the on-device model.
     @ViewBuilder
     private func migrationCard() -> some View {
-        let target = settings.embeddingProvider
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "wand.and.stars")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.accentColor)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(target == .local ? "Switch this vault to on-device search"
-                                          : "Switch this vault to Gemini search")
+                    Text("Update this vault for on-device search")
                         .font(.system(size: 12, weight: .medium))
-                    Text(target == .local
-                         ? "Your index was built with Gemini. Re-embed it on-device so search needs no API key — keyword search keeps working while it runs."
-                         : "Re-embed your index with Gemini — keyword search keeps working while it runs.")
+                    Text("Your index was built with an older model. Re-embed it on-device — keyword search keeps working while it runs.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -491,15 +397,13 @@ struct SettingsView: View {
                     } else {
                         Image(systemName: "arrow.triangle.2.circlepath")
                     }
-                    Text(indexerProgress.isRunning
-                         ? "Re-embedding…"
-                         : "Re-embed for \(target == .local ? "on-device" : "Gemini") search")
+                    Text(indexerProgress.isRunning ? "Re-embedding…" : "Re-embed on-device")
                         .font(.system(size: 12, weight: .medium))
                 }
             }
             .controlSize(.regular)
             .disabled(indexerProgress.isRunning || vault.vaultURL == nil)
-            .accessibilityHint("Re-embeds only transcript text with the selected provider; frame search is untouched")
+            .accessibilityHint("Re-embeds only transcript text on-device; frame search is untouched")
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -528,7 +432,7 @@ struct SettingsView: View {
                 }
             } catch {
                 await MainActor.run {
-                    self.indexerProgress.lastStatus = "Failed: \(error.localizedDescription)"
+                    self.indexerProgress.lastStatus = "Couldn't finish — \(error.localizedDescription)"
                     self.indexerProgress.isRunning = false
                 }
             }
@@ -576,7 +480,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle("Onboarding")
 
-            Text("Re-open the first-run cards any time — pick a vault, add a Gemini key, install the CLI, wire up the MCP server.")
+            Text("Re-open the first-run cards any time — pick a vault, install the CLI, wire up the MCP server.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -619,7 +523,7 @@ struct SettingsView: View {
                 }
                 .controlSize(.small)
                 .accessibilityLabel("Check for Updates")
-                .accessibilityHint("Asks Sparkle to look for a newer Youty release and present an update dialog if one is available")
+                .accessibilityHint("Checks for a newer version of Youty and offers to install it")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -630,52 +534,43 @@ struct SettingsView: View {
                 Group {
                     aboutRow("FFmpeg 7.1.1", license: "LGPL-2.1+", note: "statically linked")
                     aboutRow("Sparkle 2.9.2", license: "MIT", note: "auto-update framework")
-                    aboutRow("sqlite-vec", license: "Apache-2.0", note: nil)
-                    aboutRow("SQLite", license: "public domain", note: nil)
-                    aboutRow("SigLIP-Base-Patch16-224 (CoreML)", license: "Apache-2.0", note: "bundled in app")
-                    aboutRow("EmbeddingGemma-300m (CoreML)", license: "Gemma Terms", note: "on-device text search")
-                    aboutRow("CLIP tokenizer (OpenAI)", license: "MIT", note: "downloaded on first use")
+                    aboutRow("SigLIP-Base-Patch16-224 (CoreML)", license: "Apache-2.0", note: "bundled, on-device frame search")
+                    aboutRow("EmbeddingGemma-300m (CoreML)", license: "Gemma Terms", note: "bundled, on-device text search")
+                    aboutRow("SQLite", license: "public domain", note: "system library")
                     aboutRow("Apple system frameworks", license: "Apple SDK Agreement", note: nil)
-                    aboutRow("Google Gemini API", license: "Google API Terms", note: "optional, your key")
                 }
             }
 
-            HStack(spacing: 12) {
-                Button("Show full notices…") {
-                    openBundledResource(name: "THIRD_PARTY_LICENSES", ext: "md")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Licenses & notices")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("All notices") {
+                        openBundledResource(name: "THIRD_PARTY_LICENSES", ext: "md")
+                    }
+                    .accessibilityLabel("Show full third-party notices")
+                    .accessibilityHint("Opens the full open-source license notices")
+
+                    Button("FFmpeg") {
+                        openBundledResource(name: "COPYING.LGPLv2.1", ext: nil)
+                    }
+                    .accessibilityLabel("Show FFmpeg LGPL-2.1 license")
+
+                    Button("SigLIP") {
+                        openBundledResource(name: "LICENSE", ext: nil)
+                    }
+                    .accessibilityLabel("Show SigLIP Apache-2.0 license")
+
+                    Button("Gemma") {
+                        openBundledResource(name: "EmbeddingGemma-NOTICE", ext: "txt")
+                    }
+                    .accessibilityLabel("Show EmbeddingGemma Gemma Terms notice")
+
+                    Spacer()
                 }
                 .controlSize(.small)
-                .accessibilityLabel("Show full third-party notices")
-                .accessibilityHint("Opens the bundled THIRD_PARTY_LICENSES.md")
-
-                Button("Show FFmpeg license…") {
-                    openBundledResource(name: "COPYING.LGPLv2.1", ext: nil)
-                }
-                .controlSize(.small)
-                .accessibilityLabel("Show FFmpeg LGPL-2.1 license")
-                .accessibilityHint("Opens the bundled LGPL-2.1 license text")
-
-                Button("Show SigLIP license…") {
-                    openBundledResource(name: "LICENSE", ext: nil)
-                }
-                .controlSize(.small)
-                .accessibilityLabel("Show SigLIP Apache-2.0 license")
-                .accessibilityHint("Opens the bundled Apache-2.0 license text for SigLIP")
-
-                Button("Show Gemma notice…") {
-                    openBundledResource(name: "EmbeddingGemma-NOTICE", ext: "txt")
-                }
-                .controlSize(.small)
-                .accessibilityLabel("Show EmbeddingGemma Gemma Terms notice")
-                .accessibilityHint("Opens the bundled Gemma Terms of Use notice for the on-device text model")
-
-                Spacer()
             }
-
-            Text("To relink Youty against a modified FFmpeg, edit the source from `ffmpeg.org/releases/ffmpeg-7.1.1.tar.xz`, then re-run `Scripts/build-ffmpeg.sh` and `xcodebuild -scheme youty -configuration Release`. To rebuild the SigLIP image encoder, edit and re-run `Scripts/convert-siglip-coreml.py`; for the on-device text model, `Scripts/convert-embeddinggemma-coreml.py`.")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

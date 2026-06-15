@@ -1,7 +1,9 @@
-"""Live smoke test: one real Gemini call.
+"""Live smoke test: one real on-device EmbeddingGemma embed + search.
 
-Reads the API key from the macOS Keychain. Runs a single embed + search round
-against either an existing index.db (if present) or a freshly-seeded temp DB.
+Loads the on-device EmbeddingGemma query encoder (downloads the gated model on
+first run — requires `hf auth login` and accepting the Gemma license) and runs a
+single embed + search round against either an existing index.db (if present) or
+a freshly-seeded temp DB. No API key, no network embedding call.
 
 Usage:  uv run python tests/smoke_live.py
 """
@@ -44,7 +46,7 @@ def main() -> int:
             """INSERT INTO chunks (video_id,chunk_type,chunk_index,chunk_text,
                 chunk_start_ms,chunk_end_ms,model_version,embedding_dim,embedding)
                VALUES ('yt:smoke','body',0,'best practices on creating AI influencers',
-                       0,30000,'gemini-embedding-001@768',768,?)""",
+                       0,30000,'embeddinggemma-300m@768',768,?)""",
             (_vec(42),),
         )
         conn.commit()
@@ -63,7 +65,7 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    print(f"HTTP path: 200 (no exception)")
+    print(f"on-device embed path: OK (no exception)")
     print(f"query: {out['query']!r}")
     print(f"sub_queries: {out['sub_queries']}")
     print(f"results: {len(out['results'])}")

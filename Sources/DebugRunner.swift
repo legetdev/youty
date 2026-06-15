@@ -475,11 +475,11 @@ enum DebugRunner {
     }
 
     // Headless Phase B smoke test. Walks every video.md under the given
-    // vault path, embeds each via Gemini, writes into the SQLite index at
+    // vault path, embeds each on-device, writes into the SQLite index at
     // ~/Library/Application Support/Youty/index.db. Exit codes:
     //   0 — all bundles indexed cleanly
-    //   1 — partial: some bundles failed (e.g. transient network)
-    //   2 — setup error (missing key, unreadable vault)
+    //   1 — partial: some bundles failed
+    //   2 — setup error (unreadable vault, or on-device model unavailable)
     //   3 — fatal (DB open, embedder ctor)
     private static func runReindexProbe(vaultPath: String) -> Never {
         // Resolve the path. If the user passed the same folder they previously
@@ -1199,10 +1199,9 @@ enum DebugRunner {
     /// L2-normalized, finite), that the path is DETERMINISTIC, and — the
     /// sophisticated part — that the vectors are SEMANTICALLY meaningful
     /// (a related document out-scores an unrelated one). All on-device,
-    /// with no Gemini key involved at any point. Catches: bundle-resource
-    /// regressions, tokenizer-artifact drift, Core ML i/o schema changes,
-    /// compute-unit precision regressions, and any silent fallback to a
-    /// different (key-requiring) embedder.
+    /// with no key or network involved at any point. Catches: bundle-resource
+    /// regressions, tokenizer-artifact drift, Core ML i/o schema changes, and
+    /// compute-unit precision regressions.
     private static func runEmbeddingGemmaProbe() -> Never {
         let sem = DispatchSemaphore(value: 0)
         let box = ExitBox()
@@ -1211,8 +1210,8 @@ enum DebugRunner {
             do {
                 let started = Date()
                 // Production resolver — Bundle.main then SharedResourceLocator.
-                // No key is read; if this silently fell back to Gemini it would
-                // need one, so reaching OK proves the key-free path.
+                // Fully on-device — no key, no network; reaching OK proves the
+                // key-free path loads and runs.
                 let embedder = try EmbeddingGemmaEmbedder()
                 let loadMs = Int(Date().timeIntervalSince(started) * 1000)
                 print("MODEL_ID=\(embedder.modelIdentifier)")

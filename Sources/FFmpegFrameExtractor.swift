@@ -138,10 +138,12 @@ enum FFmpegFrameExtractor {
             guard let opaque, let buf else { return -1 }
             let io = Unmanaged<FFmpegURLSessionIO>.fromOpaque(opaque).takeUnretainedValue()
             let n = io.read(buffer: buf, size: Int(size))
-            if n == 0 {
-                // AVERROR_EOF — returning 0 also works on FFmpeg 7.x but be explicit.
-                return Int32(bitPattern: 0xDEADBEEF) // overwritten below
-            }
+            // AVERROR_EOF = -('E'|'O'<<8|'F'<<16|' '<<24) = -0x20464F45. Signals a
+            // CLEAN end-of-stream to libavformat. A negative read is a real error
+            // and is propagated as-is (distinct from EOF) so a truncated fetch
+            // can't masquerade as a normal end and yield a silently short decode.
+            if n == 0 { return -541478725 }   // AVERROR_EOF
+            if n < 0  { return Int32(clamping: n) }
             return Int32(n)
         }
         let seekCB: @convention(c) (UnsafeMutableRawPointer?,

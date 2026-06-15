@@ -1,8 +1,9 @@
 """End-to-end against the seeded DB, calling tool fns directly (no MCP wire).
 
-These tests bypass Gemini by NOT exercising the network path — `_do_search`
-falls back to BM25 when embedding fails, and we assert on the spec shape.
-For a live Gemini smoke test, see `tests/smoke_live.py`.
+Text search is on-device only. These tests don't download the EmbeddingGemma
+model — they stub the on-device encoder so `_do_search` falls back to BM25-only
+retrieval, and assert on the spec shape. For a live on-device smoke test, see
+`tests/smoke_live.py`.
 """
 
 from __future__ import annotations
@@ -13,17 +14,21 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _force_no_network(monkeypatch, seeded_db):
+def _force_no_encoder(monkeypatch, seeded_db):
     db_path, _ = seeded_db
     monkeypatch.setenv("YOUTY_INDEX_DB", str(db_path))
-    # Force the key lookup to a value that the network call will reject — the
-    # server should then fall back to BM25-only retrieval per spec.
-    monkeypatch.setenv("YOUTY_GEMINI_API_KEY", "invalid-key-for-test-only")
     # Reset lazy singletons so each test gets a fresh state.
     from youty_mcp import server
 
     server._STATE.close()
     server._STATE.__init__()
+
+    # Make the on-device encoder unavailable so search falls back to BM25-only
+    # without trying to download / load the multi-hundred-MB model in CI.
+    def _no_encoder():
+        raise RuntimeError("on-device encoder unavailable in test")
+
+    monkeypatch.setattr(server._STATE, "text_embedder", _no_encoder)
     yield
     server._STATE.close()
 

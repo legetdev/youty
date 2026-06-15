@@ -76,8 +76,8 @@ def test_dedupe_per_video_caps_at_two(seeded_db):
     assert kept[0].score >= kept[1].score
 
 
-def _frame_vec(seed: int, dim: int = 512) -> bytes:
-    """fp32-LE little-endian 512-dim vector, L2-normalised, used as fake frame embedding."""
+def _frame_vec(seed: int, dim: int = 768) -> bytes:
+    """fp32-LE little-endian 768-dim vector (SigLIP-Base width), L2-normalised, fake frame embedding."""
     rng = np.random.default_rng(seed)
     v = rng.standard_normal(dim).astype(np.float32)
     v /= np.linalg.norm(v) or 1.0
@@ -98,7 +98,7 @@ def _seed_frames(conn: sqlite3.Connection) -> None:
                (video_id, frame_ms, frame_path, phash, model_version,
                 embedding_dim, embedding)
                VALUES (?,?,?,?,?,?,?)""",
-            (vid, ms, path, None, "mobileclip-s2@512", 512, _frame_vec(seed)),
+            (vid, ms, path, None, "siglip-base-patch16-224@768", 768, _frame_vec(seed)),
         )
     conn.commit()
 
@@ -114,7 +114,7 @@ def test_dense_top_k_frames_finds_seeded(seeded_db):
 
     # Build a query vec equal to seed=2's vector — should hit it as nearest.
     rng = np.random.default_rng(2)
-    v = rng.standard_normal(512).astype(np.float32)
+    v = rng.standard_normal(768).astype(np.float32)
     v /= np.linalg.norm(v) or 1.0
     hits = dense_top_k_frames(conn, v.tolist(), k=5)
     assert len(hits) >= 1
@@ -135,7 +135,6 @@ def test_search_frames_via_mocked_encoder(seeded_db, monkeypatch):
     conn.close()
 
     monkeypatch.setenv("YOUTY_INDEX_DB", str(db_path))
-    monkeypatch.setenv("YOUTY_GEMINI_API_KEY", "invalid-key-for-test-only")
     from youty_mcp import server
 
     server._STATE.close()
@@ -145,7 +144,7 @@ def test_search_frames_via_mocked_encoder(seeded_db, monkeypatch):
     class _FakeEncoder:
         def embed_text(self, text: str) -> list[float]:
             rng = np.random.default_rng(3)
-            v = rng.standard_normal(512).astype(np.float32)
+            v = rng.standard_normal(768).astype(np.float32)
             v /= np.linalg.norm(v) or 1.0
             return v.tolist()
 

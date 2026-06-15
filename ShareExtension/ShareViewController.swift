@@ -63,7 +63,7 @@ final class ShareViewController: NSViewController {
                 state = .saved
                 completeAfterDelay(success: true, delay: 0.6)
             } catch {
-                state = .failed(error.localizedDescription)
+                state = .failed("Couldn't read the shared item.")
                 completeAfterDelay(success: false, delay: 1.6)
             }
         }

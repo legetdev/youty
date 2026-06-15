@@ -4,9 +4,11 @@ Exposes six tools — `search`, `get_transcript`, `get_video`, `list_videos`,
 `find_similar`, `search_frames` — over stdio. Designed to be wired into
 Claude Desktop / Claude Code / Cursor via their MCP config files.
 
-The server holds a single long-lived sqlite3 connection and a single httpx
-client (wrapped in GeminiEmbedder). Both are created lazily on first use
-so smoke tests against an empty DB don't require a network key.
+Text search is 100% on-device: queries are embedded with EmbeddingGemma
+(`embeddinggemma_text.py`), the same model the indexer embeds documents with.
+No API key, no cloud calls. The server holds a single long-lived sqlite3
+connection; the query encoder is loaded lazily (and warmed in the background
+at startup) on first use.
 """
 
 from __future__ import annotations
@@ -24,8 +26,6 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from . import db as _db
-from .embedder import GeminiEmbedder, looks_compound
-from .keychain import get_gemini_api_key
 from .retrieval import (
     dense_top_k,
     dense_top_k_frames,
@@ -41,7 +41,7 @@ _log = logging.getLogger("youty_mcp")
 
 # Defensive cap on free-form string args coming from the MCP client. 10 KB is
 # orders of magnitude above any human-typed query and keeps a misbehaving
-# caller from streaming megabytes into Gemini / SQLite. Applied at every
+# caller from streaming megabytes into the encoder / SQLite. Applied at every
 # tool boundary.
 _MAX_STRING_ARG = 10_000
 
@@ -59,11 +59,10 @@ def _clamp(s: str | None) -> str | None:
 
 
 class _State:
-    """Lazily-instantiated singletons (DB + Gemini + SigLIP + EmbeddingGemma)."""
+    """Lazily-instantiated singletons (DB + on-device EmbeddingGemma + SigLIP)."""
 
     def __init__(self) -> None:
         self._conn: sqlite3.Connection | None = None
-        self._embedder: GeminiEmbedder | None = None
         self._clip_text = None  # SigLIPTextEncoder
         self._eg_text = None  # EmbeddingGemmaTextEncoder
         self._eg_lock = threading.Lock()  # guards _eg_text creation
@@ -82,11 +81,6 @@ class _State:
                 _log.warning("vault-root probe failed (non-fatal): %s", exc)
         return self._conn
 
-    def embedder(self) -> GeminiEmbedder:
-        if self._embedder is None:
-            self._embedder = GeminiEmbedder(get_gemini_api_key())
-        return self._embedder
-
     def current_text_model(self) -> str:
         """Which model the index's text chunks were embedded with (index_meta)."""
         try:
@@ -98,29 +92,27 @@ class _State:
             return ""
 
     def text_embedder(self):
-        """Pick the query embedder that MATCHES how the docs were embedded so
-        query + document vectors live in one space. An EmbeddingGemma index ->
-        the local on-device-parity encoder (no key); otherwise Gemini."""
-        if self.current_text_model().startswith("embeddinggemma"):
-            if self._eg_text is None:
-                with self._eg_lock:
-                    if self._eg_text is None:
-                        from .embeddinggemma_text import EmbeddingGemmaTextEncoder
+        """The on-device EmbeddingGemma query encoder — the only text embedder.
+        Documents are embedded with the same model, so query + document vectors
+        share one space. No API key, no cloud call. Loaded lazily, guarded so a
+        background warm-up and a concurrent first query can't double-load."""
+        if self._eg_text is None:
+            with self._eg_lock:
+                if self._eg_text is None:
+                    from .embeddinggemma_text import EmbeddingGemmaTextEncoder
 
-                        self._eg_text = EmbeddingGemmaTextEncoder()
-            return self._eg_text
-        return self.embedder()
+                    self._eg_text = EmbeddingGemmaTextEncoder()
+        return self._eg_text
 
     def warm_text_embedder(self) -> None:
         """Force-load the on-device EG query encoder so the user's FIRST `search`
         doesn't pay the one-time torch / sentence-transformers import + model
         load (~5-7 s). Touches NO database — the sqlite connection is
         main-thread-only (check_same_thread), so this is safe on the startup
-        daemon thread. The caller checks `current_text_model` on the main thread
-        and only warms for an EmbeddingGemma index. The torch model loaded here
-        is reused by queries on the event-loop thread (PyTorch CPU models carry
-        no thread affinity). Any failure is non-fatal — the first query then
-        loads lazily, exactly as before."""
+        daemon thread. The torch model loaded here is reused by queries on the
+        event-loop thread (PyTorch CPU models carry no thread affinity). Any
+        failure is non-fatal — the first query then loads lazily, exactly as
+        before."""
         try:
             with self._eg_lock:
                 if self._eg_text is None:
@@ -142,8 +134,6 @@ class _State:
         return self._clip_text
 
     def close(self) -> None:
-        if self._embedder is not None:
-            self._embedder.close()
         if self._conn is not None:
             self._conn.close()
 
@@ -178,11 +168,9 @@ def search(
     paths and timestamps.
 
     Internally runs a dense embedder + SQLite FTS5 (BM25) fused via RRF.
-    The dense embedder matches whatever the index was built with: the
-    on-device EmbeddingGemma model by default (no API key), or Gemini if
-    the user opted into it. On a Gemini index, compound questions get
-    auto-decomposed into ≤3 sub-queries via Gemini Flash; you don't need to
-    split them yourself either way.
+    The dense side is the on-device EmbeddingGemma model — the same model the
+    index was built with, so no API key and no cloud call. Compound questions
+    work fine as-is; you don't need to split them yourself.
 
     Args:
         query: The user's natural-language question, in any language.
@@ -402,13 +390,17 @@ def find_similar(video_id: str, k: int = 10) -> dict[str, Any]:
     `search` results, scored by `1 - cosine_distance` (higher = closer).
     """
     conn = _STATE.conn()
-    rows = conn.execute(
-        """
-        SELECT embedding, embedding_dim FROM chunks
-        WHERE video_id = ? AND chunk_type = 'body'
-        """,
-        (video_id,),
-    ).fetchall()
+    # Confine to the index's current text-embedding space so a mixed-model index
+    # (mid-migration) never averages two spaces into a meaningless centroid or
+    # compares across spaces — the same guard `search` applies. NULL skips it.
+    model = _STATE.current_text_model() or None
+    src_sql = (
+        "SELECT embedding, embedding_dim FROM chunks "
+        "WHERE video_id = ? AND chunk_type = 'body'"
+        + (" AND model_version = ?" if model else "")
+    )
+    src_params: list[object] = [video_id] + ([model] if model else [])
+    rows = conn.execute(src_sql, src_params).fetchall()
     if not rows:
         return {
             "results": [],
@@ -418,19 +410,18 @@ def find_similar(video_id: str, k: int = 10) -> dict[str, Any]:
 
     avg = _average_vectors([r["embedding"] for r in rows], rows[0]["embedding_dim"])
     blob = struct.pack(f"<{len(avg)}f", *avg)
-    # Search header chunks of OTHER videos.
-    sql = """
-        SELECT vc.chunk_id, vc.distance, c.video_id
-        FROM vec_chunks vc
-        JOIN chunks c ON c.chunk_id = vc.chunk_id
-        WHERE vc.embedding MATCH ?
-          AND vc.k = ?
-          AND vc.chunk_type = 'header'
-          AND c.video_id != ?
-        ORDER BY vc.distance
-    """
+    # Search header chunks of OTHER videos, in the same embedding space.
+    sql = (
+        "SELECT vc.chunk_id, vc.distance, c.video_id "
+        "FROM vec_chunks vc JOIN chunks c ON c.chunk_id = vc.chunk_id "
+        "WHERE vc.embedding MATCH ? AND vc.k = ? AND vc.chunk_type = 'header' "
+        "AND c.video_id != ?"
+        + (" AND c.model_version = ?" if model else "")
+        + " ORDER BY vc.distance"
+    )
+    knn_params: list[object] = [blob, max(k * 3, 20), video_id] + ([model] if model else [])
     try:
-        sim_rows = conn.execute(sql, (blob, max(k * 3, 20), video_id)).fetchall()
+        sim_rows = conn.execute(sql, knn_params).fetchall()
     except sqlite3.OperationalError:
         sim_rows = []
 
@@ -475,7 +466,7 @@ def search_frames(
 ) -> dict[str, Any]:
     """Find video frames in the vault that visually match a text description.
 
-    Uses Apple's MobileCLIP-S2 joint text-image space (the same one the
+    Uses Google's SigLIP-Base joint text-image space (the same one the
     indexer embedded the frames with). The query is text — what's visible
     in the frame — and results are JPEG paths plus their parent video.
 
@@ -516,7 +507,7 @@ def _do_search_frames(
             "ms": {"embed": 0, "retrieve": 0, "total": 0},
         }
 
-    # Embed the query via the local MobileCLIP-S2 text encoder.
+    # Embed the query via the local SigLIP-Base text encoder.
     t_embed = time.perf_counter()
     try:
         query_vec = _STATE.clip_text().embed_text(query)
@@ -706,40 +697,26 @@ def _do_search(
     t_total = time.perf_counter()
     conn = _STATE.conn()
 
-    # Multi-query decomposition (best-effort, <=1.5 s, falls back silently).
-    # Decomposition uses Gemini Flash (generation); skip it on an EmbeddingGemma
-    # index so a fully on-device, key-free setup never reaches for a Gemini key.
-    sub_queries: list[str] = []
-    if looks_compound(query) and not _STATE.current_text_model().startswith("embeddinggemma"):
-        try:
-            sub_queries = _STATE.embedder().decompose(query)
-        except Exception as exc:  # noqa: BLE001 — silent fallback per spec
-            _log.info("multi-query decompose failed, falling back: %s", exc)
-            sub_queries = []
-
-    # Always include the original query first; cap total queries at 4.
+    # Text search is on-device only: one query, embedded with EmbeddingGemma.
+    # (There is no cloud query-decomposition step — the dense encoder handles
+    # compound questions directly.)
     all_queries: list[str] = [query]
-    for sq in sub_queries:
-        if sq.strip() and sq.strip().lower() != query.strip().lower():
-            all_queries.append(sq.strip())
-        if len(all_queries) >= 4:
-            break
 
-    # Embed each query (dense side). Fail soft per query.
+    # Embed the query (dense side). Fail soft — fall back to BM25-only if the
+    # on-device encoder can't load (e.g. model not yet downloaded).
     t_embed = time.perf_counter()
     query_vecs: list[list[float]] = []
     try:
         embedder = _STATE.text_embedder()
-        for q in all_queries:
-            try:
-                query_vecs.append(embedder.embed_query(q))
-            except Exception as exc:  # noqa: BLE001
-                _log.warning("embed failed for %r: %s", q, exc)
-                query_vecs.append([])  # keep alignment
+        try:
+            query_vecs.append(embedder.embed_query(query))
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("embed failed for %r: %s", query, exc)
+            query_vecs.append([])  # keep alignment
     except RuntimeError as exc:
-        # No API key or keychain issue — sparse-only retrieval.
+        # On-device encoder unavailable — sparse-only retrieval.
         _log.warning("embedder unavailable; falling back to BM25 only: %s", exc)
-        query_vecs = [[] for _ in all_queries]
+        query_vecs = [[]]
     embed_ms = int((time.perf_counter() - t_embed) * 1000)
 
     # Hybrid retrieval.
@@ -866,15 +843,21 @@ def _average_vectors(blobs: list[bytes], dim: int) -> list[float]:
 
 
 def _parse_since(since_iso: str | None) -> int | None:
-    """Parse ISO-8601 → unix ms. Returns None on bad input."""
+    """Parse ISO-8601 → unix ms (UTC). Returns None on bad input.
+
+    A date-only input (e.g. "2026-04-01") has no timezone; interpret it as UTC
+    (not the server's local tz) so the cutoff matches the UTC `videos.date_saved`
+    rather than drifting by the local offset at the day boundary."""
     if not since_iso:
         return None
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     try:
         dt = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return int(dt.timestamp() * 1000)
 
 
@@ -919,10 +902,6 @@ def main() -> None:
         # Don't crash the server if the log dir is unwritable — just stderr.
         _log.warning("could not open log file (continuing stderr-only): %s", exc)
 
-    # httpx logs full URLs at INFO — including ?key=... query params. Silence
-    # at WARNING so the Gemini API key never reaches any log handler.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
     _log.info("youty-mcp starting (db=%s, log_dir=%s)", _STATE_DEFAULT_DB_HINT(), log_dir)
     try:
         # Touch the DB on startup so schema promotion runs before stdio begins.
@@ -933,9 +912,11 @@ def main() -> None:
     # Warm the on-device query encoder in the background so the user's first
     # `search` is fast (~100 ms) instead of paying the one-time torch import +
     # model load. The index check runs HERE on the main thread (sqlite is
-    # main-thread-only); the daemon thread then loads only the torch model and
-    # never touches the DB. Never blocks stdio startup or shutdown; a query
-    # arriving mid-warm safely waits on the shared load lock.
+    # main-thread-only) — only warm when the index actually holds on-device text
+    # chunks, so an empty/un-indexed DB doesn't load torch for nothing. The
+    # daemon thread then loads only the torch model and never touches the DB.
+    # Never blocks stdio startup or shutdown; a query arriving mid-warm safely
+    # waits on the shared load lock.
     try:
         if _STATE.current_text_model().startswith("embeddinggemma"):
             threading.Thread(target=_STATE.warm_text_embedder,

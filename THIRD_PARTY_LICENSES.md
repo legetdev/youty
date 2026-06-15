@@ -129,9 +129,9 @@ and similar LGPL-FFmpeg-linking apps.
 ## Google EmbeddingGemma-300m (text encoder, Core ML)
 
 - **Component:** ML model used by the Mac app and CLI to embed transcript
-  text into a 768-dim vector space for AI search. This is the **default**
-  text embedder (Phase S) — fully on-device, no API key, nothing leaves the
-  Mac. Shipped as a Core ML `.mlpackage` bundled inside
+  text into a 768-dim vector space for AI search. This is the **sole**
+  text embedder — fully on-device, no API key, nothing leaves the Mac.
+  Shipped as a Core ML `.mlpackage` bundled inside
   `Youty.app/Contents/Resources/` and installed into the CLI's shared
   resource directory by [`Scripts/install-cli.sh`](Scripts/install-cli.sh).
 - **Source model:** `google/embeddinggemma-300m` (Google DeepMind)
@@ -173,21 +173,6 @@ The app links against Apple-provided system frameworks (Foundation, AppKit,
 SwiftUI, WebKit, AVFoundation, CoreML, VideoToolbox, Speech, AppIntents).
 These are part of the macOS SDK and are governed by the Apple SDK License
 Agreement; they are neither bundled with nor redistributed by Youty.
-
----
-
-## Google Gemini API
-
-The Mac app and MCP server can *optionally* make outbound HTTPS requests
-to Google's Generative Language API (`generativelanguage.googleapis.com`)
-for text-search embeddings, using an API key the *user* supplies in
-Settings. This is **off by default** — the default text embedder is the
-on-device EmbeddingGemma model above (no key, no network). Gemini is an
-opt-in upgrade for a small accuracy gain. The Gemini API and the
-embeddings it returns are governed by Google's API Terms of Service:
-<https://ai.google.dev/terms>.
-
-No Google client code is bundled with Youty.
 
 ---
 

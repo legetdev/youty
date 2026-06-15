@@ -74,9 +74,9 @@ struct IndexBadgeView: View {
 
     private var accessibilityText: String {
         switch state {
-        case .indexing: return "Bundle is being indexed in the background"
-        case .indexed:  return "Bundle is indexed and searchable"
-        case .failed(let reason): return "Indexing failed: \(reason)"
+        case .indexing: return "This video is being indexed in the background"
+        case .indexed:  return "This video is indexed and searchable"
+        case .failed: return "Indexing failed"
         }
     }
 }

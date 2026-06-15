@@ -19,8 +19,8 @@ for anything critical, longer for lower-severity issues.
 ## What's in scope
 
 - The Mac app, the `youty` CLI, the Share Extension, the MCP server.
-- Anything that touches the user's Gemini API key, Keychain entries,
-  cookies, or vault contents.
+- Anything that touches the user's Keychain entries, cookies, or vault
+  contents.
 - Anything that lets a saved bundle (`video.md` or a JPEG) trigger
   unintended behaviour when opened by the app, CLI, or MCP server.
 
@@ -28,7 +28,7 @@ for anything critical, longer for lower-severity issues.
 
 - Bugs in macOS, FFmpeg, or any other third-party software Youty links
   against — please report those upstream.
-- Issues with the Gemini API, Instagram, TikTok, or YouTube themselves.
+- Issues with Instagram, TikTok, or YouTube themselves.
 - Social-engineering or phishing scenarios that don't involve a Youty
   code path.
 

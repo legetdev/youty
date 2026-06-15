@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_text      TEXT    NOT NULL,        -- raw chunk text (no metadata prefix) — needed for rerank + display
     chunk_start_ms  INTEGER,                 -- NULL for header/description; ms offset for body
     chunk_end_ms    INTEGER,                 -- NULL for header/description; ms offset for body
-    model_version   TEXT    NOT NULL,        -- e.g. "gemini-embedding-001@768"
+    model_version   TEXT    NOT NULL,        -- e.g. "embeddinggemma-300m@768"
     embedding_dim   INTEGER NOT NULL,
     embedding       BLOB    NOT NULL,        -- fp32 little-endian, length = embedding_dim * 4
     UNIQUE(video_id, chunk_type, chunk_index)
