@@ -21,9 +21,9 @@ import CoreMedia
 //
 // Per-platform timestamp format choice:
 //   Returns segments using "[M:SS.mmm]" / "[H:MM:SS.mmm]" precision (the
-//   contract documented in implementation.md §Multi-platform-shared
-//   requirements). YouTube continues to use coarser "[M:SS]" since its
-//   transcript is scraped from YouTube's already-formatted caption panel.
+//   shared cross-platform contract). YouTube continues to use coarser
+//   "[M:SS]" since its transcript is scraped from YouTube's already-formatted
+//   caption panel.
 
 enum SpeechTranscriptionError: LocalizedError {
     case audioFileOpenFailed(URL, underlying: Error)
@@ -169,7 +169,7 @@ enum SpeechTranscriptionPipeline {
     // MARK: - Timestamp formatting
 
     /// Formats seconds into "[M:SS.mmm]" under one hour, "[H:MM:SS.mmm]" over.
-    /// Matches the cross-platform contract documented in implementation.md.
+    /// Matches the shared cross-platform timestamp contract.
     static func formatTimestamp(seconds: Double) -> String {
         let safe = max(0, seconds.isFinite ? seconds : 0)
         let totalMs = Int((safe * 1000).rounded())

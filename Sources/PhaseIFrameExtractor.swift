@@ -7,7 +7,7 @@ import CoreImage
 
 // Phase I — sample-precise byte fetch + stateless VTDecompressionSession.
 //
-// Architecture (per implementation.md Phase I):
+// Architecture:
 //   1. In parallel: fetch codec metadata (one FFmpeg open, no seek loop) and
 //      the sidx segment index (one ~16 KB HTTP Range request).
 //   2. Map each requested timestamp to its containing DASH segment.

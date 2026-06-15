@@ -2,9 +2,8 @@
 # Smoke test for Youty's per-platform extractors.
 #
 # Runs the built app's headless probe modes against a handful of known-good
-# public URLs per platform and reports red/green per test. Used as the
-# quarterly canary discipline called out in implementation.md — when a
-# platform changes its API shape, this script trips first.
+# public URLs per platform and reports red/green per test. Run it as a
+# quarterly canary — when a platform changes its API shape, this trips first.
 #
 # Returns 0 if every test passes, nonzero (count of failures) otherwise.
 #
@@ -183,8 +182,7 @@ echo "== Phase Q.6 — crash hardening =="
 # (7 variants), read-only vault, ghost vault path, mixed valid+corrupt.
 # Each case must exit cleanly — no Swift trap, no fatalError, no force
 # unwrap crash. Cases requiring hardware (drive disconnect, disk full,
-# network drop mid-fetch) are documented in implementation.md but not
-# in scope for headless smoke.
+# network drop mid-fetch) are out of scope for headless smoke.
 run "Vault weird-state survival" \
     'HARDNESS_PROBE OK' \
     "$BIN" --hardness-probe

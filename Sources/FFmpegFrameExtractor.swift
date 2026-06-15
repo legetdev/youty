@@ -98,9 +98,8 @@ enum FFmpegFrameExtractor {
         maxLongEdge: Int32 = 1920,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws -> [(timestamp: TimeInterval, image: NSImage)] {
-        // Production path: per-target seek loop with F.1 prefetch.
-        // See implementation.md §Phase H + §Phase G for the abandoned
-        // alternative paths — both regressed and have been removed.
+        // Production path: per-target seek loop with prefetch. Earlier
+        // alternative extraction paths were tried, regressed, and removed.
         return try await Task.detached(priority: .userInitiated) {
             try doExtract(url: url, userAgent: userAgent,
                           timestamps: timestamps,

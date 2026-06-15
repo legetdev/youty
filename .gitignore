@@ -44,3 +44,13 @@ Vendor/embeddinggemma/tokenizer/tokenizer.json
 secrets/
 .secrets/
 .gemini-api.key
+
+# Internal / AI-authored planning + working docs — kept locally, never public.
+# Stripped from the repo before open-sourcing (2026-06-15). Edit with `git add -f`
+# only if you ever deliberately want one tracked again.
+/CLAUDE.md
+/AGENTS.md
+/implementation.md
+/legacy_fast.md
+/iconguide.md
+/docs/audit-2026-06-14.md
