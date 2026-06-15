@@ -7,8 +7,7 @@ MCP-compatible AI (Claude Desktop, Claude Code, Cursor).
 
 Six tools, hybrid dense + BM25 retrieval over your captured YouTube /
 Instagram / TikTok videos, plus joint text → frame retrieval via
-Google's SigLIP-Base-Patch16-224 (Apache-2.0, swapped in during R.0b
-on 2026-05-19 for license-compliance reasons). Queries land in ~300 ms
+Google's SigLIP-Base-Patch16-224 (Apache-2.0). Queries land in ~300 ms
 for text, ~32 ms warm for frames on Apple Silicon.
 
 | Tool | Returns |
@@ -88,14 +87,16 @@ claude mcp add youty -- uvx youty-mcp
 ## Tests
 
 ```bash
-uv run pytest -q          # 21 passing
+uv run pytest -q
 uv run python tests/smoke_live.py    # one-shot live on-device search smoke
 ```
 
 ## Index location
 
-Default: `~/Library/Application Support/Youty/index.db` (Apple-canonical).
-Override with `YOUTY_INDEX_DB=/abs/path`.
+Default: the Mac app's sandboxed index at
+`~/Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db`,
+falling back to `~/Library/Application Support/Youty/index.db` if that isn't
+present. Override either with `YOUTY_INDEX_DB=/abs/path`.
 
 The Mac app writes here when it saves a video (background, non-blocking).
 The MCP server reads here and promotes data to `sqlite-vec` and FTS5

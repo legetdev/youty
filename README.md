@@ -11,9 +11,9 @@ just a folder of `.md` files and JPEGs you fully own.
 
 | | How | Need |
 |---|---|---|
-| **Mac app** | Download `Youty.dmg`, drag to `/Applications` | macOS 26 (Tahoe) |
-| **CLI** | `brew install legetdev/youty/youty` (once the tap is live) &nbsp;or&nbsp; `./Scripts/install-cli.sh` from a clone | Xcode 26 to build |
-| **MCP server** | `uv tool install ./youty-mcp/dist/*.whl` | Python 3.11+, `uv` |
+| **Mac app** | Download the DMG from [Releases](https://github.com/legetdev/youty/releases/latest), drag to `/Applications` | macOS 26 (Tahoe) |
+| **CLI** | `brew install legetdev/youty/youty` &nbsp;or&nbsp; `./Scripts/install-cli.sh` from a clone | Xcode 26 to build |
+| **MCP server** | `uv tool install youty-mcp` | Python 3.11+, `uv` |
 
 The Mac app auto-updates via Sparkle once installed — *Check for
 Updates…* lives in the app menu (or *Settings → About*). New releases
@@ -154,7 +154,7 @@ at version 2.9.2 in
 license text ships inside the framework at
 `Sparkle.framework/Versions/Current/Resources/LICENSE`. Vetted against
 the third-party checklist (MIT, 20-year track record, EdDSA-signed
-updates, single-purpose) and green-lit during Phase R.1 decisions.
+updates, single-purpose).
 
 To relink the app against a modified FFmpeg: edit the FFmpeg source
 unpacked by `Scripts/build-ffmpeg.sh`, re-run that script, then re-run
@@ -172,8 +172,7 @@ verbatim license texts:
 
 [MIT](LICENSE). Copyright © Bent Eisheuer.
 
-## Architecture
+## Contributing
 
-For builders, [`implementation.md`](implementation.md) is the canonical
-source — phase-by-phase rationale, what shipped vs what didn't, every
-trade-off documented.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the project layout, build steps,
+and ground rules.

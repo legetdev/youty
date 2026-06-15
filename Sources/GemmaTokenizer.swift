@@ -8,7 +8,7 @@ import Foundation
 /// (vocab.bin + merges.bin + added_tokens.bin) instead of the 32 MB tokenizer.json,
 /// so a one-shot `youty save` pays only a small one-time load.
 ///
-/// Correctness notes (see docs/s1-native-embedder.md):
+/// Correctness notes:
 ///   - Initial-symbol lookup is keyed by Unicode SCALAR VALUE, never by `String`.
 ///     Swift `String` uses canonical equivalence, which folds distinct vocab
 ///     tokens (e.g. ';' U+003B and ';' U+037E) onto one another — HF keys by raw

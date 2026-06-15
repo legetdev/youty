@@ -91,7 +91,7 @@ and similar LGPL-FFmpeg-linking apps.
   the third-party checklist in `CLAUDE.md` (MIT, 20-year track record,
   EdDSA-signed updates, GitHub-sponsored maintenance, single-purpose,
   shipped in CleanShot / Bartender / iStat / Tot) and explicitly
-  green-lit during R.1 decisions on 2026-05-19. Every other component
+  green-lit on 2026-05-19. Every other component
   here is either statically built from source, bundled as data, or an
   Apple-provided system framework.
 
@@ -153,7 +153,7 @@ and similar LGPL-FFmpeg-linking apps.
   a Core ML `.mlpackage` (fp32 compute, int8-quantized weights) running the
   full pipeline (Transformer → mean pool → Dense 768→3072 → Dense 3072→768
   → L2 normalize). Conversion fidelity vs the PyTorch reference: mean cosine
-  **0.9997** (verified, Phase S.0).
+  **0.9997** (verified).
 - **Native tokenizer (no third-party dependency):** a from-scratch Swift BPE
   tokenizer ([`Sources/GemmaTokenizer.swift`](Sources/GemmaTokenizer.swift))
   reproduces Gemma's tokenizer bit-for-bit from a compact binary artifact

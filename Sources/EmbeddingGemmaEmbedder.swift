@@ -4,7 +4,7 @@ import CoreML
 /// On-device text `Embedder` backed by the Core ML EmbeddingGemma model + the
 /// native `GemmaTokenizer`. Produces 768-d L2-normalized document embeddings
 /// fully on-device — no API key, no network, no third-party dependency. This is
-/// Youty's only text embedder. See docs/s1-native-embedder.md.
+/// Youty's only text embedder.
 ///
 /// The Core ML model runs EmbeddingGemma's full pipeline internally (mean pool,
 /// Dense heads, normalize); Swift only tokenizes -> pads -> predicts.

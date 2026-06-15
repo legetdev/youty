@@ -9,8 +9,8 @@
 
 Writes branding/tok_reference.json = { text: [ids] } using the real HF tokenizer
 (add_special_tokens=True -> <bos> ... <eos>). The Swift tokenizer must reproduce
-every entry identically. Corpus stress-tests the cases in docs/s1-native-embedder.md
-§4.3: prompts, transcripts, German, accents, CJK, emoji/ZWJ, byte-fallback,
+every entry identically. Corpus stress-tests: prompts, transcripts, German,
+accents, CJK, emoji/ZWJ, byte-fallback,
 punctuation, whitespace quirks, truncation, and the special-token strings as text.
 """
 

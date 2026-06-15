@@ -38,7 +38,7 @@ and no cloud-search exception of any kind.
 
 The Mac app bundles a single third-party Swift package, **Sparkle**
 (MIT, auto-update), pinned at version 2.9.2 in `Package.resolved` and
-green-lit during R.1 decisions after passing the third-party vetting
+green-lit after passing the third-party vetting
 checklist (long track record, EdDSA-signed updates, single-purpose,
 small footprint). FFmpeg still ships statically linked, built from
 the upstream FFmpeg source via `Scripts/build-ffmpeg.sh`. The MCP

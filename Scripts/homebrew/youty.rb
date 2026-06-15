@@ -3,20 +3,9 @@
 
 # Homebrew formula for the youty CLI.
 #
-# Lives in this repo during Phase R prep. At release time the file is
-# copied verbatim to `legetdev/homebrew-youty/Formula/youty.rb`, the
-# `url` + `sha256` placeholders are replaced against the tagged GitHub
-# release tarball, and `brew install legetdev/youty/youty` works.
-#
-# Phase R checklist for this file:
-#   1. Tag a GitHub release (e.g. `v1.0.0`) on the main repo.
-#   2. Replace the `url` line so it points at that tag's source tarball.
-#   3. Replace `0000…` with the tarball's actual SHA-256:
-#        curl -sL <url> | shasum -a 256
-#   4. Copy the file into the `homebrew-youty` tap repo (Formula/).
-#   5. Verify with `brew install --build-from-source legetdev/youty/youty`.
-#   6. Run `brew audit --strict --new legetdev/youty/youty` — must pass
-#      before R.9 so the tap doesn't ship with audit warnings.
+# Canonical copy lives in the tap repo at legetdev/homebrew-youty/Formula/youty.rb.
+# On each release, bump `url` to the new tag's source tarball and set `sha256`
+# to `curl -sL <url> | shasum -a 256`.
 
 # Build + install the youty CLI from the tagged GitHub source release.
 class Youty < Formula
@@ -66,15 +55,10 @@ class Youty < Formula
     # relative to the binary. The schema is small + lives in the tarball.
     (share/"youty").install "Sources/IndexSchema.sql"
 
-    # TODO(D.4): install the compiled SigLIP image encoder into share/youty so
-    # a brew-installed CLI also does frame (image-search) indexing. The weights
-    # are now present at build time via the `models` resource above; what's left
-    # is compiling the .mlpackage to share/youty for SharedResourceLocator to
-    # find at runtime, e.g.:
-    #   system "xcrun", "coremlcompiler", "compile",
-    #          "Vendor/siglip/models/SigLIP-Base-224_image.mlpackage", share/"youty"
-    # Until then a brew-installed CLI does full TEXT indexing on save; frame
-    # (image-search) indexing is skipped with a clear, non-fatal warning.
+    # Limitation: a Homebrew-installed CLI does full text indexing on save, but
+    # frame (image-search) indexing is skipped with a clear, non-fatal warning.
+    # Wiring it up means compiling the bundled SigLIP encoder into share/youty
+    # for SharedResourceLocator to find at runtime — a planned enhancement.
   end
 
   def caveats
