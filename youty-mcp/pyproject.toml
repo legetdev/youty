@@ -28,27 +28,23 @@ classifiers = [
 dependencies = [
     "mcp>=1.2.0,<2.0.0",
     "sqlite-vec>=0.1.6,<0.2.0",     # pre-1.0; breaking changes likely in 0.2
-    "httpx>=0.27.0,<1.0.0",
+    "httpx>=0.27.0,<1.0.0",         # transport + fetching the on-device models
     "numpy>=1.26.0,<3.0.0",
-    # SigLIP-Base text encoder for the `search_frames` tool. transformers
-    # handles SigLIP's SentencePiece tokenizer cleanly; torch runs the
-    # text tower on CPU in ~50-80 ms per query on Apple Silicon. Replaces
-    # the previous coremltools dependency — frame *image* embedding now
-    # lives in the Mac app bundle (CoreML), only text queries run here.
+    # Query embeddings run on-device via Core ML — the *same* EmbeddingGemma +
+    # SigLIP models the Mac app/CLI use, loaded with coremltools (CPU-only, to
+    # match the int8-quant indexer). This drops torch (~250 MB) + the ~1.6 GB
+    # HuggingFace model downloads, and makes query and document vectors share
+    # the exact same space (more accurate than the old PyTorch path).
+    # coremltools is the macOS Core ML runtime — Core ML does not exist on Linux,
+    # so this is a darwin-only dependency. Real (dense + frame) embedding runs only
+    # on macOS, where the Youty vault + models live; Linux installs (CI, sdist) stay
+    # lean, and the tokenizers below still import fine for the Linux test suite.
+    "coremltools>=8.0,<10 ; sys_platform == 'darwin'",
+    # transformers + sentencepiece are kept for TOKENIZATION ONLY (the proven
+    # EmbeddingGemma + SigLIP tokenizers — no hand-rolled parity risk). torch
+    # is not imported: tokenizers are framework-agnostic, and inference is Core ML.
     "transformers>=4.56,<5",
-    "torch>=2.0,<3",
-    # EmbeddingGemma text-query encoder for the `search` tool when the index is
-    # built with the on-device EmbeddingGemma model (Phase S). sentence-
-    # transformers runs its full pipeline (pooling + Dense heads + task prompts)
-    # so MCP queries land in the exact space the Swift indexer wrote.
-    "sentence-transformers>=5.0,<6",
-    # SigLIP's tokenizer is SentencePiece-based; `transformers` does NOT
-    # pull this in automatically — AutoTokenizer.from_pretrained() raises
-    # ImportError without it. Caught by Scripts/verify-siglip-python.py.
     "sentencepiece>=0.2,<1",
-    # transformers' Siglip tokenizer also pulls in a protobuf parse path
-    # for the SentencePiece model bytes; protobuf isn't auto-installed
-    # either. Same verification script catches it.
     "protobuf>=4,<7",
 ]
 

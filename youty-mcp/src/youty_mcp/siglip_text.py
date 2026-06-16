@@ -1,84 +1,56 @@
-"""SigLIP-Base-Patch16-224 text encoder for query embedding.
+"""SigLIP-Base text encoder (on-device, Core ML) for the `search_frames` tool.
 
-Used by the MCP server's `search_frames` tool to embed a user's natural-
-language query into the same joint vision-text space the Mac app's
-indexer used for the saved frame vectors. Both sides use the same source
-model — `google/siglip-base-patch16-224` (Apache-2.0). The Swift indexer
-ships a CoreML-converted image encoder inside the Mac app bundle; this
-Python side uses HuggingFace transformers directly because:
-
-  - transformers handles SigLIP's SentencePiece tokenizer cleanly with
-    zero hand-rolled tokenization code.
-  - The first-use download (~370 MB safetensors + tokenizer) happens via
-    `huggingface_hub` on the user's machine — the youty-mcp wheel stays
-    tiny (~31 KB).
-  - Text embedding runs in ~50-80 ms per query on Apple Silicon (PyTorch
-    CPU), within the MCP query budget.
-
-L2-normalised so cosine-similarity against the Swift-side image vectors
-in `vec_frames` works directly.
+Embeds a natural-language query into the joint vision-text space the saved frame
+vectors live in, using a Core ML conversion of SigLIP-Base's text tower (loaded
+with `coremltools`, CPU) — no torch. Tokenization uses the proven HF
+SiglipTokenizer (SentencePiece). SigLIP's text tower uses a fixed 64-token
+context; output is L2-normalised so cosine against the frame vectors works.
 """
-
 from __future__ import annotations
 
 import logging
+import threading
 
 import numpy as np
 
+from . import coreml_models
 
-HF_MODEL_ID = "google/siglip-base-patch16-224"
+HF_TOKENIZER_ID = "google/siglip-base-patch16-224"
 EMBEDDING_DIM = 768
+SEQ_LEN = 64
 
 _log = logging.getLogger(__name__)
 
 
 class SigLIPTextEncoder:
-    """Tokenize + embed strings via SigLIP-Base's text tower."""
+    """Tokenize + embed strings via SigLIP-Base's text tower (Core ML)."""
 
     def __init__(self) -> None:
-        self._model = None  # transformers.SiglipTextModel
-        self._tokenizer = None  # transformers.AutoTokenizer
-        self._torch = None
+        self._model = None
+        self._tok = None
+        self._lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:
             return
-        try:
-            import torch
-            from transformers import AutoTokenizer, SiglipTextModel
-        except ImportError as exc:
-            raise RuntimeError(
-                "transformers + torch are required for frame search. "
-                "Reinstall youty-mcp via `uv tool install youty-mcp` or `pipx install youty-mcp`."
-            ) from exc
+        with self._lock:
+            if self._model is not None:
+                return
+            from transformers import AutoTokenizer
 
-        _log.info("Loading SigLIP text encoder (%s) …", HF_MODEL_ID)
-        # AutoTokenizer picks up SigLIP's SentencePiece config automatically.
-        self._tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_ID)
-        # SiglipTextModel is the text-only tower (no image branch loaded).
-        # eval() + no_grad in `embed_text` keeps inference deterministic
-        # and avoids autograd overhead.
-        self._model = SiglipTextModel.from_pretrained(HF_MODEL_ID).eval()
-        self._torch = torch
+            _log.info("Loading SigLIP tokenizer + Core ML text model …")
+            self._tok = AutoTokenizer.from_pretrained(HF_TOKENIZER_ID)
+            self._model = coreml_models.load(coreml_models.SIGLIP_TEXT)
 
     def embed_text(self, text: str) -> list[float]:
         """Return a 768-dim L2-normalised float list. Lazy-loads the model."""
         self._ensure_loaded()
-        assert self._tokenizer is not None and self._model is not None and self._torch is not None
-
-        # SigLIP's text encoder is trained with a fixed 64-token context.
-        # The HF tokenizer handles truncation + padding when we pass
-        # padding="max_length" + truncation=True.
-        inputs = self._tokenizer(
-            text,
-            return_tensors="pt",
-            padding="max_length",
-            truncation=True,
-        )
-        with self._torch.no_grad():
-            out = self._model(**inputs)
-        # SiglipTextModel returns `pooler_output` (1, 768) post-attention-pool.
-        vec = out.pooler_output[0].cpu().numpy().astype(np.float32)
+        assert self._tok is not None and self._model is not None
+        ids = self._tok(
+            text, padding="max_length", truncation=True, max_length=SEQ_LEN
+        )["input_ids"]
+        out = self._model.predict({"input_ids": np.array([ids], dtype=np.int32)})
+        vec = np.asarray(next(iter(out.values())), dtype=np.float32).reshape(-1)
         if vec.size != EMBEDDING_DIM:
             raise RuntimeError(
                 f"unexpected SigLIP output size: {vec.size}, expected {EMBEDDING_DIM}"
