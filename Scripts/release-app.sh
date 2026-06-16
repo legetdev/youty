@@ -79,12 +79,16 @@ echo "==> Team ID:      ${TEAM_ID:-<unknown>}"
 # On-device models live outside git; fetch them if missing (no-op otherwise).
 "$ROOT/Scripts/fetch-models.sh"
 
-echo "==> Building Release youty.app..."
+echo "==> Building Release youty.app (arm64)..."
+# arm64-only: macOS Tahoe is Apple-Silicon-only, and the SigLIP frame embedder
+# uses Float16 (which has no x86_64 initializer). A plain Release build would
+# default to a universal slice and fail to compile the Intel half.
 xcodebuild \
     -project "$ROOT/youty.xcodeproj" \
     -scheme youty \
     -configuration Release \
     -derivedDataPath "$BUILD_DIR" \
+    ARCHS=arm64 \
     CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION_CERT" \
     CODE_SIGN_STYLE=Manual \
     DEVELOPMENT_TEAM="${TEAM_ID:-}" \
