@@ -45,7 +45,7 @@ dependencies = [
     # is not imported: tokenizers are framework-agnostic, and inference is Core ML.
     "transformers>=4.56,<6",
     "sentencepiece>=0.2,<1",
-    "protobuf>=4,<7",
+    "protobuf>=4,<8",
 ]
 
 [project.urls]
