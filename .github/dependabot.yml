@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Keep the SHA-pinned GitHub Actions current — Dependabot opens a PR (with the
+  # new SHA + tag comment) when a pinned action publishes an update.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  # Security + version updates for the youty-mcp Python dependencies.
+  - package-ecosystem: pip
+    directory: /youty-mcp
+    schedule:
+      interval: weekly

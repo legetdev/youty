@@ -19,11 +19,13 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      # Pinned to commit SHAs (not moving tags) so a tag-hijack can't swap the
+      # action under us. Dependabot proposes bumps. Trailing comment = the tag.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       # Official uv action from Astral (the makers of uv).
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
 
       - name: Build wheel + sdist
         working-directory: youty-mcp
