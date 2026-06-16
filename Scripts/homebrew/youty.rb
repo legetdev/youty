@@ -38,9 +38,16 @@ class Youty < Formula
   def install
     # The model weights aren't in the git source tarball (externalized to keep
     # the repo lean). Merge the release-asset tarball's Vendor/ tree into the
-    # source so xcodebuild finds the .mlpackage build inputs.
+    # source so xcodebuild finds the .mlpackage build inputs. Homebrew strips the
+    # asset's single top-level "Vendor/" dir on stage, so the CWD here holds its
+    # contents (embeddinggemma/, siglip/) — merge each into the source's Vendor/,
+    # which already carries the .mlpackage Manifests + FFmpeg statics from git.
     resource("models").stage do
-      cp_r "Vendor/.", buildpath/"Vendor"
+      Dir["*"].each do |sub|
+        dest = buildpath/"Vendor"/sub
+        dest.mkpath
+        cp_r "#{sub}/.", dest
+      end
     end
 
     # FFmpeg statics live under Vendor/ffmpeg/ — built once via
