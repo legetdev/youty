@@ -27,8 +27,8 @@ SIGLIP_TEXT = "SigLIP-Base-224_text.mlpackage"
 # with no git checkout, like this one, can reassemble loadable models).
 # MODELS_VERSION + MODELS_SHA256 are stamped in lockstep with Scripts/fetch-models.sh
 # by `Scripts/release.sh --models` whenever the asset is rebuilt.
-MODELS_VERSION = "1.0.0"
-MODELS_SHA256 = "c3139d78af916c3a77ab57986b9729b26d243a1544b2555011b1d59c2560b6d7"
+MODELS_VERSION = "1.1.0"
+MODELS_SHA256 = "56e9da609720b5a598bb74d678bc33a41ba563b6742c6dee120e8e5236ab6a96"
 MODELS_URL = (
     f"https://github.com/legetdev/youty/releases/download/"
     f"v{MODELS_VERSION}/youty-models-{MODELS_VERSION}.tar.gz"

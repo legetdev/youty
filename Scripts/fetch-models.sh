@@ -18,8 +18,8 @@ set -euo pipefail
 
 # Pinned to the release whose asset carries these exact weights. Bump all three
 # together if the models ever change. SHA-256 is enforced before extraction.
-MODELS_VERSION="1.0.0"
-MODELS_SHA256="c3139d78af916c3a77ab57986b9729b26d243a1544b2555011b1d59c2560b6d7"
+MODELS_VERSION="1.1.0"
+MODELS_SHA256="56e9da609720b5a598bb74d678bc33a41ba563b6742c6dee120e8e5236ab6a96"
 MODELS_URL="https://github.com/legetdev/youty/releases/download/v${MODELS_VERSION}/youty-models-${MODELS_VERSION}.tar.gz"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -26,8 +26,8 @@ class Youty < Formula
   # source tarball above doesn't contain them. Fetched here and laid into
   # Vendor/ before the build. Bump url + sha256 in lockstep with `version`.
   resource "models" do
-    url "https://github.com/legetdev/youty/releases/download/v1.0.0/youty-models-1.0.0.tar.gz"
-    sha256 "c3139d78af916c3a77ab57986b9729b26d243a1544b2555011b1d59c2560b6d7"
+    url "https://github.com/legetdev/youty/releases/download/v1.1.0/youty-models-1.1.0.tar.gz"
+    sha256 "56e9da609720b5a598bb74d678bc33a41ba563b6742c6dee120e8e5236ab6a96"
   end
 
   # macOS 26 Tahoe is required: the SpeechAnalyzer + SpeechTranscriber
