@@ -1,0 +1,157 @@
+name: Homebrew bottle
+
+# T.2 — build a precompiled Homebrew bottle so `brew install legetdev/youty/youty`
+# is an instant binary pour (no Xcode 26, no from-source compile, no models build
+# on the user's Mac). Bottles can only be built on a real macOS 26 runner — the
+# dev Mac's Command Line Tools are too old for `brew` — so this lives in CI.
+#
+# What it does, end to end, on a clean macos-26 runner:
+#   1. Build the formula from source with `--build-bottle` (relocatable layout).
+#   2. `brew bottle` it → a per-(macOS major × arch) .tar.gz + a JSON manifest.
+#   3. Upload the bottle tarball to the matching GitHub Release (same place as the
+#      DMG + models asset), which is the bottle's `root_url`.
+#   4. Splice the generated `bottle do … end` block (with real sha256s) into the
+#      in-repo formula and, if a tap token is configured, into the published tap.
+#   5. Pour the *published* bottle on a clean prefix and smoke-test it, so the
+#      bottle is verified working before anyone installs it.
+#
+# `--build-from-source` always remains as the fallback for archs/macOS majors we
+# don't bottle (e.g. Intel) — adding a `bottle do` block is purely additive.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to bottle (must already exist, e.g. v1.0.0)"
+        required: true
+  # Also bottle automatically right after a release is published.
+  release:
+    types: [published]
+
+permissions:
+  contents: write # upload the bottle asset + push the formula block back to main
+
+concurrency:
+  group: bottle-${{ github.event.inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  bottle:
+    name: Build + verify bottle (macOS 26, arm64)
+    runs-on: macos-26
+    env:
+      TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+      FORMULA: legetdev/youty/youty
+      # GitHub-hosted Homebrew is noisy + auto-updates mid-run; pin it quiet.
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+
+      - name: Show toolchain
+        run: brew --version && xcodebuild -version
+
+      - name: Stage the in-repo formula as a local tap
+        # The canonical formula lives in the tap repo, but CI bottles the exact
+        # copy that ships in this commit so the bottle always matches the source.
+        run: |
+          TAP_DIR="$(brew --repository)/Library/Taps/legetdev/homebrew-youty"
+          mkdir -p "$TAP_DIR/Formula"
+          cp Scripts/homebrew/youty.rb "$TAP_DIR/Formula/youty.rb"
+          git -C "$TAP_DIR" init -q
+          git -C "$TAP_DIR" add -A
+          git -C "$TAP_DIR" -c user.email=ci@youty -c user.name=ci commit -qm "ci bottle" || true
+
+      - name: Build the bottle from source
+        run: |
+          ROOT_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          echo "ROOT_URL=$ROOT_URL" >> "$GITHUB_ENV"
+          brew install --build-bottle --verbose "$FORMULA"
+
+      - name: Smoke-test the built CLI before publishing anything
+        # The binary installed by --build-bottle is byte-identical to what gets
+        # bottled, so verifying it here gates the upload: a broken build never
+        # reaches the release.
+        run: |
+          youty --version | grep -E "^youty 1\."
+          youty --help | grep -q USAGE
+          echo "✓ source-built CLI runs"
+
+      - name: Bottle it
+        run: |
+          # Emits youty--<ver>.<tag>.bottle.tar.gz + .json in the working dir.
+          brew bottle --json --no-rebuild --root-url="$ROOT_URL" "$FORMULA"
+
+      - name: Normalize the bottle filename for upload
+        # `brew bottle` writes the local file with a double dash; the URL brew
+        # later constructs from root_url uses a single dash — rename to match so
+        # the published asset resolves.
+        run: |
+          for f in youty--*.bottle.tar.gz; do
+            mv "$f" "${f/youty--/youty-}"
+          done
+          ls -1 youty-*.bottle.tar.gz
+
+      - name: Upload the bottle to the release
+        run: |
+          gh release upload "$TAG" youty-*.bottle.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Splice the bottle block into the in-repo formula
+        # `--merge --write` injects/updates the `bottle do … end` block (with the
+        # real sha256s + root_url) into the formula file the JSON points at.
+        run: |
+          cp Scripts/homebrew/youty.rb "$(brew --repository)/Library/Taps/legetdev/homebrew-youty/Formula/youty.rb"
+          brew bottle --merge --write --no-commit ./*.bottle.json
+          cp "$(brew --repository)/Library/Taps/legetdev/homebrew-youty/Formula/youty.rb" Scripts/homebrew/youty.rb
+          echo "----- updated formula bottle block -----"
+          sed -n '/bottle do/,/end/p' Scripts/homebrew/youty.rb
+
+      - name: Verify — pour the published bottle on a clean prefix + smoke-test
+        run: |
+          brew uninstall --force youty
+          # Force a real download+pour of the just-uploaded bottle (not the source).
+          brew install --force-bottle "$FORMULA"
+          youty --version | grep -E "^youty 1\."
+          youty --help | grep -q USAGE
+          echo "✓ published bottle pours + runs"
+
+      - name: Publish the updated formula (job summary + artifact)
+        # The checkout is a detached tag, so we don't push to main from here
+        # (avoids divergence). The owner commits the block via the next
+        # Scripts/release.sh run; the tap — the actual install source — is updated
+        # directly below. The full formula is also attached for convenience.
+        run: |
+          {
+            echo "### Homebrew bottle block for \`${TAG}\`"
+            echo '```ruby'
+            sed -n '/bottle do/,/end/p' Scripts/homebrew/youty.rb
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the bottled formula as an artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: youty-formula-${{ env.TAG }}
+          path: Scripts/homebrew/youty.rb
+
+      - name: Propagate the bottled formula to the published tap (optional)
+        # Only runs if a tap deploy token is configured. Without it, the owner
+        # syncs the formula to the tap via Scripts/release.sh (DO_TAP) as today.
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/legetdev/homebrew-youty.git" tap
+          cp Scripts/homebrew/youty.rb tap/Formula/youty.rb
+          cd tap
+          if git diff --quiet; then echo "tap already current"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/youty.rb
+          git commit -m "youty: bottle for ${TAG}"
+          git push

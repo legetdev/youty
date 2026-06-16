@@ -16,6 +16,11 @@ class Youty < Formula
   license "MIT"
   head "https://github.com/legetdev/youty.git", branch: "main"
 
+  # Bottles (instant binary install) are built + verified on a macOS 26 runner by
+  # .github/workflows/bottle.yml, which injects a `bottle do … end` block here with
+  # the real per-arch sha256s. Until a matching bottle exists, brew transparently
+  # falls back to the from-source build below — so this formula always installs.
+
   # On-device Core ML model weights (EmbeddingGemma + SigLIP). These live
   # outside git — too large for the repo — and ship as a release asset, so the
   # source tarball above doesn't contain them. Fetched here and laid into
