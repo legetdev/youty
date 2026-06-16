@@ -19,20 +19,21 @@ name: Homebrew bottle
 # don't bottle (e.g. Intel) — adding a `bottle do` block is purely additive.
 
 on:
+  # Driven explicitly by Scripts/release.sh: it dispatches this AFTER pushing the
+  # tag, waits for it, and syncs the resulting bottle block to the tap. Not on
+  # `release: published` — letting release.sh own the ordering means the bottle
+  # never races a not-yet-pushed formula update. Also runnable by hand to re-bottle.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to bottle (must already exist, e.g. v1.0.0)"
+        description: "Release tag to bottle (must already exist, e.g. v1.1.0); or HEAD to verify the build against main"
         required: true
-  # Also bottle automatically right after a release is published.
-  release:
-    types: [published]
 
 permissions:
-  contents: write # upload the bottle asset + push the formula block back to main
+  contents: write # upload the bottle asset to the release
 
 concurrency:
-  group: bottle-${{ github.event.inputs.tag || github.event.release.tag_name }}
+  group: bottle-${{ github.event.inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -40,7 +41,7 @@ jobs:
     name: Build + verify bottle (macOS 26, arm64)
     runs-on: macos-26
     env:
-      TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+      TAG: ${{ github.event.inputs.tag }}
       FORMULA: legetdev/youty/youty
       # Routed through env because the `secrets` context can't be read in a
       # step-level `if:` — the optional tap-push step checks `env.TAP_TOKEN`.
@@ -64,13 +65,24 @@ jobs:
       - name: Show toolchain
         run: brew --version && xcodebuild -version
 
-      - name: Stage the in-repo formula as a local tap
-        # The canonical formula lives in the tap repo, but CI bottles the exact
-        # copy that ships in this commit so the bottle always matches the source.
+      - name: Stage the formula as a local tap (source pinned to the tag)
+        # CI bottles the formula that ships in this commit. For a tagged bottle we
+        # rewrite the formula's SOURCE url + sha to the exact tag being built, so the
+        # build never depends on the default branch's formula being up to date and
+        # never trips on the placeholder sha a tagged in-repo copy may carry.
         run: |
           TAP_DIR="$(brew --repository)/Library/Taps/legetdev/homebrew-youty"
           mkdir -p "$TAP_DIR/Formula"
-          cp Scripts/homebrew/youty.rb "$TAP_DIR/Formula/youty.rb"
+          F="$TAP_DIR/Formula/youty.rb"
+          cp Scripts/homebrew/youty.rb "$F"
+          if [ "$TAG" != "HEAD" ]; then
+            SRC_SHA="$(curl -sL "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${TAG}.tar.gz" | shasum -a 256 | awk '{print $1}')"
+            # Source url (the archive/refs/tags one — not the models-resource url).
+            sed -i '' -E "s#archive/refs/tags/[^\"]*\.tar\.gz#archive/refs/tags/${TAG}.tar.gz#" "$F"
+            # Replace only the FIRST sha256 (the source sha; the models-resource sha is later, untouched).
+            awk -v sha="$SRC_SHA" '!d && /sha256 "[0-9a-f]+"/{sub(/sha256 "[0-9a-f]+"/,"sha256 \"" sha "\"");d=1}{print}' "$F" > "$F.t" && mv "$F.t" "$F"
+            echo "  source pinned to ${TAG} (sha ${SRC_SHA:0:12}…)"
+          fi
           git -C "$TAP_DIR" init -q
           git -C "$TAP_DIR" add -A
           git -C "$TAP_DIR" -c user.email=ci@youty -c user.name=ci commit -qm "ci bottle" || true
@@ -121,14 +133,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Splice the bottle block into the in-repo formula
+      - name: Splice the bottle block into the formula
         if: ${{ env.TAG != 'HEAD' }}
-        # `--merge --write` injects/updates the `bottle do … end` block (with the
-        # real sha256s + root_url) into the formula file the JSON points at.
+        # Merge the `bottle do … end` block into the tap formula that's already
+        # pinned to this tag (don't re-copy the repo formula — that would drop the
+        # tag pin). The result, tag-pinned source + bottle block, is exactly what
+        # release.sh downloads as an artifact and pushes to the tap.
         run: |
-          cp Scripts/homebrew/youty.rb "$(brew --repository)/Library/Taps/legetdev/homebrew-youty/Formula/youty.rb"
+          F="$(brew --repository)/Library/Taps/legetdev/homebrew-youty/Formula/youty.rb"
           brew bottle --merge --write --no-commit ./*.bottle.json
-          cp "$(brew --repository)/Library/Taps/legetdev/homebrew-youty/Formula/youty.rb" Scripts/homebrew/youty.rb
+          cp "$F" Scripts/homebrew/youty.rb
           echo "----- updated formula bottle block -----"
           sed -n '/bottle do/,/end/p' Scripts/homebrew/youty.rb
 
