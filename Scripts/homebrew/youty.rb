@@ -53,10 +53,16 @@ class Youty < Formula
     # FFmpeg statics live under Vendor/ffmpeg/ — built once via
     # Scripts/build-ffmpeg.sh, committed into the repo so end users
     # never need to install or build FFmpeg themselves.
+    # The youty-cli scheme does not depend on Sparkle (the app's SPM dependency) —
+    # only the GUI app does. Disable automatic package resolution and pin to the
+    # committed Package.resolved so the CLI build never invokes SwiftPM's manifest
+    # sandbox (which `sandbox_apply`-fails inside Homebrew's build environment).
     xcodebuild "-project", "youty.xcodeproj",
                "-scheme", "youty-cli",
                "-configuration", "Release",
                "-derivedDataPath", "build",
+               "-onlyUsePackageVersionsFromResolvedFile",
+               "-disableAutomaticPackageResolution",
                "SYMROOT=#{buildpath}/build",
                "build"
     bin.install "build/Release/youty"
