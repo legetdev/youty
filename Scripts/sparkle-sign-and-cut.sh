@@ -104,7 +104,14 @@ PUBDATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
 # length="..."`. We re-parse just the signature out of it.
 
 echo "==> Signing DMG with Sparkle EdDSA key..." >&2
-SIGN_OUTPUT=$("$SIGN_UPDATE" "$DMG")
+# Local default: read the private key from the Keychain. CI: pass it directly
+# via the SPARKLE_ED_PRIVATE_KEY env var (a repo secret) so no Keychain is
+# needed on the runner.
+if [ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]; then
+    SIGN_OUTPUT=$("$SIGN_UPDATE" -s "$SPARKLE_ED_PRIVATE_KEY" "$DMG")
+else
+    SIGN_OUTPUT=$("$SIGN_UPDATE" "$DMG")
+fi
 SIGNATURE=$(echo "$SIGN_OUTPUT" | sed -nE 's/.*sparkle:edSignature="([^"]+)".*/\1/p')
 
 if [ -z "$SIGNATURE" ]; then

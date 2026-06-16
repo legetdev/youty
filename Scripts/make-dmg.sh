@@ -94,12 +94,19 @@ hdiutil create \
     -size "${SIZE_KB}k" \
     "$RW_DMG" > /dev/null
 
-# ---- Mount + apply Finder window layout via AppleScript ----
-echo "==> Mounting + laying out window..."
-MOUNT_DIR=$(hdiutil attach "$RW_DMG" -nobrowse -noverify -noautoopen | tail -1 | awk '{print $3}')
-sleep 1
+# ---- Optionally apply the Finder window layout via AppleScript ----
+#
+# Skipped under CI / headless (set YOUTY_DMG_NO_STYLE=1, or it auto-skips when
+# $CI is set): osascript Finder automation needs a logged-in GUI session +
+# automation permission, which CI runners don't reliably provide. The DMG is
+# fully functional either way — this step only arranges the drag-to-Applications
+# icon layout. The local default path (no flag) is unchanged.
+if [ -z "${YOUTY_DMG_NO_STYLE:-}" ] && [ -z "${CI:-}" ]; then
+    echo "==> Mounting + laying out window..."
+    MOUNT_DIR=$(hdiutil attach "$RW_DMG" -nobrowse -noverify -noautoopen | tail -1 | awk '{print $3}')
+    sleep 1
 
-osascript <<APPLESCRIPT > /dev/null
+    osascript <<APPLESCRIPT > /dev/null
 tell application "Finder"
     tell disk "$VOLUME_NAME"
         open
@@ -119,9 +126,12 @@ tell application "Finder"
 end tell
 APPLESCRIPT
 
-# Forced sync before unmount so Finder's .DS_Store gets persisted.
-sync
-hdiutil detach "$MOUNT_DIR" -quiet
+    # Forced sync before unmount so Finder's .DS_Store gets persisted.
+    sync
+    hdiutil detach "$MOUNT_DIR" -quiet
+else
+    echo "==> Skipping Finder window styling (CI/headless) — DMG stays functional."
+fi
 
 # ---- Convert RW → compressed read-only ----
 echo "==> Compressing to $DMG_OUT..."

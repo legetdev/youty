@@ -1,0 +1,125 @@
+name: Release
+
+# Builds, signs, notarizes, staples, and publishes a Youty release when a `v*`
+# tag is pushed (or via manual dispatch). It reuses the same scripts proven for
+# local releases — release-app.sh, make-dmg.sh, sparkle-sign-and-cut.sh — so CI
+# and local cuts stay identical.
+#
+# REQUIRED repository secrets (Settings -> Secrets and variables -> Actions).
+# Until they are all set, the job SKIPS CLEANLY (it does not fail), so a tag
+# push never produces a spurious red X:
+#
+#   DEVELOPER_ID_APP_CERT_P12       base64 of the Developer ID Application .p12
+#   DEVELOPER_ID_APP_CERT_PASSWORD  the .p12 export password
+#   DEVELOPER_ID_APP_CERT_NAME      e.g. "Developer ID Application: Name (TEAMID)"
+#   NOTARY_ASC_KEY_ID               App Store Connect API key id
+#   NOTARY_ASC_ISSUER_ID            App Store Connect issuer id
+#   NOTARY_ASC_KEY_P8               base64 of the App Store Connect .p8 key
+#   SPARKLE_ED_PRIVATE_KEY          the Sparkle EdDSA private key string
+#
+# The appcast <item> is emitted as a build artifact ("appcast-item") for you to
+# paste into youty-web/public/appcast.xml — the appcast is served from the
+# separate site repo, so CI can't push it directly.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # create the GitHub Release + upload assets
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Check release secrets are configured
+        id: gate
+        env:
+          CERT_P12: ${{ secrets.DEVELOPER_ID_APP_CERT_P12 }}
+        run: |
+          if [ -z "${CERT_P12}" ]; then
+            echo "::notice::Release secrets not configured — skipping. See the workflow header for the required secrets."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch on-device models
+        if: steps.gate.outputs.ready == 'true'
+        run: ./Scripts/fetch-models.sh
+
+      - name: Generate Xcode project
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+
+      - name: Import Developer ID certificate
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          CERT_P12: ${{ secrets.DEVELOPER_ID_APP_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_APP_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/youty-signing.keychain-db"
+          KCPASS="$(uuidgen)"
+          security create-keychain -p "$KCPASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KCPASS" "$KEYCHAIN"
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPASS" "$KEYCHAIN"
+          # Put the temp keychain on the search list so codesign finds the identity.
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | sed 's/"//g')
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Set up notary credentials
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.NOTARY_ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.NOTARY_ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.NOTARY_ASC_KEY_P8 }}
+        run: |
+          printf '%s' "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/asc.p8"
+          xcrun notarytool store-credentials "youty-notary" \
+            --key "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID"
+          rm -f "$RUNNER_TEMP/asc.p8"
+
+      - name: Build, sign, notarize, staple, package DMG
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          DEVELOPER_ID_APPLICATION_CERT: ${{ secrets.DEVELOPER_ID_APP_CERT_NAME }}
+          NOTARY_KEYCHAIN_PROFILE: youty-notary
+        run: |
+          ./Scripts/release-app.sh
+          ./Scripts/make-dmg.sh        # $CI is set by Actions -> DMG built without Finder styling
+
+      - name: Cut the signed appcast item
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          ./Scripts/sparkle-sign-and-cut.sh build/Youty-*.dmg > appcast-item.xml
+          echo "---- appcast <item> (paste into youty-web/public/appcast.xml) ----"
+          cat appcast-item.xml
+
+      - name: Publish GitHub Release
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            build/Youty-*.dmg \
+            --title "Youty ${GITHUB_REF_NAME}" \
+            --notes "Automated release for ${GITHUB_REF_NAME}. See the appcast for auto-update."
+
+      - name: Upload appcast item artifact
+        if: steps.gate.outputs.ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: appcast-item
+          path: appcast-item.xml
