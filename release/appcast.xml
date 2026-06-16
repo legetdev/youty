@@ -25,6 +25,23 @@
         <link>https://youtyapp.vercel.app/appcast.xml</link>
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
+        <item>
+            <title>Youty 1.1.0</title>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Tue, 16 Jun 2026 13:12:53 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.1.0</h3>
+                <p>On-device Core ML embeddings in the MCP server (drops PyTorch — smaller, faster install); Homebrew install now builds everywhere; hardened dependencies. Mac app functionally unchanged from 1.0.0.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.1.0/Youty-1.1.0.dmg"
+                sparkle:edSignature="cV11pQpvL7R9dg1oFOg//F/0j4RY7V0rtlUn6JKtm8YJM85d+qFW9duJ2QFEBeRbUBJaTRvWpIJIUpwrL0u4CQ=="
+                length="440318535"
+                type="application/octet-stream"/>
+        </item>
+
 
         <item>
             <title>Youty 1.0.0</title>
