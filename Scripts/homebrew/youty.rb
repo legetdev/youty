@@ -34,6 +34,10 @@ class Youty < Formula
   # APIs the transcript pipeline depends on shipped in that release.
   depends_on xcode: ["26.0", :build]
   depends_on macos: :tahoe
+  # Generates the Sparkle-free, CLI-only Xcode project (project-cli.yml) at build
+  # time so xcodebuild never evaluates the app's Sparkle SPM manifest, which
+  # fails inside Homebrew's build sandbox.
+  depends_on "xcodegen" => :build
 
   def install
     # The model weights aren't in the git source tarball (externalized to keep
@@ -50,10 +54,12 @@ class Youty < Formula
       end
     end
 
-    # FFmpeg statics live under Vendor/ffmpeg/ — built once via
-    # Scripts/build-ffmpeg.sh, committed into the repo so end users
-    # never need to install or build FFmpeg themselves.
-    xcodebuild "-project", "youty.xcodeproj",
+    # Generate the Sparkle-free CLI project (no SPM packages -> no SwiftPM
+    # manifest sandbox under brew) and build it. FFmpeg statics live under
+    # Vendor/ffmpeg/ — built once via Scripts/build-ffmpeg.sh, committed into the
+    # repo so end users never need to install or build FFmpeg themselves.
+    system "xcodegen", "generate", "--spec", "project-cli.yml"
+    xcodebuild "-project", "youty-cli.xcodeproj",
                "-scheme", "youty-cli",
                "-configuration", "Release",
                "-derivedDataPath", "build",

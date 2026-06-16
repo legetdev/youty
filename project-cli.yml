@@ -1,0 +1,98 @@
+# Sparkle-free, CLI-only XcodeGen spec — used ONLY by the Homebrew formula to
+# build the `youty` CLI binary.
+#
+# Why this exists: the full project.yml declares the Sparkle SPM package (the Mac
+# app's auto-updater). When xcodebuild loads that project it evaluates Sparkle's
+# Package.swift manifest inside a SwiftPM `sandbox-exec` sandbox, which
+# `sandbox_apply`-fails inside Homebrew's build environment — breaking both the
+# bottle build and `brew install --build-from-source`. The CLI does not use
+# Sparkle (its target excludes AppUpdater.swift), so building it from a
+# package-free spec sidesteps SwiftPM entirely and makes `brew install` work
+# everywhere, with no behavior change to the binary.
+#
+# IMPORTANT: keep the `youty-cli` target below byte-for-byte in sync with the
+# `youty-cli` target in project.yml. CI builds the CLI from BOTH specs so drift
+# is caught immediately.
+name: youty-cli
+options:
+  bundleIdPrefix: dev.leget
+  deploymentTarget:
+    macOS: "26.0"
+  xcodeVersion: "26.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+  configs:
+    Release:
+      # Mirrors project.yml: strip + dead-code + size opt + LTO for Release.
+      DEAD_CODE_STRIPPING: YES
+      STRIP_INSTALLED_PRODUCT: YES
+      DEPLOYMENT_POSTPROCESSING: YES
+      STRIP_STYLE: all
+      GCC_OPTIMIZATION_LEVEL: s
+      SWIFT_OPTIMIZATION_LEVEL: "-O"
+      SWIFT_COMPILATION_MODE: wholemodule
+      LLVM_LTO: YES
+      OTHER_LDFLAGS: "$(inherited) -dead_strip"
+
+targets:
+  youty-cli:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Sources
+        excludes:
+          - "IndexSchema.sql"
+          - "Info.plist"
+          - "youty.entitlements"
+          - "Assets.xcassets"
+          - "AppIcon.icon"
+          # GUI-only — the CLI has its own main + no SwiftUI surface
+          - "youtyApp.swift"
+          - "AppDelegate.swift"
+          - "ContentView.swift"
+          - "SettingsView.swift"
+          - "AuthLoginView.swift"
+          - "MenuBarController.swift"
+          - "MainWindowKeeper.swift"
+          - "IngestionFunnel.swift"
+          - "YoutyAppIntents.swift"
+          - "DebugRunner.swift"
+          - "OnboardingView.swift"
+          - "IndexBadgeView.swift"
+          - "IndexStatusStore.swift"
+          - "AppUpdater.swift"
+      - path: Sources/IndexSchema.sql
+        buildPhase: resources
+      - path: Vendor/siglip/models/SigLIP-Base-224_image.mlpackage
+        buildPhase: resources
+      - path: Vendor/siglip/licenses
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/vocab.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/merges.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/tokenizer/added_tokens.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma/licenses
+        buildPhase: resources
+      - path: CLI
+    settings:
+      base:
+        PRODUCT_NAME: youty
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leget.youty.cli
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/FFmpegBridging.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/lib
+        OTHER_LDFLAGS: "-lavcodec -lavformat -lavutil -lswscale -liconv -lbz2 -lz -lsqlite3 -framework Security -framework CoreFoundation -framework AudioToolbox -framework VideoToolbox -framework Foundation -framework AppKit -framework WebKit -framework Speech"
+        SKIP_INSTALL: NO
+        # Hardened runtime is required for Developer ID signing + notarization;
+        # without it Gatekeeper blocks the brew-installed CLI on other machines.
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic

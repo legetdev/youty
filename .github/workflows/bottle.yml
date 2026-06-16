@@ -75,13 +75,18 @@ jobs:
           git -C "$TAP_DIR" add -A
           git -C "$TAP_DIR" -c user.email=ci@youty -c user.name=ci commit -qm "ci bottle" || true
 
-      - name: Build the bottle from source
+      - name: Build from source (tag = release bottle; HEAD = verify against main)
         run: |
           ROOT_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           echo "ROOT_URL=$ROOT_URL" >> "$GITHUB_ENV"
-          # Sandbox disabled via HOMEBREW_NO_SANDBOX (job env) so xcodebuild can
-          # fetch Sparkle over the network during package resolution.
-          brew install --build-bottle --verbose "$FORMULA"
+          if [ "$TAG" = "HEAD" ]; then
+            # Verify the build fix against the default branch, whose source carries
+            # project-cli.yml (released tags get the full bottle path). HEAD installs
+            # can't be bottled, so the bottle/publish steps below are skipped.
+            brew install --HEAD --verbose "$FORMULA"
+          else
+            brew install --build-bottle --verbose "$FORMULA"
+          fi
 
       - name: Smoke-test the built CLI before publishing anything
         # The binary installed by --build-bottle is byte-identical to what gets
@@ -93,11 +98,13 @@ jobs:
           echo "✓ source-built CLI runs"
 
       - name: Bottle it
+        if: ${{ env.TAG != 'HEAD' }}
         run: |
           # Emits youty--<ver>.<tag>.bottle.tar.gz + .json in the working dir.
           brew bottle --json --no-rebuild --root-url="$ROOT_URL" "$FORMULA"
 
       - name: Normalize the bottle filename for upload
+        if: ${{ env.TAG != 'HEAD' }}
         # `brew bottle` writes the local file with a double dash; the URL brew
         # later constructs from root_url uses a single dash — rename to match so
         # the published asset resolves.
@@ -108,12 +115,14 @@ jobs:
           ls -1 youty-*.bottle.tar.gz
 
       - name: Upload the bottle to the release
+        if: ${{ env.TAG != 'HEAD' }}
         run: |
           gh release upload "$TAG" youty-*.bottle.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Splice the bottle block into the in-repo formula
+        if: ${{ env.TAG != 'HEAD' }}
         # `--merge --write` injects/updates the `bottle do … end` block (with the
         # real sha256s + root_url) into the formula file the JSON points at.
         run: |
@@ -124,6 +133,7 @@ jobs:
           sed -n '/bottle do/,/end/p' Scripts/homebrew/youty.rb
 
       - name: Verify — pour the published bottle on a clean prefix + smoke-test
+        if: ${{ env.TAG != 'HEAD' }}
         run: |
           brew uninstall --force youty
           # Force a real download+pour of the just-uploaded bottle (not the source).
@@ -133,6 +143,7 @@ jobs:
           echo "✓ published bottle pours + runs"
 
       - name: Publish the updated formula (job summary + artifact)
+        if: ${{ env.TAG != 'HEAD' }}
         # The checkout is a detached tag, so we don't push to main from here
         # (avoids divergence). The owner commits the block via the next
         # Scripts/release.sh run; the tap — the actual install source — is updated
@@ -145,6 +156,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the bottled formula as an artifact
+        if: ${{ env.TAG != 'HEAD' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: youty-formula-${{ env.TAG }}
@@ -153,7 +165,7 @@ jobs:
       - name: Propagate the bottled formula to the published tap (optional)
         # Only runs if a tap deploy token is configured. Without it, the owner
         # syncs the formula to the tap via Scripts/release.sh (DO_TAP) as today.
-        if: ${{ env.TAP_TOKEN != '' }}
+        if: ${{ env.TAG != 'HEAD' && env.TAP_TOKEN != '' }}
         env:
           GH_TOKEN: ${{ env.TAP_TOKEN }}
         run: |
