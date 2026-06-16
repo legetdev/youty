@@ -11,6 +11,7 @@
 		05282DE3200F4C6E62CF738F /* YoutyShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3E5022BF40C58739B777DA01 /* YoutyShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		090209CA9B05E0C2E4924947 /* SpeechTranscriptionPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */; };
 		094AA0F3BD47B61830E40854 /* TranscriptCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9277B41466B3A12A01E4AFB5 /* TranscriptCommand.swift */; };
+		0D13CEBFB541789B2D889BBC /* FormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738463C2870FCC27DD05AFEB /* FormattingTests.swift */; };
 		1032CEABD5436FC124C83529 /* PlatformRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */; };
 		106CC435AB211CC8443288B3 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
 		1164AB2D5DD0A4C678A2122E /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F403150ACD28D7C5A9F18C /* SettingsStore.swift */; };
@@ -134,6 +135,7 @@
 		F7F02FC49A9FDE72E034A593 /* SigLIPLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66BEA926CEA969BCEADF0870 /* SigLIPLoader.swift */; };
 		F9F144165A7A5C93294DB6AC /* EmbeddingGemmaEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B34242D9DEADB386F0FE44D8 /* EmbeddingGemmaEmbedder.swift */; };
 		FAAD514A1B9ECDA2B1D27F88 /* CLIConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE828BE532445B11DAFDF7C /* CLIConfig.swift */; };
+		FB1508B9245CEFE397C8693F /* URLParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D83CDE465B210AB90863F4 /* URLParsingTests.swift */; };
 		FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12465B44FC685B0D846EA0E /* DebugRunner.swift */; };
 		FF23A5E3E006C14D301779E2 /* EmbeddingGemma-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 1D84763388445C90ADAC05EE /* EmbeddingGemma-NOTICE.txt */; };
 /* End PBXBuildFile section */
@@ -145,6 +147,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 1392CE80DC06D081731E7989;
 			remoteInfo = YoutyShareExtension;
+		};
+		4A1CE4483182A43B49981B0F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 703D9707D40D7BF811BBD46F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 25D226C396BB0D53FBAA6BB4;
+			remoteInfo = youty;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -176,6 +185,7 @@
 		1F45717358DD1876523BA5D0 /* IndexStatusStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStatusStore.swift; sourceTree = "<group>"; };
 		27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TikTokExtractor.swift; sourceTree = "<group>"; };
 		28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParallelCapture.swift; sourceTree = "<group>"; };
+		28D83CDE465B210AB90863F4 /* URLParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLParsingTests.swift; sourceTree = "<group>"; };
 		2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptFetcher.swift; sourceTree = "<group>"; };
 		2C2747C12D2CBE36AD416926 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2CF1C029B5D14B567ED47B9B /* HelpCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpCommand.swift; sourceTree = "<group>"; };
@@ -200,6 +210,7 @@
 		6B4CA4AEF25DAF7A379921CE /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		6C21ECB07C9DC2F79D80010E /* CLIHostWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHostWindow.swift; sourceTree = "<group>"; };
 		7009AA6A6668D4D93B0A165A /* IndexSchema.sql */ = {isa = PBXFileReference; path = IndexSchema.sql; sourceTree = "<group>"; };
+		738463C2870FCC27DD05AFEB /* FormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingTests.swift; sourceTree = "<group>"; };
 		74B2C464CAC15C4D193258F3 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCommand.swift; sourceTree = "<group>"; };
 		7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameEmbedder.swift; sourceTree = "<group>"; };
@@ -214,6 +225,7 @@
 		9633A2907501CF5C01A910E3 /* ArgsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgsParser.swift; sourceTree = "<group>"; };
 		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
 		99DAA432B550C3B593BF3522 /* ReindexCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReindexCommand.swift; sourceTree = "<group>"; };
+		9B44CDFC7E9189A06603B843 /* youtyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = youtyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
 		ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaTokenizer.swift; sourceTree = "<group>"; };
 		AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexBadgeView.swift; sourceTree = "<group>"; };
@@ -302,6 +314,7 @@
 				648DFB30606A6330E39AD9B5 /* models */,
 				E52E405D239123F79A4A1BCB /* ShareExtension */,
 				D064152482EEF1C6C5964B10 /* Sources */,
+				B5557BC18FE22741B10A182A /* Tests */,
 				00A61D9BEE88851848EBF924 /* tokenizer */,
 				EFF19A7977B6F5EE9C053BDC /* Products */,
 			);
@@ -357,6 +370,15 @@
 			);
 			name = licenses;
 			path = Vendor/ffmpeg/licenses;
+			sourceTree = "<group>";
+		};
+		B5557BC18FE22741B10A182A /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				738463C2870FCC27DD05AFEB /* FormattingTests.swift */,
+				28D83CDE465B210AB90863F4 /* URLParsingTests.swift */,
+			);
+			path = Tests;
 			sourceTree = "<group>";
 		};
 		D064152482EEF1C6C5964B10 /* Sources */ = {
@@ -449,6 +471,7 @@
 				0A043E863630199156FD846E /* youty-cli */,
 				095F0E65E14289ABD525C24B /* youty.app */,
 				3E5022BF40C58739B777DA01 /* YoutyShareExtension.appex */,
+				9B44CDFC7E9189A06603B843 /* youtyTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -472,6 +495,24 @@
 			productName = YoutyShareExtension;
 			productReference = 3E5022BF40C58739B777DA01 /* YoutyShareExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		1B6E7372B472348D6A3B9060 /* youtyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 74A20724A6CE4ADD98FC50FA /* Build configuration list for PBXNativeTarget "youtyTests" */;
+			buildPhases = (
+				6FBCFF3C7ABF61AE3B7B7CF0 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8E1BD310B77627D22D7893CA /* PBXTargetDependency */,
+			);
+			name = youtyTests;
+			packageProductDependencies = (
+			);
+			productName = youtyTests;
+			productReference = 9B44CDFC7E9189A06603B843 /* youtyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 		25D226C396BB0D53FBAA6BB4 /* youty */ = {
 			isa = PBXNativeTarget;
@@ -526,6 +567,10 @@
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
+					1B6E7372B472348D6A3B9060 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
 					25D226C396BB0D53FBAA6BB4 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
@@ -556,6 +601,7 @@
 				1392CE80DC06D081731E7989 /* YoutyShareExtension */,
 				25D226C396BB0D53FBAA6BB4 /* youty */,
 				C960E40CA2CD1AB3D545672C /* youty-cli */,
+				1B6E7372B472348D6A3B9060 /* youtyTests */,
 			);
 		};
 /* End PBXProject section */
@@ -718,6 +764,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6FBCFF3C7ABF61AE3B7B7CF0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0D13CEBFB541789B2D889BBC /* FormattingTests.swift in Sources */,
+				FB1508B9245CEFE397C8693F /* URLParsingTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		925A493578F602A393BB4C2D /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -729,6 +784,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		8E1BD310B77627D22D7893CA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 25D226C396BB0D53FBAA6BB4 /* youty */;
+			targetProxy = 4A1CE4483182A43B49981B0F /* PBXContainerItemProxy */;
+		};
 		FCC23E0EB074F5D44F69B6E6 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 1392CE80DC06D081731E7989 /* YoutyShareExtension */;
@@ -823,6 +883,42 @@
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
+		};
+		594D620F3D32D75A259CA7C8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Vendor/ffmpeg/include";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.leget.youty.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/youty.app/Contents/MacOS/youty";
+			};
+			name = Release;
+		};
+		6E4F4C8FDA4132B6772FED1C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Vendor/ffmpeg/include";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.leget.youty.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/youty.app/Contents/MacOS/youty";
+			};
+			name = Debug;
 		};
 		7098D1273BEC287D12E8ED7E /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -1000,6 +1096,15 @@
 			buildConfigurations = (
 				9E74E06BC8F97D96BB23E91E /* Debug */,
 				5718054695F8CC30CF6009C9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		74A20724A6CE4ADD98FC50FA /* Build configuration list for PBXNativeTarget "youtyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6E4F4C8FDA4132B6772FED1C /* Debug */,
+				594D620F3D32D75A259CA7C8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

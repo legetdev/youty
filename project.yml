@@ -175,3 +175,35 @@ targets:
         # without it Gatekeeper blocks the brew-installed CLI on other machines.
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_STYLE: Automatic
+
+  # Unit tests for the pure logic (URL parsing, timestamp + markdown
+  # formatting). App-hosted so tests use `@testable import youty`; no network,
+  # no I/O. Run with `xcodebuild test -scheme youty`.
+  youtyTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.leget.youty.tests
+        GENERATE_INFOPLIST_FILE: YES
+        # `@testable import youty` pulls in the app module's FFmpeg bridging
+        # header, so the test target needs the FFmpeg include path at compile
+        # time. The actual symbols resolve from the host app at runtime.
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/ffmpeg/include
+    dependencies:
+      - target: youty
+
+schemes:
+  youty:
+    build:
+      targets:
+        youty: all
+        youtyTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - youtyTests

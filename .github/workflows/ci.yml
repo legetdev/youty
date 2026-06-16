@@ -38,11 +38,12 @@ jobs:
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
           xcodegen generate
 
-      - name: Build app (Debug, unsigned)
+      - name: Build app + run unit tests (Debug, unsigned)
         run: |
-          xcodebuild -project youty.xcodeproj -scheme youty \
+          xcodebuild test -project youty.xcodeproj -scheme youty \
             -configuration Debug -derivedDataPath build/ci \
-            CODE_SIGNING_ALLOWED=NO build
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Build CLI (Debug, unsigned)
         run: |
