@@ -43,7 +43,7 @@ dependencies = [
     # transformers + sentencepiece are kept for TOKENIZATION ONLY (the proven
     # EmbeddingGemma + SigLIP tokenizers — no hand-rolled parity risk). torch
     # is not imported: tokenizers are framework-agnostic, and inference is Core ML.
-    "transformers>=4.56,<5",
+    "transformers>=4.56,<6",
     "sentencepiece>=0.2,<1",
     "protobuf>=4,<7",
 ]
