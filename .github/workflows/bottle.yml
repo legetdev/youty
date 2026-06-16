@@ -75,7 +75,12 @@ jobs:
         run: |
           ROOT_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           echo "ROOT_URL=$ROOT_URL" >> "$GITHUB_ENV"
-          brew install --build-bottle --verbose "$FORMULA"
+          # --no-sandbox: youty.xcodeproj resolves its one SPM dependency (Sparkle,
+          # the app updater) over the network at build time, but Homebrew's build
+          # sandbox blocks network. Disable it for the bottle build only — the
+          # poured bottle requires no build or network, so end users are unaffected,
+          # and the app's runtime App Sandbox entitlement is a separate concern.
+          brew install --build-bottle --no-sandbox --verbose "$FORMULA"
 
       - name: Smoke-test the built CLI before publishing anything
         # The binary installed by --build-bottle is byte-identical to what gets
