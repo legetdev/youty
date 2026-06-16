@@ -1,0 +1,66 @@
+name: CI
+
+# Build + test gate. Runs on every push to main, on PRs, and on demand.
+# - macOS job: regenerates the Xcode project from project.yml, fetches the
+#   on-device models, and builds both the app and the CLI on a clean macOS 26
+#   runner (Debug, unsigned) so build breakage is caught before release.
+# - Linux job: runs the youty-mcp test suite.
+# No secrets required.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-build:
+    name: Build app + CLI (macOS 26)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Show toolchain
+        run: xcodebuild -version && swift --version
+
+      - name: Fetch on-device models
+        run: ./Scripts/fetch-models.sh
+
+      - name: Generate Xcode project
+        run: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+
+      - name: Build app (Debug, unsigned)
+        run: |
+          xcodebuild -project youty.xcodeproj -scheme youty \
+            -configuration Debug -derivedDataPath build/ci \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build CLI (Debug, unsigned)
+        run: |
+          xcodebuild -project youty.xcodeproj -scheme youty-cli \
+            -configuration Debug -derivedDataPath build/ci \
+            CODE_SIGNING_ALLOWED=NO build
+
+  mcp-tests:
+    name: youty-mcp tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+
+      - name: Run tests
+        working-directory: youty-mcp
+        run: |
+          uv sync
+          uv run pytest -q
