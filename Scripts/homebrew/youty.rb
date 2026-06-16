@@ -50,15 +50,26 @@ class Youty < Formula
     bin.install "build/Release/youty"
 
     # The CLI is a bare binary with no Resources/ bundle of its own, so the
-    # SQLite index schema + the SigLIP image encoder live in
-    # <prefix>/share/youty/, which SharedResourceLocator.swift checks
-    # relative to the binary. The schema is small + lives in the tarball.
-    (share/"youty").install "Sources/IndexSchema.sql"
+    # index schema, the on-device models, and the tokenizer live in
+    # <prefix>/share/youty/, which SharedResourceLocator.swift checks relative
+    # to the binary. This gives the brew CLI the *exact same* text
+    # (EmbeddingGemma) + frame (SigLIP) indexing the Mac app performs.
+    youty_share = share/"youty"
+    youty_share.install "Sources/IndexSchema.sql"
 
-    # Limitation: a Homebrew-installed CLI does full text indexing on save, but
-    # frame (image-search) indexing is skipped with a clear, non-fatal warning.
-    # Wiring it up means compiling the bundled SigLIP encoder into share/youty
-    # for SharedResourceLocator to find at runtime — a planned enhancement.
+    # Compile the Core ML models (.mlpackage -> .mlmodelc) into share/youty.
+    # The weights come from the `models` resource staged above. coremlcompiler
+    # emits "<name>.mlmodelc" — the exact name SharedResourceLocator looks up.
+    system "xcrun", "coremlcompiler", "compile",
+           "Vendor/siglip/models/SigLIP-Base-224_image.mlpackage", youty_share
+    system "xcrun", "coremlcompiler", "compile",
+           "Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage", youty_share
+
+    # The EmbeddingGemma tokenizer artifacts (the native vocab/merges/added
+    # tokens the Swift GemmaTokenizer reads from the model's directory).
+    youty_share.install "Vendor/embeddinggemma/tokenizer/vocab.bin",
+                        "Vendor/embeddinggemma/tokenizer/merges.bin",
+                        "Vendor/embeddinggemma/tokenizer/added_tokens.bin"
   end
 
   def caveats
