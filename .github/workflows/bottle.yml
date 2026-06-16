@@ -49,6 +49,10 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
       HOMEBREW_NO_ANALYTICS: "1"
+      # Disable the build sandbox so xcodebuild can resolve the one SPM dependency
+      # (Sparkle) over the network. The poured bottle needs no build/network, so
+      # end users are unaffected; the app's runtime App Sandbox is unrelated.
+      HOMEBREW_NO_SANDBOX: "1"
     steps:
       - name: Check out the formula (default branch)
         # Use the formula on the default branch, not the tag: the tagged in-repo
@@ -75,12 +79,9 @@ jobs:
         run: |
           ROOT_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           echo "ROOT_URL=$ROOT_URL" >> "$GITHUB_ENV"
-          # --no-sandbox: youty.xcodeproj resolves its one SPM dependency (Sparkle,
-          # the app updater) over the network at build time, but Homebrew's build
-          # sandbox blocks network. Disable it for the bottle build only — the
-          # poured bottle requires no build or network, so end users are unaffected,
-          # and the app's runtime App Sandbox entitlement is a separate concern.
-          brew install --build-bottle --no-sandbox --verbose "$FORMULA"
+          # Sandbox disabled via HOMEBREW_NO_SANDBOX (job env) so xcodebuild can
+          # fetch Sparkle over the network during package resolution.
+          brew install --build-bottle --verbose "$FORMULA"
 
       - name: Smoke-test the built CLI before publishing anything
         # The binary installed by --build-bottle is byte-identical to what gets
