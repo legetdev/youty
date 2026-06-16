@@ -50,10 +50,12 @@ jobs:
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
       HOMEBREW_NO_ANALYTICS: "1"
     steps:
-      - name: Check out the tagged source
+      - name: Check out the formula (default branch)
+        # Use the formula on the default branch, not the tag: the tagged in-repo
+        # copy carries a placeholder source sha256 (the real one is filled into the
+        # published tap at release time). brew downloads the actual TAG source via
+        # the formula's `url`, so the build still targets the released version.
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          ref: ${{ github.event.inputs.tag || github.event.release.tag_name }}
 
       - name: Show toolchain
         run: brew --version && xcodebuild -version
