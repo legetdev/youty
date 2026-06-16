@@ -21,6 +21,10 @@ final class EmbeddingGemmaEmbedder: Embedder, @unchecked Sendable {
     private static let seqLen = 256
     /// EmbeddingGemma's retrieval-document task prompt (the indexer embeds docs).
     private static let documentPrompt = "title: none | text: "
+    /// EmbeddingGemma's retrieval-query task prompt (search queries embed with
+    /// this so they land in the same space as the documents). Used by the
+    /// `youty embed --query` path that the MCP shells out to.
+    static let queryPrompt = "task: search result | query: "
 
     private let model: MLModel
     private let tokenizer: GemmaTokenizer
@@ -54,12 +58,24 @@ final class EmbeddingGemmaEmbedder: Embedder, @unchecked Sendable {
     func embed(_ texts: [String]) async throws -> [[Float]] {
         var out = [[Float]]()
         out.reserveCapacity(texts.count)
-        for text in texts { out.append(try embedOne(text)) }
+        for text in texts { out.append(try embedOne(text, prompt: Self.documentPrompt)) }
         return out
     }
 
-    private func embedOne(_ text: String) throws -> [Float] {
-        var ids = tokenizer.encode(Self.documentPrompt + text)
+    /// Embed a single search query (uses the retrieval-query prompt). Lands in
+    /// the same space as the documents `embed(_:)` produced.
+    func embedQuery(_ text: String) throws -> [Float] {
+        try embedOne(text, prompt: Self.queryPrompt)
+    }
+
+    /// Embed a single document (retrieval-document prompt) — the same path the
+    /// indexer uses. Lets `youty embed` reproduce stored index vectors exactly.
+    func embedDocument(_ text: String) throws -> [Float] {
+        try embedOne(text, prompt: Self.documentPrompt)
+    }
+
+    private func embedOne(_ text: String, prompt: String) throws -> [Float] {
+        var ids = tokenizer.encode(prompt + text)
         // Truncate to seqLen keeping <bos> … <eos> (matches HF truncation).
         if ids.count > Self.seqLen {
             ids = [ids[0]] + Array(ids[1..<(Self.seqLen - 1)]) + [ids[ids.count - 1]]

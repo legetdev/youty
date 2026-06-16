@@ -16,6 +16,7 @@
 		106CC435AB211CC8443288B3 /* VaultManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */; };
 		1164AB2D5DD0A4C678A2122E /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F403150ACD28D7C5A9F18C /* SettingsStore.swift */; };
 		11D4E14864EDC6A0258EA910 /* StreamFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */; };
+		1471E97F911B8C24C5FE4EF6 /* EmbedCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A76E8798B4BED34163ED4AD /* EmbedCommand.swift */; };
 		161162C6D5E59139B842928A /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC47826C11CFAAB99DBA696C /* MenuBarController.swift */; };
 		192546E42F1AF0C86D0CBDEB /* VaultLocalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */; };
 		1AD48BCAA27F5C6CDD0A24D1 /* SidxParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8C64BEE7581B939A220E62 /* SidxParser.swift */; };
@@ -177,6 +178,7 @@
 		06260360B94CB43DE470BA5F /* added_tokens.bin */ = {isa = PBXFileReference; lastKnownFileType = archive.macbinary; path = added_tokens.bin; sourceTree = "<group>"; };
 		095F0E65E14289ABD525C24B /* youty.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = youty.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A043E863630199156FD846E /* youty-cli */ = {isa = PBXFileReference; includeInIndex = 0; path = "youty-cli"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A76E8798B4BED34163ED4AD /* EmbedCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbedCommand.swift; sourceTree = "<group>"; };
 		0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformRouter.swift; sourceTree = "<group>"; };
 		104CFBE1B3509D6A05F8A3C9 /* NOTICE */ = {isa = PBXFileReference; path = NOTICE; sourceTree = "<group>"; };
 		13370E21DD4886D040B9C4DD /* PHashFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PHashFilter.swift; sourceTree = "<group>"; };
@@ -291,6 +293,7 @@
 		28C654CA4B6D64A14640CBB2 /* Commands */ = {
 			isa = PBXGroup;
 			children = (
+				0A76E8798B4BED34163ED4AD /* EmbedCommand.swift */,
 				2CF1C029B5D14B567ED47B9B /* HelpCommand.swift */,
 				CF78DB0683DB0DBAC273AA27 /* ListCommand.swift */,
 				8C3DFEC917B99551FA24B633 /* LoginCommand.swift */,
@@ -658,6 +661,7 @@
 				97334541EF7B2EB74000A289 /* CanvasFramePipeline.swift in Sources */,
 				E7CC5D854D4A4FFCCBE4C576 /* Chunker.swift in Sources */,
 				98739D06255647380C8B1388 /* DebugLog.swift in Sources */,
+				1471E97F911B8C24C5FE4EF6 /* EmbedCommand.swift in Sources */,
 				6379D83C95B3F278435879B6 /* EmbedderProtocol.swift in Sources */,
 				DAD567BAB79895AA31E5A511 /* EmbeddingGemmaEmbedder.swift in Sources */,
 				D0C742B94FA26C7149B2CDB4 /* FFmpegFrameExtractor.swift in Sources */,

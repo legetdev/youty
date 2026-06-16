@@ -18,6 +18,7 @@ enum HelpCommand {
           search      keyword search across saved videos
           transcript  print a saved video's transcript
           reindex     rebuild the search index (e.g. switch to on-device search)
+          embed       embed text with the on-device model (for tooling/MCP)
           login       sign in to a platform (required once for Instagram)
 
         OPTIONS
@@ -43,6 +44,7 @@ enum HelpCommand {
         case "search":     emit(searchHelp)
         case "transcript": emit(transcriptHelp)
         case "reindex":    emit(reindexHelp)
+        case "embed":      emit(embedHelp)
         case "login":      emit(loginHelp)
         default:
             FileHandle.standardError.write("youty: no help topic '\(command)'\n".data(using: .utf8)!)
@@ -93,6 +95,27 @@ enum HelpCommand {
     EXAMPLES
       youty reindex                       # full rebuild (text + frames)
       youty reindex --text-only           # migrate text to on-device, keep frames
+    """
+
+    private static let embedHelp = """
+    youty embed — embed text with the on-device EmbeddingGemma model.
+
+    USAGE
+      youty embed --text "..." [--query]
+
+    Emits the 768-d embedding as JSON: {"model":…,"dim":768,"vector":[…]}.
+    Uses the exact same on-device pipeline as the indexer, so a query embedded
+    here lands in the precise vector space of the saved documents. Intended for
+    tooling (e.g. the MCP server) that needs query embeddings without bundling
+    PyTorch/Transformers.
+
+    OPTIONS
+      --text "..."        text to embed (or pass it as the first argument)
+      --query             use the retrieval-query prompt (default: document prompt)
+
+    EXAMPLES
+      youty embed --text "ai influencers"
+      youty embed --text "how to grow on tiktok" --query
     """
 
     private static let listHelp = """
