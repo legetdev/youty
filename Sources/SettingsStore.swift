@@ -69,6 +69,12 @@ final class SettingsStore: ObservableObject {
     /// skips entirely — capture stays anonymous + offline.
     @AppStorage("indexerEnabled") var indexerEnabled: Bool = true
 
+    /// When true (default), the indexer runs on-device OCR over each saved
+    /// video's frames and writes the recognized on-screen text into video.md, so
+    /// search reaches what a video *shows* (slides, code, labels), not just what
+    /// it says. Fully local (Apple Vision). Off = transcript + visual search only.
+    @AppStorage("ocrIndexingEnabled") var ocrIndexingEnabled: Bool = true
+
     /// The text model id the index was last re-embedded to (Phase S.4 → now
     /// always the on-device model). When it equals the on-device model the
     /// launch re-embed offer has been satisfied and stays quiet; it is only

@@ -184,6 +184,12 @@ def search(
     index was built with, so no API key and no cloud call. Compound questions
     work fine as-is; you don't need to split them yourself.
 
+    Results cover both what a video *said* and what it *showed*: each result's
+    `chunk.type` is "body"/"description"/"header" for the spoken transcript +
+    metadata, or "frame_text" for text recognized **on-screen** via OCR (slides,
+    code, terminal output, labels). A "frame_text" hit means the answer was
+    visible in the video — pair it with `view_frames` to see that moment.
+
     Args:
         query: The user's natural-language question, in any language.
             Conversational phrasing works ("what did Matt Wolfe say about

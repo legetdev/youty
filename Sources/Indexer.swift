@@ -200,6 +200,14 @@ enum Indexer {
             throw IndexerError.noVideoMD(videoMdURL)
         }
 
+        // V.1: OCR the bundle's frames into an "## On-screen text" section of
+        // video.md (idempotent) BEFORE chunking, so what the video *shows*
+        // becomes searchable `frame_text` chunks alongside the spoken transcript.
+        // Default-on; opt out via the "ocrIndexingEnabled" setting. Covers both
+        // new saves and re-indexing of existing vaults through this one hook.
+        let ocrEnabled = UserDefaults.standard.object(forKey: "ocrIndexingEnabled") as? Bool ?? true
+        OnScreenText.ensureSection(inBundle: videoMdURL.deletingLastPathComponent(), enabled: ocrEnabled)
+
         let (parsed, chunks) = try Chunker.parseAndChunk(videoMdURL: videoMdURL)
         guard !parsed.videoID.isEmpty else {
             throw IndexerError.vaultMismatch("video.md has no video_id / post_id field")

@@ -244,6 +244,15 @@ struct SettingsView: View {
             .controlSize(.small)
             .accessibilityHint("When on, every saved video is embedded into the local search index so AI tools can find it by meaning")
 
+            Toggle(isOn: $settings.ocrIndexingEnabled) {
+                Text("Also search on-screen text (OCR)")
+                    .font(.system(size: 13))
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .disabled(!settings.indexerEnabled)
+            .accessibilityHint("When on, recognizes text shown on screen — slides, code, labels — so search reaches what a video shows, not just what it says. Fully on-device. Applies to new saves and the next re-index.")
+
             // 100% on-device — no key, nothing leaves the Mac.
             HStack(spacing: 8) {
                 Image(systemName: "lock.laptopcomputer")

@@ -57,12 +57,13 @@ def dense_top_k(
     the result is graceful degradation, never silently wrong ranking.
     """
     blob = struct.pack(f"<{len(query_vec)}f", *query_vec)
-    # vec_chunks is partitioned by platform + chunk_type — we always restrict to
-    # the three text chunk types so all rows are eligible. Platform is optional.
+    # vec_chunks is partitioned by platform + chunk_type — we restrict to the
+    # text chunk types so all rows are eligible (header/description/body =
+    # spoken/metadata, frame_text = OCR'd on-screen text). Platform is optional.
     where_clauses = [
         "embedding MATCH ?",
         "k = ?",
-        "chunk_type IN ('header','description','body')",
+        "chunk_type IN ('header','description','body','frame_text')",
     ]
     params: list[object] = [blob, k]
     if platform:

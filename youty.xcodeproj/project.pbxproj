@@ -80,16 +80,19 @@
 		8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */; };
 		9417C71FA609B112D97E513F /* VaultResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013AA49E501B8578D1468372 /* VaultResolver.swift */; };
 		95177DA36FFB1E5C7D32A1FF /* CanvasFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */; };
+		95565110F2CCB83E409EF569 /* FrameOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758B37768FA8016F11B5B178 /* FrameOCR.swift */; };
 		96AB39F42C6B36B4C7E6D1C8 /* ReindexCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99DAA432B550C3B593BF3522 /* ReindexCommand.swift */; };
 		97334541EF7B2EB74000A289 /* CanvasFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */; };
 		975E616FFF3737C01A2CE49C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C870A2F3D64DB3E251183EDE /* main.swift */; };
 		9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */; };
 		98739D06255647380C8B1388 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7071A2233262A50751C78C /* DebugLog.swift */; };
+		98ACF1E3196E5C8B2673B389 /* OnScreenText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00E9FA7D3F31196FE8C11CC /* OnScreenText.swift */; };
 		9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
 		A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */; };
 		A5A27212E838E96609102929 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
+		A8EB12AE804431E879A720FE /* FrameOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758B37768FA8016F11B5B178 /* FrameOCR.swift */; };
 		AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E533613734AEB3CF1ABED12B /* youtyApp.swift */; };
 		AD8623CEE0C8060DF4D79ACB /* EmbeddingGemma-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 1D84763388445C90ADAC05EE /* EmbeddingGemma-NOTICE.txt */; };
 		B232018D44F6919E8EEB28A1 /* LocalFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001EA64ECBEF879A726F4768 /* LocalFrameExtractor.swift */; };
@@ -124,6 +127,7 @@
 		DFFD3299B503FD9D00C246D2 /* TranscriptFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */; };
 		E22A06093A2559C9726D7587 /* IngestionFunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87CBAB60A9E0C95DF447EFB3 /* IngestionFunnel.swift */; };
 		E3165888D2C54EB8455B0EAE /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0A56EE058438A3D7841601 /* SettingsView.swift */; };
+		E757C5BF434C4D92027004EC /* OnScreenText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00E9FA7D3F31196FE8C11CC /* OnScreenText.swift */; };
 		E7CC5D854D4A4FFCCBE4C576 /* Chunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AF6C6C447D9216143D47E6 /* Chunker.swift */; };
 		E8B97176F582159EC5144CF0 /* PHashFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13370E21DD4886D040B9C4DD /* PHashFilter.swift */; };
 		E979052EADCB12AA1DA89989 /* ListCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF78DB0683DB0DBAC273AA27 /* ListCommand.swift */; };
@@ -214,6 +218,7 @@
 		7009AA6A6668D4D93B0A165A /* IndexSchema.sql */ = {isa = PBXFileReference; path = IndexSchema.sql; sourceTree = "<group>"; };
 		738463C2870FCC27DD05AFEB /* FormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormattingTests.swift; sourceTree = "<group>"; };
 		74B2C464CAC15C4D193258F3 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		758B37768FA8016F11B5B178 /* FrameOCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameOCR.swift; sourceTree = "<group>"; };
 		7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchCommand.swift; sourceTree = "<group>"; };
 		7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameEmbedder.swift; sourceTree = "<group>"; };
 		7F0A56EE058438A3D7841601 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -232,6 +237,7 @@
 		ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaTokenizer.swift; sourceTree = "<group>"; };
 		AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexBadgeView.swift; sourceTree = "<group>"; };
 		AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */ = {isa = PBXFileReference; path = COPYING.LGPLv3; sourceTree = "<group>"; };
+		B00E9FA7D3F31196FE8C11CC /* OnScreenText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnScreenText.swift; sourceTree = "<group>"; };
 		B34242D9DEADB386F0FE44D8 /* EmbeddingGemmaEmbedder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingGemmaEmbedder.swift; sourceTree = "<group>"; };
 		B3B9A77CA2B9DA7272B6C824 /* SaveCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveCommand.swift; sourceTree = "<group>"; };
 		B5DA59A198D8D80C96D4DBAC /* IndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexStore.swift; sourceTree = "<group>"; };
@@ -407,6 +413,7 @@
 				8397B96787C9C28270BF3FD6 /* FFmpegURLSessionIO.swift */,
 				7E402DF7244139AA9EE1526A /* FrameEmbedder.swift */,
 				ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */,
+				758B37768FA8016F11B5B178 /* FrameOCR.swift */,
 				BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */,
 				ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */,
 				AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */,
@@ -424,6 +431,7 @@
 				FB6708940A3424B502A6232E /* MetadataEnricher.swift */,
 				E7BBBE1096196E9A00729BF3 /* MP4MoofParser.swift */,
 				6B4CA4AEF25DAF7A379921CE /* OnboardingView.swift */,
+				B00E9FA7D3F31196FE8C11CC /* OnScreenText.swift */,
 				28AF996CD0C2EE13BC7503CB /* ParallelCapture.swift */,
 				F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */,
 				13370E21DD4886D040B9C4DD /* PHashFilter.swift */,
@@ -671,6 +679,7 @@
 				26EC15015337957E94B79D59 /* FastFramePipeline.swift in Sources */,
 				7BFBB7156B9F481099D68889 /* FrameEmbedder.swift in Sources */,
 				2B3293CD694D61AA1B68AFAD /* FrameExtractor.swift in Sources */,
+				95565110F2CCB83E409EF569 /* FrameOCR.swift in Sources */,
 				73B0BABFF6BDC626DCFE37C5 /* FramePipeline.swift in Sources */,
 				EF6072228D9CD1B5CC1B6667 /* GemmaTokenizer.swift in Sources */,
 				4B07C74A46B6E023674F964E /* HelpCommand.swift in Sources */,
@@ -683,6 +692,7 @@
 				D7A3D55EA174E6C74FFC59A7 /* MP4MoofParser.swift in Sources */,
 				D2BB0FFF57E0B176F2D9BD8B /* MediaDownloader.swift in Sources */,
 				F16D38842CD9A198F1B8924C /* MetadataEnricher.swift in Sources */,
+				E757C5BF434C4D92027004EC /* OnScreenText.swift in Sources */,
 				CB9BD576C3C677BBD4B9AC33 /* PHashFilter.swift in Sources */,
 				C68DEB5E0CA86838F5D69231 /* ParallelCapture.swift in Sources */,
 				53450823245D09271EC7931A /* PhaseIFrameExtractor.swift in Sources */,
@@ -730,6 +740,7 @@
 				B485EFBCAB058975036F1AD8 /* FastFramePipeline.swift in Sources */,
 				8DDA2F914E953F5128F3C2F9 /* FrameEmbedder.swift in Sources */,
 				9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */,
+				A8EB12AE804431E879A720FE /* FrameOCR.swift in Sources */,
 				A5A27212E838E96609102929 /* FramePipeline.swift in Sources */,
 				83B3772E21D0CBB7CF5F2108 /* GemmaTokenizer.swift in Sources */,
 				345B82542264F04FB42EA963 /* IndexBadgeView.swift in Sources */,
@@ -744,6 +755,7 @@
 				674CF57AC4E8B460F93ED637 /* MediaDownloader.swift in Sources */,
 				161162C6D5E59139B842928A /* MenuBarController.swift in Sources */,
 				348D590961AC2C1BECB77D10 /* MetadataEnricher.swift in Sources */,
+				98ACF1E3196E5C8B2673B389 /* OnScreenText.swift in Sources */,
 				414A38659EC99913025816EF /* OnboardingView.swift in Sources */,
 				E8B97176F582159EC5144CF0 /* PHashFilter.swift in Sources */,
 				D235DE78DBDF7AED552E8AFB /* ParallelCapture.swift in Sources */,

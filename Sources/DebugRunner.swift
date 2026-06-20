@@ -51,6 +51,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--bench-indexer")
             || CommandLine.arguments.contains("--siglip-probe")
             || CommandLine.arguments.contains("--embeddinggemma-probe")
+            || CommandLine.arguments.contains("--ocr-probe")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -95,6 +96,9 @@ enum DebugRunner {
         }
         if args.contains("--embeddinggemma-probe") {
             runEmbeddingGemmaProbe()
+        }
+        if let folder = stringArg(args, key: "--ocr-probe") {
+            runOCRProbe(folder: folder)
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -481,6 +485,54 @@ enum DebugRunner {
     //   1 — partial: some bundles failed
     //   2 — setup error (unreadable vault, or on-device model unavailable)
     //   3 — fatal (DB open, embedder ctor)
+    /// `--ocr-probe <bundleFolder>` — verifies the V.1 on-screen-text pipeline
+    /// end-to-end on real frames WITHOUT touching the source: copies the bundle
+    /// to a temp dir, runs OCR + section injection there, then re-chunks and
+    /// reports how many `frame_text` chunks were produced. Pass a bundle folder
+    /// that contains `video.md` + `NNNNNNNN.jpg` frames.
+    private static func runOCRProbe(folder: String) -> Never {
+        let fm = FileManager.default
+        let src = URL(fileURLWithPath: folder, isDirectory: true).standardizedFileURL
+        let tmp = fm.temporaryDirectory.appendingPathComponent("youty-ocr-probe-\(UUID().uuidString)")
+        do {
+            try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let dst = tmp.appendingPathComponent(src.lastPathComponent)
+            try fm.copyItem(at: src, to: dst)
+
+            let frameCount = (try? fm.contentsOfDirectory(at: dst, includingPropertiesForKeys: nil))?
+                .filter { $0.pathExtension.lowercased() == "jpg" }.count ?? 0
+            print("OCR_PROBE bundle=\(src.lastPathComponent) frames=\(frameCount)")
+
+            let t0 = Date()
+            let wrote = OnScreenText.ensureSection(inBundle: dst, enabled: true)
+            print("ensureSection wrote=\(wrote) ms=\(Int(Date().timeIntervalSince(t0) * 1000))")
+
+            let mdURL = dst.appendingPathComponent("video.md")
+            let md = (try? String(contentsOf: mdURL, encoding: .utf8)) ?? ""
+            if let r = md.range(of: OnScreenText.heading) {
+                print("----- on-screen text section (first 1200 chars) -----")
+                print(String(md[r.lowerBound...].prefix(1200)))
+                print("-----------------------------------------------------")
+            } else {
+                print("NO on-screen text section written")
+            }
+
+            let (_, chunks) = try Chunker.parseAndChunk(videoMdURL: mdURL)
+            let ft = chunks.filter { $0.type == .frameText }
+            print("frame_text chunks=\(ft.count)  total chunks=\(chunks.count)")
+            if let first = ft.first {
+                print("sample frame_text [\(first.startMs.map(String.init) ?? "nil")ms]: \(first.text.prefix(220))")
+            }
+            try? fm.removeItem(at: tmp)
+            print("OCR_PROBE: OK")
+            exit(0)
+        } catch {
+            try? fm.removeItem(at: tmp)
+            print("OCR_PROBE FAILED: \(error)")
+            exit(1)
+        }
+    }
+
     private static func runReindexProbe(vaultPath: String) -> Never {
         // Resolve the path. If the user passed the same folder they previously
         // selected in the Mac app's UI, use the stored security-scoped

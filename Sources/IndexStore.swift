@@ -118,7 +118,59 @@ actor IndexStore {
             throw IndexStoreError.schemaResourceMissing
         }
         try exec(sql)
+        try migrateSchemaIfNeeded()
         didBootstrap = true
+    }
+
+    /// One-time, idempotent schema migrations for index DBs created by an older
+    /// build. v1→v2 introduces the `frame_text` chunk type (OCR'd on-screen
+    /// text), which requires relaxing the `chunks.chunk_type` CHECK constraint.
+    /// SQLite can't ALTER a CHECK, so we rebuild the table **preserving
+    /// chunk_id** — that keeps the MCP's vec0 + FTS5 shadow tables (both keyed on
+    /// chunk_id) valid, so no full re-embed is forced. Data is fully preserved.
+    private func migrateSchemaIfNeeded() throws {
+        let version = Int(scalarText("SELECT value FROM index_meta WHERE key='schema_version';") ?? "0") ?? 0
+        if version >= 2 { return }
+        let migrate = """
+        BEGIN IMMEDIATE;
+        ALTER TABLE chunks RENAME TO chunks_v1_old;
+        CREATE TABLE chunks (
+            chunk_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id        TEXT    NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
+            chunk_type      TEXT    NOT NULL CHECK (chunk_type IN ('header','description','body','frame_text')),
+            chunk_index     INTEGER NOT NULL,
+            chunk_text      TEXT    NOT NULL,
+            chunk_start_ms  INTEGER,
+            chunk_end_ms    INTEGER,
+            model_version   TEXT    NOT NULL,
+            embedding_dim   INTEGER NOT NULL,
+            embedding       BLOB    NOT NULL,
+            UNIQUE(video_id, chunk_type, chunk_index)
+        );
+        INSERT INTO chunks (chunk_id, video_id, chunk_type, chunk_index, chunk_text,
+                            chunk_start_ms, chunk_end_ms, model_version, embedding_dim, embedding)
+            SELECT chunk_id, video_id, chunk_type, chunk_index, chunk_text,
+                   chunk_start_ms, chunk_end_ms, model_version, embedding_dim, embedding
+            FROM chunks_v1_old;
+        DROP TABLE chunks_v1_old;
+        CREATE INDEX IF NOT EXISTS idx_chunks_video ON chunks(video_id);
+        CREATE INDEX IF NOT EXISTS idx_chunks_type  ON chunks(chunk_type);
+        CREATE INDEX IF NOT EXISTS idx_chunks_model ON chunks(model_version);
+        UPDATE index_meta SET value='2' WHERE key='schema_version';
+        COMMIT;
+        """
+        do { try exec(migrate) }
+        catch { try? exec("ROLLBACK;"); throw error }
+    }
+
+    /// Reads a single text value from a no-arg query (nil if no row/NULL).
+    private func scalarText(_ sql: String) -> String? {
+        guard let db else { return nil }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW, let c = sqlite3_column_text(stmt, 0) else { return nil }
+        return String(cString: c)
     }
 
     /// Closes the DB. Mainly for tests / headless runs.

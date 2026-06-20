@@ -27,6 +27,12 @@ Claude Code can open a path itself — `view_frames` returns the images inline, 
 the visual half of the loop works in Claude Desktop, Cursor, and Claude Code
 alike.
 
+**On-screen text.** `search` covers both what a video *said* and what it
+*showed*: each result's `chunk.type` is `body`/`description`/`header` (spoken +
+metadata) or **`frame_text`** — text recognized on-screen via on-device OCR
+(slides, code, terminal output, labels). A `frame_text` hit means the answer was
+visible in the video; pair it with `view_frames` to see that moment.
+
 ## Install
 
 ```bash

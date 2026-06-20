@@ -9,7 +9,7 @@
 -- The Python MCP server promotes data to vec0 + FTS5 virtual tables at
 -- startup so the Swift side never needs to link the sqlite-vec extension.
 --
--- Schema version 1.
+-- Schema version 2 (v2 adds the 'frame_text' chunk type — OCR'd on-screen text).
 
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous  = NORMAL;
@@ -43,7 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_videos_date_saved ON videos(date_saved);
 CREATE TABLE IF NOT EXISTS chunks (
     chunk_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     video_id        TEXT    NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
-    chunk_type      TEXT    NOT NULL CHECK (chunk_type IN ('header','description','body')),
+    chunk_type      TEXT    NOT NULL CHECK (chunk_type IN ('header','description','body','frame_text')),
     chunk_index     INTEGER NOT NULL,        -- 0 for header/description; 0..N for body
     chunk_text      TEXT    NOT NULL,        -- raw chunk text (no metadata prefix) — needed for rerank + display
     chunk_start_ms  INTEGER,                 -- NULL for header/description; ms offset for body
@@ -86,6 +86,6 @@ CREATE TABLE IF NOT EXISTS index_meta (
 -- Sources/IndexSchema.sql (the Swift writer): on a DB created MCP-first (empty
 -- vault) these are what `search` dispatches on, so they must name the shipped
 -- on-device models — not the legacy cloud / MobileCLIP ones.
-INSERT OR IGNORE INTO index_meta(key, value) VALUES ('schema_version', '1');
+INSERT OR IGNORE INTO index_meta(key, value) VALUES ('schema_version', '2');
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'embeddinggemma-300m@768');
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'siglip-base-patch16-224@768');
