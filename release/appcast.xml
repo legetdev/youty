@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.3.0</title>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sat, 20 Jun 2026 12:08:56 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.3.0</h3>
+                <p>Search what your videos show, not just what they say. On-device OCR (Apple Vision) now indexes on-screen text — slides, code, terminal output, labels — so you can find moments that were never spoken aloud, all locally with no key. Existing vaults backfill automatically in the background; new saves include it from the start. Also: chunker robustness fixes so long descriptions and coarse transcripts never lose their tail from search.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.3.0/Youty-1.3.0.dmg"
+                sparkle:edSignature="+8tDll0nj3fee55DvjCJ0Ub4boOv9KBHvfzaQG0Cd9Ha9p6gQET/JexNeUK2k3W7/SCyh6zSb6h/upfy2JdYAw=="
+                length="440333397"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.2.0</title>
             <sparkle:version>3</sparkle:version>
             <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
