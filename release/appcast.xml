@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.3.2</title>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>1.3.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sat, 20 Jun 2026 20:40:12 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.3.2</h3>
+                <p>Fixes YouTube transcript fetching. Public videos that have captions could fail with a 'couldn't read this page' error — most often on the first fetch right after launch. Youty now uses the correct browser identity and automatically retries a transient first-load miss, so it reads the page reliably.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.3.2/Youty-1.3.2.dmg"
+                sparkle:edSignature="0WcsOVojpLIu9PxjXJFzYvIXow7eMAvui46+hTVoMTPlCYtNQXWX8BEdoN9dTQcrLluolg9fQ6MSWf9j4FJVCA=="
+                length="440361238"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.3.1</title>
             <sparkle:version>5</sparkle:version>
             <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
