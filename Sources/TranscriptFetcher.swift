@@ -50,6 +50,9 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     let webView: WKWebView
     private var continuation: CheckedContinuation<FetchResult, Error>?
     private var jsInjected = false
+    private var currentURL: URL?
+    private var retriedNoResponse = false
+    private var fetchGen = 0
 
     override init() {
         let config = WKWebViewConfiguration()
@@ -58,6 +61,11 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         config.mediaTypesRequiringUserActionForPlayback = .all
         webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 1280, height: 800), configuration: config)
         super.init()
+        // Chrome UA is REQUIRED: with the default WebKit UA, YouTube can omit
+        // captionTracks from ytInitialPlayerResponse (see POSTMORTEM). Every other
+        // extractor (PlayerFetcher/VideoExtractor/InstagramExtractor) sets this —
+        // TranscriptFetcher was missing it.
+        webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         webView.navigationDelegate = self
         controller.add(self, name: "youtyTranscript")
         let blockRules = """
@@ -87,10 +95,27 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             throw FetchError.invalidURL
         }
         jsInjected = false
+        retriedNoResponse = false
         let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
+        currentURL = url
         return try await withCheckedThrowingContinuation { cont in
             self.continuation = cont
-            webView.load(URLRequest(url: url))
+            self.startAttempt()
+        }
+    }
+
+    /// Loads `currentURL` and arms a generation-guarded watchdog. Used for the
+    /// first attempt and for the single retry on a transient `no_response`, so a
+    /// stale watchdog from attempt 1 can never kill a succeeding attempt 2.
+    private func startAttempt() {
+        guard let url = currentURL else { return }
+        fetchGen += 1
+        let gen = fetchGen
+        jsInjected = false
+        webView.load(URLRequest(url: url))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 35) { [weak self] in
+            guard let self, self.fetchGen == gen, self.continuation != nil else { return }
+            self.finish(throwing: FetchError.parseError)
         }
     }
 
@@ -228,11 +253,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
                 NSLog("[youty] JS error: %@", error.localizedDescription)
             }
         }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 35) { [weak self] in
-            guard let self, self.continuation != nil else { return }
-            self.finish(throwing: FetchError.parseError)
-        }
+        // Watchdog is armed per-attempt in startAttempt() (generation-guarded).
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -255,6 +276,14 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             switch errKey {
             case "no_captions", "no_btn", "panel_empty":
                 finish(throwing: FetchError.noTranscript)
+            case "no_response" where !retriedNoResponse:
+                // ytInitialPlayerResponse wasn't ready in time — almost always a
+                // transient first-load race (e.g. the first fetch right after
+                // launch, before the WebView session warms). Reload once before
+                // giving up; the generation-guarded watchdog makes this safe.
+                retriedNoResponse = true
+                NSLog("[youty] no_response — retrying once")
+                startAttempt()
             default:
                 finish(throwing: FetchError.parseError)
             }
