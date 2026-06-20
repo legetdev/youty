@@ -96,8 +96,9 @@ class Youty < Formula
         https://youtyapp.vercel.app
 
       The MCP server (for Claude Desktop / Cursor / any MCP client) is
-      a separate Python package:
-        uv tool install youty-mcp
+      a separate Python package — wire it as uvx youty-mcp@latest so it
+      always loads the newest version (no manual upgrade):
+        claude mcp add youty -- uvx youty-mcp@latest
 
       Quick start:
         youty save https://www.youtube.com/watch?v=...

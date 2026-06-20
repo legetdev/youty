@@ -13,7 +13,7 @@ just a folder of `.md` files and JPEGs you fully own.
 |---|---|---|
 | **Mac app** | Download the DMG from [Releases](https://github.com/legetdev/youty/releases/latest), drag to `/Applications` | macOS 26 (Tahoe) |
 | **CLI** | `brew install legetdev/youty/youty` &nbsp;or&nbsp; `./Scripts/install-cli.sh` from a clone | Xcode 26 to build |
-| **MCP server** | `uv tool install youty-mcp` | Python 3.11+, `uv` |
+| **MCP server** | wire `uvx youty-mcp@latest` into your MCP client (e.g. `claude mcp add youty -- uvx youty-mcp@latest`) — always the newest, no manual upgrade | Python 3.11+, `uv` |
 
 The Mac app auto-updates via Sparkle once installed — *Check for
 Updates…* lives in the app menu (or *Settings → About*). New releases
