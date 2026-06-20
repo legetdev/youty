@@ -5,7 +5,7 @@ MCP-compatible AI (Claude Desktop, Claude Code, Cursor).
 
 ## What it does
 
-Six tools, hybrid dense + BM25 retrieval over your captured YouTube /
+Seven tools, hybrid dense + BM25 retrieval over your captured YouTube /
 Instagram / TikTok videos, plus joint text → frame retrieval via
 Google's SigLIP-Base-Patch16-224 (Apache-2.0). Queries land in ~300 ms
 for text, ~32 ms warm for frames on Apple Silicon.
@@ -14,10 +14,18 @@ for text, ~32 ms warm for frames on Apple Silicon.
 |---|---|
 | `search(query, k=15, platform?, since_iso?)` | hybrid dense + BM25 + RRF over transcript chunks; top-k results with `frame` paths + `video_md_path` |
 | `search_frames(query, k=10, platform?)` | SigLIP-Base joint text→image; top-k frame matches with parent video metadata |
-| `get_transcript(video_id)` | full `video.md` + parsed frontmatter |
+| `get_transcript(video_id)` | full `video.md` + parsed frontmatter — the whole video into context |
 | `get_video(video_id)` | frontmatter + folder listing + frame paths |
+| `view_frames(video_id, frame_ms?, max_frames=6)` | the frame JPEGs themselves, as MCP image content — viewable in **any** client |
 | `list_videos(platform?, channel?, limit=100)` | newest-first listing |
 | `find_similar(video_id, k=10)` | nearest videos by averaged body-chunk vectors |
+
+**The loop:** `search` finds the relevant moments → `get_transcript` pulls the
+words into context → `view_frames` loads the matching frames into the model's
+vision. `search` / `search_frames` also return raw frame *paths*, but only
+Claude Code can open a path itself — `view_frames` returns the images inline, so
+the visual half of the loop works in Claude Desktop, Cursor, and Claude Code
+alike.
 
 ## Install
 
@@ -27,38 +35,29 @@ uv sync                       # creates .venv, installs deps
 ```
 
 Dependencies: `mcp`, `sqlite-vec`, `httpx`, `numpy`, `transformers`,
-`sentence-transformers`, `torch`, `sentencepiece`, `protobuf`. Python ≥ 3.11.
-Text queries are embedded on-device with EmbeddingGemma, matching how the
-index was built; frame queries use SigLIP via `transformers`. Frame *image*
-embeddings come from the Mac app's bundled CoreML encoder, so this server
-never needs `coremltools` itself.
+`sentencepiece`, `protobuf`, and `coremltools` (macOS only). Python ≥ 3.11.
+No PyTorch. `transformers` / `sentencepiece` are kept for **tokenization only**;
+all inference runs through Core ML.
 
-## Text search: 100% on-device — no key, zero config
+## Text + frame search: 100% on-device — no key, zero config
 
-The server embeds each query on-device with **the same model the index was
-built with**, read from `index_meta.current_text_model`, so query and document
-vectors share one space. That model is Google's EmbeddingGemma, run locally via
-`sentence-transformers` — no key, no provider option, no cloud call of any kind.
-The weights download from HuggingFace on the first text `search` (one-time per
-machine, ~1.2 GB, cached in `~/.cache/huggingface/`); every query after that is
-fully offline.
+The server embeds each query on-device with **the same Core ML models the index
+was built with** — Google's EmbeddingGemma (text) and the SigLIP-Base text tower
+(frames) — so query and document vectors share one space. Inference is CPU-only
+via `coremltools` to match the int8-quantized indexer. No key, no provider
+option, no cloud call of any kind.
 
-## SigLIP weights (auto-downloaded for frame-text queries)
-
-The **frame side** (image embedding) is handled by the Mac app and CLI
-via a CoreML `.mlpackage` of SigLIP-Base bundled inside the app at
-`Youty.app/Contents/Resources/SigLIP-Base-224_image.mlmodelc`. No
-download required — it ships with the binary.
-
-The **text side** (this server's query embedding) downloads
-`google/siglip-base-patch16-224` (~370 MB) from HuggingFace on the
-first `search_frames` call. Cached in the standard HuggingFace cache:
+The models are **not** a ~1.6 GB HuggingFace download. They come from Youty's own
+release asset (`youty-models-<ver>.tar.gz`, a few hundred MB of Core ML),
+fetched once and verified by SHA-256, then cached under:
 
 ```
-~/.cache/huggingface/hub/models--google--siglip-base-patch16-224/
+~/.cache/youty/coreml-models/<version>/
 ```
 
-One-time per machine. Hot-path embed is ~32 ms on Apple Silicon.
+One-time per machine; every query after that is fully offline. Hot-path embed is
+~300 ms for text and ~32 ms for frames on Apple Silicon. (Set
+`YOUTY_COREML_MODELS_DIR` to point at a local `.mlpackage` tree in dev/CI.)
 
 ## Claude Desktop wiring
 
@@ -116,11 +115,10 @@ window → "Re-index entire vault", or run headless:
 - **`search` returns 0 results** — the index is empty. Save a video from
   the Mac app (indexer enabled in Settings) or run `--reindex` on an
   existing vault. No key needed — text indexing is on-device by default.
-- **`search_frames` is slow** on the first call — the SigLIP text
-  encoder downloads ~370 MB of weights from HuggingFace into
-  `~/.cache/huggingface/` (one-time per machine). On the Mac-app side
-  the bundled SigLIP CoreML image encoder compiles to Neural Engine on
-  first use (~1 s). Subsequent queries are ~32 ms.
+- **First `search` / `search_frames` is slow** — the Core ML models asset
+  downloads once (`youty-models-<ver>.tar.gz`, a few hundred MB, SHA-verified)
+  into `~/.cache/youty/coreml-models/` and the encoders load lazily. Subsequent
+  queries are ~300 ms (text) / ~32 ms (frames).
 - **Legacy bundles with 4-digit-second JPEG names** (`0717.jpg`) are
   silently skipped by frame indexing. The current contract is 8-digit
   milliseconds (`00718000.jpg`). Re-saving the video regenerates frames

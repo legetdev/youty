@@ -1,8 +1,14 @@
 """Youty MCP server entrypoint.
 
-Exposes six tools — `search`, `get_transcript`, `get_video`, `list_videos`,
-`find_similar`, `search_frames` — over stdio. Designed to be wired into
-Claude Desktop / Claude Code / Cursor via their MCP config files.
+Exposes seven tools — `search`, `get_transcript`, `get_video`, `view_frames`,
+`list_videos`, `find_similar`, `search_frames` — over stdio. Designed to be
+wired into Claude Desktop / Claude Code / Cursor via their MCP config files.
+
+The core agentic loop: `search` finds the relevant moments → `get_transcript`
+pulls the words into context → `view_frames` loads the matching frames into the
+model's vision. `view_frames` returns the JPEGs as native MCP image content, so
+the loop's visual half works in EVERY client — not just Claude Code, which is
+the only one with a filesystem `Read` tool.
 
 Text search is 100% on-device: queries are embedded with EmbeddingGemma
 (`embeddinggemma_text.py`), the same model the indexer embeds documents with.
@@ -23,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 
 from . import db as _db
 from .retrieval import (
@@ -44,6 +50,12 @@ _log = logging.getLogger("youty_mcp")
 # caller from streaming megabytes into the encoder / SQLite. Applied at every
 # tool boundary.
 _MAX_STRING_ARG = 10_000
+
+
+# Hard ceiling on how many frames `view_frames` returns as inline images. Each
+# image is real vision tokens for the model, so "look at this" stays deliberate
+# and cheap — the agent asks for the few frames that matter, not a contact sheet.
+_MAX_VIEW_FRAMES = 12
 
 
 def _clamp(s: str | None) -> str | None:
@@ -190,9 +202,13 @@ def search(
     video_md_path, score}, …], query, sub_queries, total_chunks_searched, ms}`.
 
     Each result row carries enough context to answer most questions
-    directly. Promote to `get_transcript(video_id)` only when a chunk is
-    truncated mid-thought. Each result also includes nearest frame JPEG
-    paths — read them with the `Read` tool when visual context matters.
+    directly. The natural next steps: `get_transcript(video_id)` to pull a
+    whole video's words into context when a chunk is truncated mid-thought,
+    and — when visual context matters — `view_frames(video_id,
+    frame_ms=[…])` to actually SEE the nearest frames (pass the result's
+    `frames` timestamps or the chunk `start_ms`). `view_frames` returns the
+    images themselves, so it works in every client; the raw frame paths are
+    in each row too, but only Claude Code can open a path on its own.
     """
     return _do_search(_clamp(query) or "", k=k, platform=platform, since_iso=since_iso)
 
@@ -261,8 +277,8 @@ def get_video(video_id: str) -> dict[str, Any]:
     Use this when you need the structured frontmatter (channel, url, tags,
     duration, save date) and the list of frame JPEG paths for visual
     inspection — e.g. after `search` returns a promising chunk and you
-    want to look at frames yourself. For the transcript text, use
-    `get_transcript`.
+    want the full frame inventory. For the transcript text, use
+    `get_transcript`; to actually SEE frames as images, use `view_frames`.
 
     Returns `folder_path`, `video_md_path`, every file in the bundle,
     and a `frames[]` list of absolute JPEG paths sorted by timestamp.
@@ -313,6 +329,121 @@ def get_video(video_id: str) -> dict[str, Any]:
         "files": files,
         "frames": frames,
     }
+
+
+@mcp.tool()
+# No return annotation on purpose: it returns mixed text + image content, not a
+# JSON object. Without an annotation FastMCP emits unstructured content blocks
+# (text + images) on every supported mcp version, instead of trying to validate
+# the Image objects against an auto-generated output schema.
+def view_frames(
+    video_id: str,
+    frame_ms: list[int] | None = None,
+    max_frames: int = 6,
+):
+    """Load a video's frames into your vision — the "see it" step of the loop.
+
+    This is how you actually LOOK at what's on screen. `search` and
+    `search_frames` hand you frame *paths* and timestamps; this tool returns
+    the JPEGs themselves as images you can see directly, in ANY MCP client
+    (Claude Desktop, Cursor, Claude Code) — no filesystem access needed.
+
+    The loop: `search` finds the relevant moments → `get_transcript` pulls the
+    words into context → `view_frames` shows you what was on screen at those
+    moments, so you reason over both what was said and what was shown.
+
+    Args:
+        video_id: The video to view, e.g. "yt:dQw4w9WgXcQ" — from any
+            `search` / `search_frames` / `list_videos` result row.
+        frame_ms: Specific moments to see, in milliseconds. Pass the
+            `frame.frame_ms` values (or a chunk's `start_ms`) from a prior
+            `search` / `search_frames` so you see exactly the frames that
+            matter — for each one the closest captured frame is returned.
+            Omit to get an even sample across the whole video (a quick
+            visual overview).
+        max_frames: Cap on how many images to return (default 6, hard max
+            12). Each image costs vision tokens — keep it small and targeted.
+
+    Returns a short text header naming each frame's timestamp, followed by the
+    frame images themselves, in timestamp order.
+    """
+    return _do_view_frames(video_id, frame_ms=frame_ms, max_frames=max_frames)
+
+
+def _do_view_frames(
+    video_id: str,
+    *,
+    frame_ms: list[int] | None = None,
+    max_frames: int = 6,
+) -> list[Any]:
+    """Inner impl, callable from tests without MCP framing.
+
+    Resolves the bundle on disk and returns `[header_text, Image, …]`. Frame
+    JPEGs are named by their millisecond offset (8-digit zero-padded), so the
+    filename stem IS the timestamp — no DB round-trip needed to pick frames.
+    """
+    conn = _STATE.conn()
+    row = conn.execute(
+        "SELECT video_id, title, folder_path, platform FROM videos WHERE video_id = ?",
+        (video_id,),
+    ).fetchone()
+    if row is None:
+        return [f"video_id {video_id!r} not found"]
+
+    vault = resolve_vault_root(conn)
+    if vault is None:
+        return [
+            "Vault location unknown — re-save a video from the Mac app to refresh the index."
+        ]
+    md_path = _resolve_video_md(
+        conn, vault, video_id=video_id,
+        folder_path=row["folder_path"], platform=row["platform"],
+    )
+    folder = md_path.parent if md_path is not None else None
+    if folder is None or not folder.exists():
+        return [f"no bundle folder found on disk for {video_id!r}"]
+
+    # Frame filename stem is the timestamp in ms (8-digit zero-pad), e.g. 00438000.jpg.
+    available: list[tuple[int, Path]] = []
+    for f in sorted(folder.iterdir()):
+        if f.is_file() and f.suffix.lower() == ".jpg" and f.stem.isdigit():
+            available.append((int(f.stem), f))
+    if not available:
+        return [
+            f"no frames on disk for {video_id!r} — re-save the video from the Mac app "
+            "to extract frames."
+        ]
+
+    cap = max(1, min(int(max_frames), _MAX_VIEW_FRAMES))
+    if frame_ms:
+        # Closest captured frame to each requested ms; de-duplicate, keep order.
+        picked: dict[int, Path] = {}
+        for want in frame_ms:
+            try:
+                ms_i = int(want)
+            except (TypeError, ValueError):
+                continue
+            nearest_ms, nearest_path = min(available, key=lambda a: abs(a[0] - ms_i))
+            picked[nearest_ms] = nearest_path
+            if len(picked) >= cap:
+                break
+        chosen = sorted(picked.items())[:cap]
+    elif len(available) <= cap:
+        chosen = available
+    else:
+        # Even sample across the timeline (first … last inclusive).
+        step = (len(available) - 1) / (cap - 1) if cap > 1 else 0
+        idxs = sorted({round(i * step) for i in range(cap)})
+        chosen = [available[i] for i in idxs]
+
+    header = "{} — {} frame(s): {}".format(
+        row["title"] or video_id,
+        len(chosen),
+        ", ".join(_ms_to_label(ms) for ms, _ in chosen),
+    )
+    out: list[Any] = [header]
+    out.extend(Image(path=str(path)) for _ms, path in chosen)
+    return out
 
 
 @mcp.tool()
@@ -483,8 +614,11 @@ def search_frames(
             video so one busy video doesn't dominate.
         platform: Restrict to "youtube" | "instagram" | "tiktok".
 
-    Returns `results[*].frame.path` — an absolute JPEG path you can pass
-    to the `Read` tool to look at the image directly.
+    Returns `results[*].frame.path` (absolute JPEG path) and
+    `results[*].frame.frame_ms`. To actually SEE the matches, pass those
+    `frame_ms` to `view_frames(video_id, frame_ms=[…])` — it returns the
+    images themselves, viewable in any client (not just Claude Code, which
+    is the only one that can open a raw path on its own).
     """
     return _do_search_frames(_clamp(query) or "", k=k, platform=platform)
 
