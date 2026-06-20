@@ -376,13 +376,18 @@ struct OnboardingView: View {
     /// command, so the user never has to know about the tap mechanic.
     static let cliInstallCommand = "brew install legetdev/youty/youty"
 
-    static let mcpInstallCommand = "uv tool install youty-mcp"
+    // `uvx …@latest` fetches + runs the newest published youty-mcp on every
+    // launch — so there's no separate install step and no manual upgrade ever:
+    // a normal client restart always loads the latest server. The Mac app
+    // (Sparkle) and CLI (brew) already auto-update; this keeps the MCP in step.
+    static let mcpInstallCommand = "claude mcp add youty -- uvx youty-mcp@latest"
 
     static let mcpConfigSnippet = """
 {
   "mcpServers": {
     "youty": {
-      "command": "youty-mcp"
+      "command": "uvx",
+      "args": ["youty-mcp@latest"]
     }
   }
 }

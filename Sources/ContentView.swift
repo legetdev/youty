@@ -107,6 +107,10 @@ struct ContentView: View {
             // One-time on-device migration offer (S.4) for existing indexes
             // built with a different text model than the active provider.
             Task { await checkMigrationOffer() }
+            // One-time, fully-automatic OCR backfill (V.1): quietly add on-screen
+            // text to videos saved before the feature shipped. Background + silent
+            // + resumable; no user action, no card.
+            Task { await maybeBackfillOnScreenText() }
         }
         .onChange(of: funnel.dispatchID) { _, _ in
             guard let url = funnel.inboxURL else { return }
@@ -230,6 +234,33 @@ struct ContentView: View {
             return
         }
         withAnimation { migrationOffer = MigrationOffer(videos: scope.videos, chunks: scope.chunks) }
+    }
+
+    /// The OCR-backfill feature version. Bump when a future change should
+    /// re-sweep existing vaults (e.g. a materially better OCR pass).
+    private static let ocrBackfillTargetVersion = 1
+
+    /// Fully-automatic, one-time background backfill of on-screen text for
+    /// videos saved before V.1. Reuses `Indexer.backfillOnScreenText`, which
+    /// only touches bundles missing the OCR section — so this is silent,
+    /// resumable across launches, and a no-op once complete. The flag is set
+    /// only on success, so an interrupted/failed run simply retries next launch.
+    @MainActor
+    private func maybeBackfillOnScreenText() async {
+        guard settings.onboardingComplete, !showOnboarding,
+              settings.indexerEnabled, settings.ocrIndexingEnabled,
+              settings.ocrBackfillVersion < Self.ocrBackfillTargetVersion,
+              let vaultURL = vault.vaultURL else { return }
+        Task.detached(priority: .background) {
+            let acquired = vaultURL.startAccessingSecurityScopedResource()
+            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+            do {
+                _ = try await Indexer.backfillOnScreenText(vaultRoot: vaultURL)
+                await MainActor.run { settings.ocrBackfillVersion = Self.ocrBackfillTargetVersion }
+            } catch {
+                // Leave the flag unset → retried next launch (resumable).
+            }
+        }
     }
 
     /// User accepted: run the text-only re-embed in the background.

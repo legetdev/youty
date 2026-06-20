@@ -75,6 +75,12 @@ final class SettingsStore: ObservableObject {
     /// it says. Fully local (Apple Vision). Off = transcript + visual search only.
     @AppStorage("ocrIndexingEnabled") var ocrIndexingEnabled: Bool = true
 
+    /// Bumped when the OCR backfill (re-OCR existing videos for on-screen text)
+    /// has completed for a given feature version. < the app's target version
+    /// triggers a one-time background backfill on launch; equal = done, stays
+    /// quiet. Lets the OCR layer roll out to old vaults with zero user action.
+    @AppStorage("ocrBackfillVersion") var ocrBackfillVersion: Int = 0
+
     /// The text model id the index was last re-embedded to (Phase S.4 → now
     /// always the on-device model). When it equals the on-device model the
     /// launch re-embed offer has been satisfied and stays quiet; it is only

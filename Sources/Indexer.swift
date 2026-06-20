@@ -145,6 +145,41 @@ enum Indexer {
         return summary
     }
 
+    /// Phase V.1 — one-time, fully-automatic backfill of on-screen text (OCR)
+    /// for videos saved before the feature shipped. For each bundle that does
+    /// NOT yet carry an `## On-screen text` section, re-runs `indexBundle` with
+    /// `force` so the OCR pass writes that section and its `frame_text` chunks are
+    /// embedded (the normal idempotent skip would otherwise block a same-model
+    /// re-process). Bundles already carrying the section are skipped instantly, so
+    /// this is self-bounding and resumable across launches, and a no-op once done.
+    /// Frames keep their existing SigLIP vectors (no frame re-embed here).
+    @discardableResult
+    static func backfillOnScreenText(vaultRoot: URL,
+                                     embedderOverride: Embedder? = nil,
+                                     progress: ((String) -> Void)? = nil) async throws -> Int {
+        let ocrEnabled = UserDefaults.standard.object(forKey: "ocrIndexingEnabled") as? Bool ?? true
+        guard ocrEnabled else { return 0 }
+        let embedder = try embedderOverride ?? makeEmbedderOrThrow()
+        var processed = 0
+        for url in enumerateBundles(at: vaultRoot) {
+            // Already OCR-processed (section present, even if it found no text)?
+            // Skip — keeps the pass resumable + bounded to genuinely new work.
+            if let md = try? String(contentsOf: url, encoding: .utf8),
+               md.contains(OnScreenText.heading) { continue }
+            // No frames on disk yet → nothing to OCR; leave for a later run.
+            guard FrameOCR.hasFrames(in: url.deletingLastPathComponent()) else { continue }
+            do {
+                let n = try await indexBundle(videoMdURL: url, vaultRoot: vaultRoot,
+                                              embedder: embedder, force: true)
+                processed += 1
+                progress?("OCR_BACKFILL \(url.lastPathComponent) — \(n) chunks")
+            } catch {
+                progress?("OCR_BACKFILL_FAIL \(url.path) — \(error.localizedDescription)")
+            }
+        }
+        return processed
+    }
+
     /// Re-embeds the TEXT index with the on-device model (Phase S.4),
     /// leaving frame vectors untouched. Re-embeds only bundles whose chunks
     /// are on a different `model_version` — `indexBundle`'s idempotent skip

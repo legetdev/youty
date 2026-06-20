@@ -74,11 +74,16 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "youty": {
       "command": "uvx",
-      "args": ["youty-mcp"]
+      "args": ["youty-mcp@latest"]
     }
   }
 }
 ```
+
+The `@latest` pin means `uvx` fetches the newest published `youty-mcp` on each
+launch — so a normal restart always loads the current server with no manual
+`uv tool upgrade`. (The Mac app auto-updates via Sparkle and the CLI via
+Homebrew, so the whole stack stays in step on its own.)
 
 Restart Claude Desktop. Then ask: _"What are best practices on creating
 AI influencers, and what tools should I use? Use my Youty vault."_
@@ -86,7 +91,7 @@ AI influencers, and what tools should I use? Use my Youty vault."_
 ## Claude Code wiring
 
 ```bash
-claude mcp add youty -- uvx youty-mcp
+claude mcp add youty -- uvx youty-mcp@latest
 ```
 
 ## Tests
