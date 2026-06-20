@@ -65,6 +65,32 @@ One-time per machine; every query after that is fully offline. Hot-path embed is
 ~300 ms for text and ~32 ms for frames on Apple Silicon. (Set
 `YOUTY_COREML_MODELS_DIR` to point at a local `.mlpackage` tree in dev/CI.)
 
+## Wiring it into your AI client
+
+**One command wires every MCP client on this Mac:**
+
+```bash
+uvx youty-mcp@latest install
+```
+
+It detects Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Windsurf,
+Continue, and Cline, then merges a `youty` entry into each client's config —
+preserving your other settings, idempotent (safe to re-run), and reversible with
+`uvx youty-mcp@latest uninstall`. Useful variants:
+
+```bash
+uvx youty-mcp@latest install --list      # every supported client + its config path
+uvx youty-mcp@latest install cursor      # wire just one client
+uvx youty-mcp@latest uninstall           # remove Youty from all detected clients
+```
+
+> Why a command and not a button in the Youty app? The Mac app is sandboxed, so
+> it can't edit other apps' config files or run their CLIs. This installer ships
+> in the (non-sandboxed) `youty-mcp` package, which can. Bare `uvx youty-mcp@latest`
+> still runs the MCP server itself — that's what the clients launch.
+
+Prefer to wire a client by hand? The exact per-client config follows.
+
 ## Claude Desktop wiring
 
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
