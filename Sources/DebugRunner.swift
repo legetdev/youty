@@ -52,6 +52,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--siglip-probe")
             || CommandLine.arguments.contains("--embeddinggemma-probe")
             || CommandLine.arguments.contains("--ocr-probe")
+            || CommandLine.arguments.contains("--ocr-backfill")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -99,6 +100,9 @@ enum DebugRunner {
         }
         if let folder = stringArg(args, key: "--ocr-probe") {
             runOCRProbe(folder: folder)
+        }
+        if let vaultPath = stringArg(args, key: "--ocr-backfill") {
+            runOCRBackfillProbe(vaultPath: vaultPath)
         }
 
         // Parse args for the YouTube-only --extract flow.
@@ -585,6 +589,60 @@ enum DebugRunner {
                 }
                 print("TOTAL_MS=\(summary.totalMs)")
                 box.code = summary.failures.isEmpty ? 0 : 1
+            } catch let e as IndexerError {
+                print("SETUP_ERROR=\(e.localizedDescription)")
+                box.code = 2
+            } catch {
+                print("FATAL=\(error.localizedDescription)")
+                box.code = 3
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
+    /// `--ocr-backfill <vault>` — runs the V.1 on-screen-text backfill over an
+    /// existing vault headlessly (same security-scoped-bookmark resolution as
+    /// --reindex). Opening the index also runs the v1→v2 schema migration, so
+    /// this populates `frame_text` for older videos without launching the GUI.
+    private static func runOCRBackfillProbe(vaultPath: String) -> Never {
+        let bareURL = URL(fileURLWithPath: vaultPath, isDirectory: true).standardizedFileURL
+        var vaultURL = bareURL
+        var bookmarkedURL: URL?
+        if let data = UserDefaults.standard.data(forKey: "vaultBookmark") {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data,
+                                  options: .withSecurityScope,
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &stale) {
+                bookmarkedURL = url.standardizedFileURL
+                if url.standardizedFileURL.path == bareURL.path { vaultURL = url }
+            }
+        }
+        let scoped = vaultURL.startAccessingSecurityScopedResource()
+        defer { if scoped { vaultURL.stopAccessingSecurityScopedResource() } }
+        guard FileManager.default.fileExists(atPath: vaultURL.path) else {
+            FileHandle.standardError.write("error: vault path does not exist or is sandbox-blocked: \(vaultPath)\n".data(using: .utf8)!)
+            if let b = bookmarkedURL, b.path != bareURL.path {
+                FileHandle.standardError.write(
+                    "  hint: app has a security-scoped bookmark for \(b.path) — pass that path instead, or open the app UI once to re-bookmark.\n".data(using: .utf8)!)
+            }
+            exit(2)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached { [vaultURL] in
+            defer { sem.signal() }
+            do {
+                let dbPath = (try? IndexStore.databasePath()) ?? "?"
+                print("VAULT_ROOT=\(vaultURL.path)")
+                print("INDEX_DB=\(dbPath)")
+                print("SCOPED_RESOURCE=\(scoped)")
+                let n = try await Indexer.backfillOnScreenText(vaultRoot: vaultURL) { line in
+                    print(line)
+                }
+                print("OCR_BACKFILL_PROCESSED=\(n)")
+                box.code = 0
             } catch let e as IndexerError {
                 print("SETUP_ERROR=\(e.localizedDescription)")
                 box.code = 2

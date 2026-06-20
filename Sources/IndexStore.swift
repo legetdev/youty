@@ -131,6 +131,12 @@ actor IndexStore {
     private func migrateSchemaIfNeeded() throws {
         let version = Int(scalarText("SELECT value FROM index_meta WHERE key='schema_version';") ?? "0") ?? 0
         if version >= 2 { return }
+        // A table rebuild must run with foreign_keys OFF: the old chunks table can
+        // hold orphan rows (video_id no longer in `videos`), and copying them into
+        // the new FK-enforced table fails with FK ON. The pragma is a no-op inside
+        // a transaction, so toggle it OUTSIDE the BEGIN/COMMIT — and always
+        // restore it, even on failure.
+        try exec("PRAGMA foreign_keys=OFF;")
         let migrate = """
         BEGIN IMMEDIATE;
         ALTER TABLE chunks RENAME TO chunks_v1_old;
@@ -159,8 +165,25 @@ actor IndexStore {
         UPDATE index_meta SET value='2' WHERE key='schema_version';
         COMMIT;
         """
-        do { try exec(migrate) }
-        catch { try? exec("ROLLBACK;"); throw error }
+        do {
+            try exec(migrate)
+        } catch {
+            try? exec("ROLLBACK;")
+            try? exec("PRAGMA foreign_keys=ON;")
+            throw error
+        }
+        try exec("PRAGMA foreign_keys=ON;")
+    }
+
+    /// True if the index already holds OCR'd on-screen-text chunks for a video.
+    /// Used by the V.1 backfill to tell a fully-indexed bundle from one whose
+    /// `## On-screen text` section was written but not yet indexed.
+    func hasFrameTextChunks(videoID: String) throws -> Bool {
+        try openIfNeeded()
+        let stmt = try prepare("SELECT 1 FROM chunks WHERE video_id = ? AND chunk_type = 'frame_text' LIMIT 1;")
+        defer { sqlite3_finalize(stmt) }
+        bindText(stmt, 1, videoID)
+        return sqlite3_step(stmt) == SQLITE_ROW
     }
 
     /// Reads a single text value from a no-arg query (nil if no row/NULL).

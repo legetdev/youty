@@ -162,10 +162,20 @@ enum Indexer {
         let embedder = try embedderOverride ?? makeEmbedderOrThrow()
         var processed = 0
         for url in enumerateBundles(at: vaultRoot) {
-            // Already OCR-processed (section present, even if it found no text)?
-            // Skip — keeps the pass resumable + bounded to genuinely new work.
+            // Skip a bundle only when its on-screen-text layer is truly done: the
+            // section is present AND either it found no text (placeholder) or its
+            // frame_text chunks are in the index. A section written by a prior run
+            // that then failed to index (e.g. pre-migration) is reprocessed —
+            // keeps the pass resumable + bounded without dropping partial work.
             if let md = try? String(contentsOf: url, encoding: .utf8),
-               md.contains(OnScreenText.heading) { continue }
+               md.contains(OnScreenText.heading) {
+                let placeholder = md.contains("_No on-screen text detected._")
+                var indexed = false
+                if let vid = (try? Chunker.parse(text: md))?.qualifiedID {
+                    indexed = (try? await IndexStore.shared.hasFrameTextChunks(videoID: vid)) ?? false
+                }
+                if placeholder || indexed { continue }
+            }
             // No frames on disk yet → nothing to OCR; leave for a later run.
             guard FrameOCR.hasFrames(in: url.deletingLastPathComponent()) else { continue }
             do {
