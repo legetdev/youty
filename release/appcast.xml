@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.3.1</title>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sat, 20 Jun 2026 17:22:04 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.3.1</h3>
+                <p>Patch: fixes a schema-migration bug in 1.3.0 that could fail on launch for an index containing orphaned entries (and would have blocked indexing for those users). Also hardens the automatic on-screen-text backfill so a partial or interrupted run recovers cleanly on the next launch instead of skipping work.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.3.1/Youty-1.3.1.dmg"
+                sparkle:edSignature="ucLzoAxdb32OERsI3qhcJb2p09IiLKOnZWzOJy2x7KCKAcn54VKLYDl2+zlxaxkvJXjMdHX/jNg/y7SEVoSfAg=="
+                length="440360314"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.3.0</title>
             <sparkle:version>4</sparkle:version>
             <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
