@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.4.1</title>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>1.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sun, 21 Jun 2026 11:37:14 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.4.1</h3>
+                <p>Youty now wires reliably into every local AI client. The MCP setup uses uvx's full path so GUI apps (Claude Desktop, Cursor, Windsurf, Cline) reliably find it, adds Antigravity to the auto-wired clients, and a single-instance guard protects your vault index from a second running copy.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.4.1/Youty-1.4.1.dmg"
+                sparkle:edSignature="Pi9CMhAztajDM/yRQ+GINwdh7bjQc3SRiD+EwLM3Tx5RxxjqLydxhkMitbPewgFobAQ7jTaU84yQFgsS5eogDw=="
+                length="440359972"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.4.0</title>
             <sparkle:version>7</sparkle:version>
             <sparkle:shortVersionString>1.4.0</sparkle:shortVersionString>
