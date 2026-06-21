@@ -55,6 +55,7 @@ secrets/
 /iconguide.md
 /docs/audit-2026-06-14.md
 /release.md
+/youty-mcp/MCP_ACCESS_BLUEPRINT.md
 
 # Local-only one-command release wrapper (hardcodes machine setup).
 /Scripts/release.sh
