@@ -194,11 +194,26 @@ final class ShortFormPipeline {
         let acquired = vaultURL.startAccessingSecurityScopedResource()
         defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
 
+        // Atomic save: if any step below fails (download, frame extraction, or a
+        // write), don't leave a half-written bundle on disk. A partial bundle —
+        // video.md with a caption/transcript stub but zero frames — otherwise
+        // looks "saved", gets indexed as a phantom, and dedup then blocks a clean
+        // re-save. Only ever remove a folder THIS save created; never a
+        // pre-existing one (a re-save over an existing bundle must not nuke prior
+        // data). The cleanup defer is registered AFTER the security-scope defer,
+        // so it runs first (LIFO) while scoped access is still held.
+        let folderPreexisted = FileManager.default.fileExists(atPath: folderURL.path)
+        var committed = false
         do {
             try FileManager.default.createDirectory(at: platformFolder, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
         } catch {
             throw ShortFormPipelineError.writeFailed(error)
+        }
+        defer {
+            if !committed && !folderPreexisted {
+                try? FileManager.default.removeItem(at: folderURL)
+            }
         }
 
         let initialMd = Self.composeMarkdown(preview: preview,
@@ -315,6 +330,9 @@ final class ShortFormPipeline {
             throw ShortFormPipelineError.writeFailed(error)
         }
 
+        // Bundle is complete on disk (video.md + frames) — mark committed so the
+        // failure-cleanup defer leaves it in place.
+        committed = true
         MediaDownloader.remove(tempFileURL)
 
         // 6. Refresh manifest so any AI tool can find the new bundle.
