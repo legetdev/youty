@@ -23,6 +23,7 @@ Two on-disk shapes are handled:
 from __future__ import annotations
 
 import json
+import shutil
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,10 +31,25 @@ from pathlib import Path
 # Key under which Youty registers in every client's config.
 SERVER_KEY = "youty"
 
+
+def _uvx_command() -> str:
+    """Absolute path to `uvx`, resolved at install time.
+
+    GUI-launched harnesses (Claude Desktop, Cursor, Windsurf, Cline) start with a
+    stripped-down PATH that usually omits uv's bin dir, so a bare "uvx" silently
+    fails to spawn and their tools never appear — the #1 "installed but nothing
+    loads" failure. Writing the absolute path sidesteps the harness's PATH
+    entirely. CLI harnesses (Claude Code, Codex, Gemini CLI) inherit the shell
+    PATH so bare "uvx" would also work there — the absolute path is strictly safer
+    for both. Falls back to bare "uvx" if it can't be resolved right now (the
+    installer separately warns when uv is missing)."""
+    return shutil.which("uvx") or "uvx"
+
+
 # The canonical stdio launch entry — identical for every MCP client. `uvx
 # youty-mcp@latest` resolves + runs the newest server on each client launch.
 LAUNCH_ENTRY = {
-    "command": "uvx",
+    "command": _uvx_command(),
     "args": ["youty-mcp@latest"],
 }
 # Claude Code tags the transport type in its config; mirror what `claude mcp
@@ -100,10 +116,19 @@ CLIENTS: dict[str, Client] = {
            "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"),
         "json", "Reload the VS Code window to load Youty.",
     ),
+    "antigravity": Client(
+        "antigravity", "Antigravity (agy)",
+        _h(".gemini", "antigravity-cli", "mcp_config.json"), "json",
+        "Restart Antigravity to load Youty.",
+    ),
 }
 
-# Alternate names a user might type for a client.
-ALIASES = {"claudedesktop": "claude-desktop", "claude_desktop": "claude-desktop"}
+# Alternate names a user might type for a client. Antigravity's CLI is `agy`.
+ALIASES = {
+    "claudedesktop": "claude-desktop",
+    "claude_desktop": "claude-desktop",
+    "agy": "antigravity",
+}
 
 
 def get(key: str) -> Client | None:

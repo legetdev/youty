@@ -13,6 +13,28 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Single-instance guard. macOS already blocks relaunching the *same* app
+        // bundle (it just activates the running copy), so a normal one-app install
+        // never trips this. The real case it covers: a second *copy* of Youty.app
+        // on disk (e.g. a stray download next to the installed app) — both could
+        // run and write the same vault/index.db concurrently and corrupt it. If
+        // another instance of this bundle id is already alive, hand focus to it and
+        // bail before any window is created. Safe with Sparkle updates: Sparkle
+        // waits for the old instance to terminate before launching the new one, so
+        // by the time this runs the predecessor is already gone.
+        let me = NSRunningApplication.current
+        if let bundleID = me.bundleIdentifier {
+            let other = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleID)
+                .first { $0.processIdentifier != me.processIdentifier && !$0.isTerminated }
+            if let other {
+                other.activate(options: [.activateAllWindows])
+                exit(0)  // willFinishLaunching → no window has been shown yet, no flash
+            }
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register self as the system-wide services provider so the NSServices
         // entry in Info.plist routes to `saveURLToYoutyVault(_:userData:error:)`.

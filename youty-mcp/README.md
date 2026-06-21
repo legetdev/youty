@@ -74,9 +74,11 @@ uvx youty-mcp@latest install
 ```
 
 It detects Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Windsurf,
-Continue, and Cline, then merges a `youty` entry into each client's config —
-preserving your other settings, idempotent (safe to re-run), and reversible with
-`uvx youty-mcp@latest uninstall`. Useful variants:
+Continue, Cline, and Antigravity, then merges a `youty` entry into each client's
+config — preserving your other settings, idempotent (safe to re-run), and
+reversible with `uvx youty-mcp@latest uninstall`. The entry points at the
+**absolute path** of `uvx` so GUI apps (which launch with a stripped-down PATH)
+reliably find it. Useful variants:
 
 ```bash
 uvx youty-mcp@latest install --list      # every supported client + its config path
@@ -88,6 +90,11 @@ uvx youty-mcp@latest uninstall           # remove Youty from all detected client
 > it can't edit other apps' config files or run their CLIs. This installer ships
 > in the (non-sandboxed) `youty-mcp` package, which can. Bare `uvx youty-mcp@latest`
 > still runs the MCP server itself — that's what the clients launch.
+
+Editors whose config allows comments (Zed → a `context_servers` entry in
+`~/.config/zed/settings.json`, VS Code → an `mcp.servers` entry) aren't auto-wired —
+rewriting them could strip your comments — so add Youty there by hand using the
+`command`/`args` shown below.
 
 Prefer to wire a client by hand? The exact per-client config follows.
 

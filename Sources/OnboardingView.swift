@@ -293,6 +293,14 @@ struct OnboardingView: View {
                     Spacer()
                 }
 
+                // GUI apps launched from Finder run with a stripped-down PATH and
+                // may not find a bare `uvx`. The one-command setup above writes the
+                // full path automatically; this is the fallback for the manual route.
+                Text("Not showing up after restarting the client? Replace uvx with its full path — run which uvx in Terminal. The one-command setup above already does this for you.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 Link("How to add an MCP server →",
                      destination: URL(string: "https://modelcontextprotocol.io/quickstart/user")!)
                     .font(.system(size: 11))
