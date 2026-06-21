@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.4.3</title>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>1.4.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sun, 21 Jun 2026 21:58:14 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.4.3</h3>
+                <p>Instagram and TikTok saves are now atomic. If a download or frame extraction fails partway, the half-finished save is cleaned up instead of leaving a transcript-only entry with no frames behind. The YouTube path is unchanged — it still keeps your transcript and offers a one-tap frame retry.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.4.3/Youty-1.4.3.dmg"
+                sparkle:edSignature="uBFR3hcSyonY6AvbGiJFkFnXE9U0mu7Iu1GCfccdLw0+IlqxUbBdoxmEUVDOMskRkQVGT8pZl5AvLe9b6oTTBw=="
+                length="440368532"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.4.2</title>
             <sparkle:version>9</sparkle:version>
             <sparkle:shortVersionString>1.4.2</sparkle:shortVersionString>
