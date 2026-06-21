@@ -111,6 +111,10 @@ struct ContentView: View {
             // text to videos saved before the feature shipped. Background + silent
             // + resumable; no user action, no card.
             Task { await maybeBackfillOnScreenText() }
+            // Self-healing: index any saved-but-unindexed bundle (e.g. a save
+            // whose background index was killed when the app quit too soon).
+            // Near-free when the vault is already current; runs once per launch.
+            reconcileIndexOnLaunch()
         }
         .onChange(of: funnel.dispatchID) { _, _ in
             guard let url = funnel.inboxURL else { return }
@@ -240,6 +244,9 @@ struct ContentView: View {
     /// re-sweep existing vaults (e.g. a materially better OCR pass).
     private static let ocrBackfillTargetVersion = 1
 
+    /// Guards the once-per-launch index reconcile (onAppear can fire repeatedly).
+    private static var didReconcileThisLaunch = false
+
     /// Fully-automatic, one-time background backfill of on-screen text for
     /// videos saved before V.1. Reuses `Indexer.backfillOnScreenText`, which
     /// only touches bundles missing the OCR section — so this is silent,
@@ -260,6 +267,23 @@ struct ContentView: View {
             } catch {
                 // Leave the flag unset → retried next launch (resumable).
             }
+        }
+    }
+
+    /// Runs once per launch: heal any saved-but-unindexed bundles — a save whose
+    /// detached background index was killed when the app quit too soon, or that
+    /// failed. Cheap when the vault is already current (no model load); see
+    /// `Indexer.reconcileMissing`. Independent of the OCR backfill (which is
+    /// version-gated + one-time) — this is the durability net on every launch.
+    @MainActor
+    private func reconcileIndexOnLaunch() {
+        guard settings.indexerEnabled, let vaultURL = vault.vaultURL,
+              !Self.didReconcileThisLaunch else { return }
+        Self.didReconcileThisLaunch = true
+        Task.detached(priority: .utility) {
+            let acquired = vaultURL.startAccessingSecurityScopedResource()
+            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+            _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)
         }
     }
 
@@ -852,7 +876,11 @@ struct ContentView: View {
         let videoMd = bundleFolder.appendingPathComponent("video.md")
         lastIndexedFolder = bundleFolder
         IndexStatusStore.shared.begin(folder: bundleFolder)
-        Task.detached(priority: .background) {
+        // .utility (not .background): a fresh save must index promptly. Under
+        // .background QoS macOS heavily defers this, so quitting the app shortly
+        // after a save could kill it before it ran. The launch reconcile is the
+        // durable safety net; this keeps in-session indexing reliable too.
+        Task.detached(priority: .utility) {
             let acquired = vaultURL.startAccessingSecurityScopedResource()
             defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
             var transcriptOK = false

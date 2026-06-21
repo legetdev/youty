@@ -190,6 +190,63 @@ enum Indexer {
         return processed
     }
 
+    /// Self-healing reconcile — durability for interrupted/failed saves.
+    ///
+    /// A save indexes its bundle in a *detached background* task; if the app is
+    /// quit before that finishes (or it errored), the bundle sits on disk but
+    /// absent from the index — invisible to search, with nothing to recover it.
+    /// This pass runs on every launch and indexes any bundle that is MISSING
+    /// from the index, or whose `video.md` changed since it was last indexed.
+    ///
+    /// It is near-free when the vault is already current: it first does a cheap
+    /// on-disk-vs-index diff (a file walk + one cached state lookup per bundle,
+    /// NO model) and only loads the on-device embedder when there is real work.
+    /// Each recovered bundle is indexed for both transcript (`indexBundle`) and
+    /// frames (`indexFrames`) so it becomes fully searchable. Returns the count
+    /// of bundles healed.
+    @discardableResult
+    static func reconcileMissing(vaultRoot: URL,
+                                 progress: ((String) -> Void)? = nil) async throws -> Int {
+        let fm = FileManager.default
+        // 1. Cheap diff — NO model load. Collect bundles missing from / stale in
+        //    the index. `videoIndexState` is a single indexed sqlite lookup.
+        var pending: [URL] = []
+        for url in enumerateBundles(at: vaultRoot) {
+            guard let md = try? String(contentsOf: url, encoding: .utf8),
+                  let vid = (try? Chunker.parse(text: md))?.qualifiedID, !vid.isEmpty
+            else { continue }
+            if let state = try? await IndexStore.shared.videoIndexState(videoID: vid),
+               state.chunkCount > 0 {
+                let attrs = try? fm.attributesOfItem(atPath: url.path)
+                let mtimeMs = (attrs?[.modificationDate] as? Date)
+                    .map { Int($0.timeIntervalSince1970 * 1000) } ?? 0
+                if mtimeMs <= state.indexedAt { continue }   // already current → skip
+            }
+            pending.append(url)
+        }
+        guard !pending.isEmpty else { return 0 }   // common case: nothing to heal
+
+        // 2. Real work — load the model once and index each pending bundle for
+        //    both transcript and frames so it becomes fully searchable.
+        progress?("RECONCILE_START pending=\(pending.count)")
+        let embedder = try makeEmbedderOrThrow()
+        var healed = 0
+        for url in pending {
+            do {
+                let count = try await indexBundle(videoMdURL: url,
+                                                  vaultRoot: vaultRoot,
+                                                  embedder: embedder)
+                try? await indexFrames(videoMdURL: url, vaultRoot: vaultRoot)
+                if count > 0 { healed += 1 }
+                progress?("RECONCILE \(url.deletingLastPathComponent().lastPathComponent) — \(count) chunks")
+            } catch {
+                progress?("RECONCILE_FAIL \(url.path) — \(error.localizedDescription)")
+            }
+        }
+        if healed > 0 { _ = VaultManager.rebuildManifest(at: vaultRoot) }
+        return healed
+    }
+
     /// Re-embeds the TEXT index with the on-device model (Phase S.4),
     /// leaving frame vectors untouched. Re-embeds only bundles whose chunks
     /// are on a different `model_version` — `indexBundle`'s idempotent skip

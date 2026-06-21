@@ -44,6 +44,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--speech-probe")
             || CommandLine.arguments.contains("--shortform-save")
             || CommandLine.arguments.contains("--reindex")
+            || CommandLine.arguments.contains("--reconcile")
             || CommandLine.arguments.contains("--index-frames")
             || CommandLine.arguments.contains("--phase-l-probe")
             || CommandLine.arguments.contains("--phase-l-e2e-check")
@@ -76,6 +77,9 @@ enum DebugRunner {
         }
         if let vaultPath = stringArg(args, key: "--reindex") {
             runReindexProbe(vaultPath: vaultPath)
+        }
+        if let vaultPath = stringArg(args, key: "--reconcile") {
+            runReconcileProbe(vaultPath: vaultPath)
         }
         if let vaultPath = stringArg(args, key: "--index-frames") {
             runIndexFramesProbe(vaultPath: vaultPath)
@@ -589,6 +593,61 @@ enum DebugRunner {
                 }
                 print("TOTAL_MS=\(summary.totalMs)")
                 box.code = summary.failures.isEmpty ? 0 : 1
+            } catch let e as IndexerError {
+                print("SETUP_ERROR=\(e.localizedDescription)")
+                box.code = 2
+            } catch {
+                print("FATAL=\(error.localizedDescription)")
+                box.code = 3
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
+    /// `--reconcile <vault>` — runs the self-healing launch reconcile headlessly
+    /// (same security-scoped-bookmark resolution as --reindex). Indexes only
+    /// bundles missing from / stale in the index; HEALED=0 when already current.
+    private static func runReconcileProbe(vaultPath: String) -> Never {
+        let bareURL = URL(fileURLWithPath: vaultPath, isDirectory: true).standardizedFileURL
+        var vaultURL = bareURL
+        var bookmarkedURL: URL?
+        if let data = UserDefaults.standard.data(forKey: "vaultBookmark") {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data,
+                                  options: .withSecurityScope,
+                                  relativeTo: nil,
+                                  bookmarkDataIsStale: &stale) {
+                bookmarkedURL = url.standardizedFileURL
+                if url.standardizedFileURL.path == bareURL.path {
+                    vaultURL = url
+                }
+            }
+        }
+        let scoped = vaultURL.startAccessingSecurityScopedResource()
+        defer { if scoped { vaultURL.stopAccessingSecurityScopedResource() } }
+        guard FileManager.default.fileExists(atPath: vaultURL.path) else {
+            FileHandle.standardError.write("error: vault path does not exist or is sandbox-blocked: \(vaultPath)\n".data(using: .utf8)!)
+            if let b = bookmarkedURL, b.path != bareURL.path {
+                FileHandle.standardError.write(
+                    "  hint: app currently has a security-scoped bookmark for \(b.path) — pass that path instead, or open the app UI once to re-bookmark.\n".data(using: .utf8)!)
+            }
+            exit(2)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached { [vaultURL] in
+            defer { sem.signal() }
+            do {
+                let dbPath = (try? IndexStore.databasePath()) ?? "?"
+                print("VAULT_ROOT=\(vaultURL.path)")
+                print("INDEX_DB=\(dbPath)")
+                print("SCOPED_RESOURCE=\(scoped)")
+                let healed = try await Indexer.reconcileMissing(vaultRoot: vaultURL) { line in
+                    print(line)
+                }
+                print("HEALED=\(healed)")
+                box.code = 0
             } catch let e as IndexerError {
                 print("SETUP_ERROR=\(e.localizedDescription)")
                 box.code = 2
