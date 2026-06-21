@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.4.2</title>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>1.4.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sun, 21 Jun 2026 17:04:47 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.4.2</h3>
+                <p>Indexing is now self-healing. If the app was closed right after saving a video, that video could end up saved but unsearchable; Youty now reconciles the index on launch — any missed video is indexed automatically — and indexes fresh saves at a higher priority so they complete reliably even if you quit soon after.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.4.2/Youty-1.4.2.dmg"
+                sparkle:edSignature="k2EP7/qIP1MK8v5dNxM/JRKkrSRjLpZwtQxJh4wLaq6sZbM9/lUHxBNu1g2bpkifqu7nkijAv3h/DR1NP1exCw=="
+                length="440367541"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.4.1</title>
             <sparkle:version>8</sparkle:version>
             <sparkle:shortVersionString>1.4.1</sparkle:shortVersionString>
