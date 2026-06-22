@@ -1,6 +1,6 @@
 [project]
 name = "youty-mcp"
-version = "1.4.3"
+version = "1.4.4"
 description = "Youty MCP server — exposes the Youty vault index (sqlite-vec + FTS5) to MCP-compatible AIs."
 readme = "README.md"
 license = { text = "MIT" }
