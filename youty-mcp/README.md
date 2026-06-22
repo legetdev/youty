@@ -74,7 +74,7 @@ uvx youty-mcp@latest install
 ```
 
 It detects Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Windsurf,
-Continue, Cline, and Antigravity, then merges a `youty` entry into each client's
+Continue, Cline, Antigravity, and Grok CLI, then merges a `youty` entry into each client's
 config — preserving your other settings, idempotent (safe to re-run), and
 reversible with `uvx youty-mcp@latest uninstall`. The entry points at the
 **absolute path** of `uvx` so GUI apps (which launch with a stripped-down PATH)

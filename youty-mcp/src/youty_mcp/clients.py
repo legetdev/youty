@@ -13,11 +13,16 @@ break entirely when install itself runs from uvx's ephemeral environment.)
 
 Two on-disk shapes are handled:
   - "json" : a JSON file with a top-level `mcpServers` map (Claude Code, Claude
-             Desktop, Cursor, Windsurf, Continue, Cline, Gemini CLI). Merged in
-             place so the client's other settings are preserved.
+             Desktop, Cursor, Windsurf, Continue, Cline, Gemini CLI, Grok CLI).
+             Merged in place so the client's other settings are preserved.
   - "toml" : a TOML file with `[mcp_servers.<name>]` tables (OpenAI Codex CLI).
              The stdlib reads TOML but can't write it, so we append the table
              when absent and refuse to clobber a differing hand-edited entry.
+
+Most JSON clients accept a bare {command, args} entry. Grok CLI is the one
+exception — its config (verified against superagent-ai/grok-cli, the dominant
+Grok terminal agent) expects each entry to also carry `name` + `transport`, so
+it gets a dedicated launch entry below.
 """
 
 from __future__ import annotations
@@ -55,6 +60,10 @@ LAUNCH_ENTRY = {
 # Claude Code tags the transport type in its config; mirror what `claude mcp
 # add` writes so re-runs stay idempotent against an existing CLI-made entry.
 _CLAUDE_ENTRY = {"type": "stdio", **LAUNCH_ENTRY}
+# Grok CLI (superagent-ai/grok-cli) stores MCP servers in ~/.grok/user-settings.json
+# under `mcpServers`, but each entry must spell out `name` + `transport` (its docs'
+# canonical shape) — the bare {command,args} the other JSON clients take won't load.
+_GROK_ENTRY = {"name": SERVER_KEY, "transport": "stdio", **LAUNCH_ENTRY}
 
 
 class ManualEditRequired(Exception):
@@ -120,6 +129,12 @@ CLIENTS: dict[str, Client] = {
         "antigravity", "Antigravity (agy)",
         _h(".gemini", "antigravity-cli", "mcp_config.json"), "json",
         "Restart Antigravity to load Youty.",
+    ),
+    "grok": Client(
+        "grok", "Grok CLI (xAI)",
+        _h(".grok", "user-settings.json"), "json",
+        "Restart the Grok CLI (or /mcps in its TUI) to load Youty.",
+        dict(_GROK_ENTRY),
     ),
 }
 
