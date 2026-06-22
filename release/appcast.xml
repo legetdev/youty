@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.4.4</title>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>1.4.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Mon, 22 Jun 2026 14:30:05 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.4.4</h3>
+                <p>Adds Grok CLI to the one-command MCP installer — uvx youty-mcp@latest install now auto-wires Grok CLI (xAI) alongside the other supported clients.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.4.4/Youty-1.4.4.dmg"
+                sparkle:edSignature="VXzUo7/VniHD6RC7ydbp24DoyZdUfDaFGdeUZLofmm0zJoxz4B2GK0cH8c3K2wMJX6QhvoCyKSnS6O6RCMVjBg=="
+                length="440372301"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.4.3</title>
             <sparkle:version>10</sparkle:version>
             <sparkle:shortVersionString>1.4.3</sparkle:shortVersionString>
