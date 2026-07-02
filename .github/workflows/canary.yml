@@ -1,0 +1,87 @@
+name: Extractor canary
+
+# U.1 — catch a YouTube/TikTok extraction break the day a platform rotates its
+# internals, not weeks later via a user complaint. Builds a Debug binary on a
+# clean macos-26 runner and runs the anonymous-platform smoke probes from
+# Scripts/smoke-test-extractors.sh (YouTube + TikTok). Instagram is excluded —
+# it needs an interactive WKWebView login that can't run headlessly — and
+# stays a documented manual check.
+#
+# On red: opens (or updates) a single tracking issue and lets the existing
+# Actions failure notification fire. Read-only — touches no shipping code.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # every Monday, 09:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    name: Smoke-test extractors (macOS 26)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Fetch on-device models
+        run: ./Scripts/fetch-models.sh
+
+      - name: Generate Xcode project
+        run: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+
+      - name: Build app + CLI (Debug, unsigned)
+        run: |
+          xcodebuild -project youty.xcodeproj -scheme youty \
+            -configuration Debug -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project youty.xcodeproj -scheme youty-cli \
+            -configuration Debug -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Run extractor smoke tests
+        id: smoke
+        run: ./Scripts/smoke-test-extractors.sh
+
+      - name: Open/update tracking issue on failure
+        if: failure()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const title = "🔴 Extractor canary failing";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              "The weekly extractor canary (`.github/workflows/canary.yml`) failed.",
+              "",
+              `Latest failing run: ${runUrl}`,
+              "",
+              "Likely cause: YouTube or TikTok changed an internal API shape.",
+              "See `Scripts/smoke-test-extractors.sh` output in the run log for which probe broke.",
+            ].join("\n");
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+            });
+            const existing = issues.find((i) => i.title === title);
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Still failing as of this run: ${runUrl}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+              });
+            }
