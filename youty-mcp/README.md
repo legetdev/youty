@@ -133,8 +133,14 @@ claude mcp add youty -- uvx youty-mcp@latest
 ```bash
 uv run pytest -q
 YOUTY_TOKENIZER_PARITY=1 uv run pytest -q tests/test_query_tokenizers.py
+YOUTY_COREML_SMOKE=1 uv run pytest -q tests/test_coreml_inputs.py
 uv run python tests/smoke_live.py    # one-shot live on-device search smoke
 ```
+
+The Core ML smoke check requires macOS and the model assets. It exercises both
+query encoders repeatedly and waits for deferred native cleanup, catching crashes
+that token-only tests cannot detect. Set `YOUTY_COREML_MODELS_DIR` to a local
+model directory when testing without the normal download cache.
 
 ## Index location
 

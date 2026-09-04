@@ -61,7 +61,7 @@ class EmbeddingGemmaTextEncoder:
         for i, t in enumerate(ids):
             iid[0, i] = t
             msk[0, i] = 1
-        out = self._model.predict({"input_ids": iid, "attention_mask": msk})
+        out = coreml_models.predict(self._model, {"input_ids": iid, "attention_mask": msk})
         vec = np.asarray(next(iter(out.values())), dtype=np.float32).reshape(-1)
         vec = vec / (np.linalg.norm(vec) + 1e-9)
         return [float(x) for x in vec]

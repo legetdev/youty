@@ -15,6 +15,7 @@ import logging
 import os
 import tarfile
 import tempfile
+import threading
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -36,6 +37,29 @@ MODELS_URL = (
 _CACHE = Path(os.path.expanduser("~/.cache/youty/coreml-models")) / MODELS_VERSION
 
 _loaded: dict[str, object] = {}
+_prediction_lock = threading.Lock()
+
+
+def predict(model, inputs):
+    """Reuse model-owned input buffers through Core ML's deferred native cleanup."""
+    import numpy as np
+
+    # Core ML 9's Python array bridge can release inputs on a native reset queue
+    # after predict returns. Keep a bounded buffer set alive with the cached model
+    # so that queue never performs the final Python-array deallocation.
+    with _prediction_lock:
+        buffers = getattr(model, "_youty_input_buffers", None)
+        if buffers is None:
+            buffers = {key: np.empty_like(value) for key, value in inputs.items()}
+            model._youty_input_buffers = buffers
+        if buffers.keys() != inputs.keys() or any(
+            buffers[key].shape != value.shape or buffers[key].dtype != value.dtype
+            for key, value in inputs.items()
+        ):
+            raise ValueError("Query model input shapes and types must remain fixed")
+        for key, value in inputs.items():
+            np.copyto(buffers[key], value)
+        return model.predict(buffers)
 
 
 def _find(base: Path, name: str) -> Path | None:

@@ -46,7 +46,7 @@ class SigLIPTextEncoder:
         self._ensure_loaded()
         assert self._tok is not None and self._model is not None
         ids = self._tok.encode(text)
-        out = self._model.predict({"input_ids": np.array([ids], dtype=np.int32)})
+        out = coreml_models.predict(self._model, {"input_ids": np.array([ids], dtype=np.int32)})
         vec = np.asarray(next(iter(out.values())), dtype=np.float32).reshape(-1)
         if vec.size != EMBEDDING_DIM:
             raise RuntimeError(

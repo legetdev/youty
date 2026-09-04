@@ -110,7 +110,8 @@ if [ -z "${YOUTY_DMG_NO_STYLE:-}" ] && [ -z "${CI:-}" ]; then
 
     osascript <<APPLESCRIPT > /dev/null
 tell application "Finder"
-    tell disk "$VOLUME_NAME"
+    -- The explicit temporary mountpoint need not appear under its volume label.
+    tell folder (POSIX file "$MOUNT_DIR" as text)
         open
         set current view of container window to icon view
         set toolbar visible of container window to false
