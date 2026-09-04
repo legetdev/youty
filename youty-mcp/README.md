@@ -40,10 +40,11 @@ cd youty-mcp
 uv sync                       # creates .venv, installs deps
 ```
 
-Dependencies: `mcp`, `sqlite-vec`, `httpx`, `numpy`, `transformers`,
-`sentencepiece`, `protobuf`, and `coremltools` (macOS only). Python ≥ 3.11.
-No PyTorch. `transformers` / `sentencepiece` are kept for **tokenization only**;
-all inference runs through Core ML.
+Dependencies: `mcp`, `cryptography`, `sqlite-vec`, `httpx`, `numpy`, `tokenizers`,
+`huggingface-hub`, `sentencepiece`, `protobuf`, and `coremltools` (macOS only).
+Python ≥ 3.11. No PyTorch or Transformers: existing tokenizer engines prepare
+queries directly, and all inference runs through Core ML. Tokenizer assets use
+fixed revisions to preserve compatibility with the existing vault index.
 
 ## Text + frame search: 100% on-device — no key, zero config
 
@@ -131,6 +132,7 @@ claude mcp add youty -- uvx youty-mcp@latest
 
 ```bash
 uv run pytest -q
+YOUTY_TOKENIZER_PARITY=1 uv run pytest -q tests/test_query_tokenizers.py
 uv run python tests/smoke_live.py    # one-shot live on-device search smoke
 ```
 

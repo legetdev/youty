@@ -1,6 +1,6 @@
 [project]
 name = "youty-mcp"
-version = "1.4.5"
+version = "1.4.6"
 description = "Youty MCP server — exposes the Youty vault index (sqlite-vec + FTS5) to MCP-compatible AIs."
 readme = "README.md"
 license = { text = "MIT" }
@@ -26,7 +26,10 @@ classifiers = [
 # actually uses; upper bounds capped one major above current (or at the
 # next 0.x for pre-1.0 packages).
 dependencies = [
-    "mcp>=1.2.0,<2.0.0",
+    "mcp>=1.28.1,<2.0.0",
+    # Already pulled in by MCP's JWT support; publish the security floor too,
+    # so installs outside uv cannot resolve the vulnerable PKCS#7 implementation.
+    "cryptography>=50.0.0,<51",
     "sqlite-vec>=0.1.6,<0.2.0",     # pre-1.0; breaking changes likely in 0.2
     "httpx>=0.27.0,<1.0.0",         # transport + fetching the on-device models
     "numpy>=1.26.0,<3.0.0",
@@ -40,11 +43,13 @@ dependencies = [
     # on macOS, where the Youty vault + models live; Linux installs (CI, sdist) stay
     # lean, and the tokenizers below still import fine for the Linux test suite.
     "coremltools>=8.0,<10 ; sys_platform == 'darwin'",
-    # transformers + sentencepiece are kept for TOKENIZATION ONLY (the proven
-    # EmbeddingGemma + SigLIP tokenizers — no hand-rolled parity risk). torch
-    # is not imported: tokenizers are framework-agnostic, and inference is Core ML.
-    "transformers>=4.56,<6",
-    "sentencepiece>=0.2,<1",
+    # Existing tokenizer engines used directly; no Transformers model loader or
+    # its command-line dependency chain. Hub provides asset caching/downloads.
+    "tokenizers>=0.22.2,<0.24",
+    "huggingface-hub>=1.5,<2",
+    # 0.2.2 changes BPE tie-breaking (9/520 golden cases). Keep the version
+    # that matches existing vault vectors until a future encoder migration.
+    "sentencepiece==0.2.1",
     "protobuf>=4,<8",
 ]
 

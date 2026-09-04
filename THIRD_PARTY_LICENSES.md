@@ -188,9 +188,17 @@ from PyPI by `pip` / `uv` at install time, not redistributed by this repo:
 | `sqlite-vec` | MIT OR Apache-2.0 (dual) |
 | `httpx` | BSD-3-Clause |
 | `numpy` | `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` (composite — NumPy core is BSD-3; bundled components add the others) |
-| `transformers` | Apache-2.0 |
-| `sentence-transformers` | Apache-2.0 |
-| `torch` | BSD-3-Clause |
+| `cryptography` | Apache-2.0 OR BSD-3-Clause |
+| `tokenizers` | Apache-2.0 |
+| `huggingface-hub` | Apache-2.0 |
+| `sentencepiece` | Apache-2.0 |
+| `protobuf` | BSD-3-Clause |
+| `coremltools` | BSD-3-Clause |
 
 Each package's full license text ships with its wheel and is
 viewable via `pip show -f <pkg>` after installation.
+
+The query-only SigLIP compatibility adapter retains the Apache-2.0 attribution
+for the Hugging Face code it adapts. Its notice and full license are included in
+[`youty-mcp/src/youty_mcp/THIRD_PARTY_NOTICES.txt`](youty-mcp/src/youty_mcp/THIRD_PARTY_NOTICES.txt)
+and ship inside the MCP wheel. Transformers itself is no longer a dependency.

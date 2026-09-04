@@ -118,11 +118,10 @@ class _State:
 
     def warm_text_embedder(self) -> None:
         """Force-load the on-device EG query encoder so the user's FIRST `search`
-        doesn't pay the one-time torch / sentence-transformers import + model
-        load (~5-7 s). Touches NO database — the sqlite connection is
+        doesn't pay the one-time tokenizer and Core ML model load.
+        Touches NO database — the sqlite connection is
         main-thread-only (check_same_thread), so this is safe on the startup
-        daemon thread. The torch model loaded here is reused by queries on the
-        event-loop thread (PyTorch CPU models carry no thread affinity). Any
+        daemon thread. The Core ML model is reused by later queries. Any
         failure is non-fatal — the first query then loads lazily, exactly as
         before."""
         try:
@@ -138,7 +137,7 @@ class _State:
             _log.warning("text-embedder warm-up failed (first query will load lazily): %s", exc)
 
     def clip_text(self):
-        """Lazy SigLIP-Base text encoder. Raises if transformers/torch missing."""
+        """Lazy SigLIP-Base text encoder using SentencePiece and Core ML."""
         if self._clip_text is None:
             from .siglip_text import SigLIPTextEncoder
 
@@ -1053,11 +1052,11 @@ def main() -> None:
         _log.error("startup failed: %s", exc)
         raise
     # Warm the on-device query encoder in the background so the user's first
-    # `search` is fast (~100 ms) instead of paying the one-time torch import +
+    # `search` is fast (~100 ms) instead of paying the one-time tokenizer import +
     # model load. The index check runs HERE on the main thread (sqlite is
     # main-thread-only) — only warm when the index actually holds on-device text
-    # chunks, so an empty/un-indexed DB doesn't load torch for nothing. The
-    # daemon thread then loads only the torch model and never touches the DB.
+    # chunks, so an empty/un-indexed DB doesn't load models for nothing. The
+    # daemon thread then loads only the query encoder and never touches the DB.
     # Never blocks stdio startup or shutdown; a query arriving mid-warm safely
     # waits on the shared load lock.
     try:

@@ -63,5 +63,5 @@ jobs:
       - name: Run tests
         working-directory: youty-mcp
         run: |
-          uv sync
-          uv run pytest -q
+          uv sync --locked
+          uv run --locked pytest -q
