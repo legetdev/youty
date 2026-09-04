@@ -103,7 +103,9 @@ hdiutil create \
 # icon layout. The local default path (no flag) is unchanged.
 if [ -z "${YOUTY_DMG_NO_STYLE:-}" ] && [ -z "${CI:-}" ]; then
     echo "==> Mounting + laying out window..."
-    MOUNT_DIR=$(hdiutil attach "$RW_DMG" -nobrowse -noverify -noautoopen | tail -1 | awk '{print $3}')
+    # Use a known mountpoint; hdiutil output can end in blank lines.
+    MOUNT_DIR=$(mktemp -d)
+    hdiutil attach "$RW_DMG" -nobrowse -noverify -noautoopen -mountpoint "$MOUNT_DIR" >/dev/null
     sleep 1
 
     osascript <<APPLESCRIPT > /dev/null
@@ -129,6 +131,7 @@ APPLESCRIPT
     # Forced sync before unmount so Finder's .DS_Store gets persisted.
     sync
     hdiutil detach "$MOUNT_DIR" -quiet
+    rmdir "$MOUNT_DIR"
 else
     echo "==> Skipping Finder window styling (CI/headless) — DMG stays functional."
 fi

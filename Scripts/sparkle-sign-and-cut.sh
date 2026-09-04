@@ -82,8 +82,11 @@ echo "==> Using $SIGN_UPDATE" >&2
 # app's Info.plist, unmount. Authoritative — anything we'd hand-set
 # would risk drifting from the actual built binary.
 
-MOUNT=$(hdiutil attach -nobrowse -noverify -noautoopen -readonly "$DMG" | tail -1 | awk '{print $3}')
-trap 'hdiutil detach "$MOUNT" -quiet 2>/dev/null || true' EXIT
+# An explicit mountpoint avoids parsing hdiutil's trailing blank lines or paths
+# containing spaces, which otherwise leave MOUNT empty on newer macOS versions.
+MOUNT=$(mktemp -d)
+trap 'hdiutil detach "$MOUNT" -quiet 2>/dev/null || true; rmdir "$MOUNT" 2>/dev/null || true' EXIT
+hdiutil attach -nobrowse -noverify -noautoopen -readonly -mountpoint "$MOUNT" "$DMG" >/dev/null
 APP_PLIST=$(find "$MOUNT" -maxdepth 3 -name "Info.plist" -path "*youty.app/Contents/Info.plist" | head -1)
 if [ -z "$APP_PLIST" ]; then
     echo "error: couldn't locate youty.app/Contents/Info.plist inside the DMG" >&2
@@ -93,6 +96,7 @@ VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_P
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PLIST")
 MIN_OS=$(/usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" "$APP_PLIST")
 hdiutil detach "$MOUNT" -quiet
+rmdir "$MOUNT"
 trap - EXIT
 
 LENGTH=$(stat -f %z "$DMG")

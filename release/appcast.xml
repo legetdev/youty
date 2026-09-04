@@ -26,6 +26,22 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.4.5</title>
+            <sparkle:version>12</sparkle:version>
+            <sparkle:shortVersionString>1.4.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Fri, 04 Sep 2026 22:45:08 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.4.5</h3>
+                <p>YouTube sign-in, age-verification, and availability restrictions now show an accurate explanation instead of a missing-captions error. This update does not bypass YouTube access restrictions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.4.5/Youty-1.4.5.dmg"
+                sparkle:edSignature="D06rORiGcDhz1ZiCYSoK8JTJ72K+azhb58NLf/ZalWteuw99ORmsfrEXAAwY3C/GF7T60IUB4Vq4KQUQoN1gCA=="
+                length="440359225"
+                type="application/octet-stream"/>
+        </item>
+        <item>
             <title>Youty 1.4.4</title>
             <sparkle:version>11</sparkle:version>
             <sparkle:shortVersionString>1.4.4</sparkle:shortVersionString>
