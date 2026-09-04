@@ -136,11 +136,27 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             let ipr = null;
             for (let i = 0; i < 80; i++) {
               ipr = window.ytInitialPlayerResponse;
+              if (ipr && ipr.playabilityStatus && ipr.playabilityStatus.status
+                  && ipr.playabilityStatus.status !== 'OK') break;
               if (ipr && ipr.videoDetails && ipr.videoDetails.title) break;
               await new Promise(r => setTimeout(r, 150));
             }
-            if (!ipr || !ipr.videoDetails) return post({error: 'no_response'});
+            if (!ipr) return post({error: 'no_response'});
 
+            // A restricted or age-gated video can still expose videoDetails but
+            // omit captions. Report the access problem before classifying it as
+            // a genuine no-captions video, while preserving a separate message
+            // for other non-OK availability states.
+            const playability = ipr.playabilityStatus || {};
+            if (playability.status && playability.status !== 'OK') {
+              const reason = String(playability.reason || '').toLowerCase();
+              const requiresSignIn = playability.status === 'LOGIN_REQUIRED'
+                || reason.includes('sign in')
+                || reason.includes('age verification')
+                || reason.includes('confirm your age');
+              return post({error: requiresSignIn ? 'restricted_video' : 'unavailable_video'});
+            }
+            if (!ipr.videoDetails) return post({error: 'no_response'});
             const vd = ipr.videoDetails;
 
             // 2. Verify captions exist
@@ -274,6 +290,10 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 
         if let errKey = dict["error"] as? String {
             switch errKey {
+            case "restricted_video":
+                finish(throwing: FetchError.restrictedVideo)
+            case "unavailable_video":
+                finish(throwing: FetchError.unavailableVideo)
             case "no_captions", "no_btn", "panel_empty":
                 finish(throwing: FetchError.noTranscript)
             case "no_response" where !retriedNoResponse:
@@ -393,7 +413,7 @@ enum TranscriptFetcher {
 // MARK: - Errors
 
 enum FetchError: LocalizedError {
-    case invalidURL, networkError, parseError, noTranscript
+    case invalidURL, networkError, parseError, noTranscript, restrictedVideo, unavailableVideo
     var errorDescription: String? {
         switch self {
         case .invalidURL:
@@ -404,6 +424,10 @@ enum FetchError: LocalizedError {
             return "Youty couldn't read this YouTube page. The video may be private, deleted, or YouTube may have changed something. Try a different video."
         case .noTranscript:
             return "This YouTube video doesn't have captions, so there's no transcript to save."
+        case .restrictedVideo:
+            return "YouTube requires sign-in or age verification for this video. Youty can't fetch its transcript from the current session."
+        case .unavailableVideo:
+            return "YouTube couldn't make this video available in the current session. It may be private, deleted, or region-restricted."
         }
     }
 }
