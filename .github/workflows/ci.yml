@@ -38,6 +38,9 @@ jobs:
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
           xcodegen generate
 
+      - name: Verify regenerated updater sandbox settings
+        run: python3 Scripts/verify-updater.py
+
       - name: Build app + run unit tests (Debug, unsigned)
         run: |
           xcodebuild test -project youty.xcodeproj -scheme youty \

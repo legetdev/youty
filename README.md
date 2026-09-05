@@ -20,6 +20,10 @@ Updates…* lives in the app menu (or *Settings → About*). New releases
 are EdDSA-signed; an unsigned binary will be rejected even if the
 appcast URL is hijacked.
 
+If you are upgrading from 1.4.6 or earlier, install the latest DMG once manually.
+Those versions cannot launch the installer from their sandbox; 1.4.7 enables
+the narrowly scoped updater services needed for subsequent automatic installs.
+
 The Mac app, the `youty` CLI, and the `youty-mcp` server all read and
 write the same vault folder.
 

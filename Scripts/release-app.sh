@@ -76,6 +76,9 @@ echo "==> Team ID:      ${TEAM_ID:-<unknown>}"
 
 # ---- Build ----
 
+# Catch broken updater settings before the long signing/notarization cycle.
+python3 "$ROOT/Scripts/verify-updater.py"
+
 # On-device models live outside git; fetch them if missing (no-op otherwise).
 "$ROOT/Scripts/fetch-models.sh"
 
@@ -183,6 +186,8 @@ codesign --verify --deep --strict --verbose=2 "$APP" >> "$LOG" 2>&1 || {
 }
 
 # Confirm the runtime flag is set (notary rejects bundles without it).
+python3 "$ROOT/Scripts/verify-updater.py" "$APP"
+
 RUNTIME=$(codesign --display --verbose=2 "$APP" 2>&1 | grep -c "flags=0x10000.runtime." || true)
 if [ "$RUNTIME" -eq 0 ]; then
     echo "warn: main app appears to be missing the hardened runtime flag" >&2
