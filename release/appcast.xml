@@ -26,6 +26,22 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.4.7</title>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>1.4.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sat, 05 Sep 2026 09:52:46 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.4.7</h3>
+                <p>Restores automatic installation while keeping the app sandboxed and updates signed. If you have 1.4.6 or earlier, download and install this DMG once manually: the installer inside those older copies cannot apply its own fix. Your vault remains unchanged.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.4.7/Youty-1.4.7.dmg"
+                sparkle:edSignature="oxW5BJ+T1DoP1xVqON/6bPpO/byzj/mum9g86ZAehm98XxQDBDgpCojypguA2L5ZqvpZGHRNSivMINBEjVD2Dw=="
+                length="440393143"
+                type="application/octet-stream"/>
+        </item>
+        <item>
             <title>Youty 1.4.6</title>
             <sparkle:version>13</sparkle:version>
             <sparkle:shortVersionString>1.4.6</sparkle:shortVersionString>
