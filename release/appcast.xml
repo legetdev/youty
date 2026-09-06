@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 1.4.8</title>
+            <sparkle:version>15</sparkle:version>
+            <sparkle:shortVersionString>1.4.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sun, 06 Sep 2026 12:51:01 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 1.4.8</h3>
+                <p>Fixes YouTube saves getting stuck at 3% during frame extraction and stops failed downloads cleanly.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v1.4.8/Youty-1.4.8.dmg"
+                sparkle:edSignature="zyME94CfbC4gpAArkaz2jhTo1OlaRwlZRqWQhih8JFmwX6XqBN9Ez0GBSfCA6OmZSvwTSHX4u9N5jUoYhqA1BA=="
+                length="440357332"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.4.7</title>
             <sparkle:version>14</sparkle:version>
             <sparkle:shortVersionString>1.4.7</sparkle:shortVersionString>
