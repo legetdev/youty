@@ -48,6 +48,12 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Verify frame range failure handling
+        run: |
+          xcrun swiftc Sources/FFmpegURLSessionIO.swift Sources/DebugLog.swift \
+            Scripts/test-frame-ranges.swift -o /tmp/youty-frame-range-tests
+          /tmp/youty-frame-range-tests
+
       - name: Build CLI (Debug, unsigned)
         run: |
           xcodebuild -project youty.xcodeproj -scheme youty-cli \

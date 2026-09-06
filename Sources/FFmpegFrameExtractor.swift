@@ -87,7 +87,7 @@ enum FFmpegFrameExtractor {
     // through FFmpeg's HTTP I/O (HTTPS + Range requests), only fetching the
     // chunks containing the keyframes around each requested timestamp.
     //
-    // - userAgent must match the client that produced the URL (ANDROID_VR).
+    // - userAgent must match the player client that produced the URL.
     // - maxLongEdge caps the long edge of returned frames (preserves aspect).
     //   Pass 1920 for "≤ 1080p", 1280 for "≤ 720p", 0 for source-native.
     // - Returns NSImage values in input order (same order as `timestamps`).

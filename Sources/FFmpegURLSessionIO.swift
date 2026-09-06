@@ -40,6 +40,8 @@ final class FFmpegURLSessionIO {
     private let userAgent: String
     private var totalLength: Int64 = 0
     private var cursor: Int64 = 0
+    // A failed read stays failed; FFmpeg must not restart the same rejected request.
+    private var terminalError: Error?
 
     // LRU chunk cache. Key = chunk-aligned start offset.
     private var chunks: [Int64: Data] = [:]
@@ -57,11 +59,11 @@ final class FFmpegURLSessionIO {
     private let session: URLSession
     private let delegate: ChunkSessionDelegate
 
-    init(url: URL, userAgent: String) {
+    init(url: URL, userAgent: String, configuration: URLSessionConfiguration = .ephemeral) {
         self.url = url
         self.userAgent = userAgent
         self.delegate = ChunkSessionDelegate()
-        let cfg = URLSessionConfiguration.ephemeral
+        let cfg = configuration
         cfg.timeoutIntervalForRequest = 15
         cfg.timeoutIntervalForResource = 120
         // Allow several concurrent requests per host; we self-limit via
@@ -81,13 +83,11 @@ final class FFmpegURLSessionIO {
     /// FFmpeg asks for `size` bytes at the current cursor position.
     /// Returns the number actually read (≤ size), 0 at EOF, negative on error.
     func read(buffer: UnsafeMutablePointer<UInt8>, size: Int) -> Int {
-        if totalLength == 0 {
-            if let _ = ensureChunkContaining(offset: 0) { return -1 }
-        }
-        if cursor >= totalLength { return 0 }
-
-        let chunkKey = alignedStart(for: cursor)
         if let _ = ensureChunkContaining(offset: cursor) { return -1 }
+        condition.lock()
+        defer { condition.unlock() }
+        if cursor >= totalLength { return 0 }
+        let chunkKey = alignedStart(for: cursor)
         guard let chunk = chunks[chunkKey] else { return -1 }
         touch(chunkKey)
 
@@ -111,11 +111,14 @@ final class FFmpegURLSessionIO {
         let SEEK_END: Int32 = 2
 
         if (whence & AVSEEK_SIZE) != 0 {
-            if totalLength == 0 {
-                _ = ensureChunkContaining(offset: 0)
-            }
+            if let _ = ensureChunkContaining(offset: 0) { return -1 }
+            condition.lock()
+            defer { condition.unlock() }
             return totalLength
         }
+        condition.lock()
+        defer { condition.unlock() }
+        if terminalError != nil { return -1 }
         let pure = whence & ~AVSEEK_SIZE
         let newPos: Int64
         switch pure {
@@ -139,20 +142,25 @@ final class FFmpegURLSessionIO {
         condition.lock()
         defer { condition.unlock() }
 
-        while chunks[target] == nil {
+        let deadline = Date().addingTimeInterval(125)
+        while true {
+            if let terminalError { return terminalError }
+            if totalLength > 0 && offset >= totalLength { return nil }
+            if chunks[target] != nil { return nil }
+            // Check BEFORE waiting: a prefetched request may already have failed.
+            if let error = inflight[target]?.error {
+                terminalError = error
+                return error
+            }
             if inflight[target] == nil {
-                // Cache miss with no fetch in flight — kick off this chunk
-                // plus a prefetch window of subsequent chunks.
                 launchFetchesLocked(startingAt: target, count: prefetchAhead)
             }
-            // Wait for any delegate completion; loop and re-check.
-            condition.wait()
-            if let err = inflight[target]?.error {
-                inflight.removeValue(forKey: target)
-                return err
+            if !condition.wait(until: deadline) {
+                let error = URLError(.timedOut)
+                terminalError = error
+                return error
             }
         }
-        return nil
     }
 
     private func launchFetchesLocked(startingAt start: Int64, count: Int) {
@@ -213,16 +221,28 @@ final class FFmpegURLSessionIO {
     fileprivate func sessionReceived(response: URLResponse, for dataTask: URLSessionDataTask) {
         condition.lock()
         defer { condition.unlock() }
-        if let http = response as? HTTPURLResponse {
-            if let contentRange = http.value(forHTTPHeaderField: "Content-Range"),
-               let slash = contentRange.firstIndex(of: "/"),
-               let total = Int64(contentRange[contentRange.index(after: slash)...]) {
-                totalLength = total
-            } else if let len = http.value(forHTTPHeaderField: "Content-Length"),
-                      let bytes = Int64(len), totalLength == 0 {
-                totalLength = bytes
-            }
+        guard let offset = taskToOffset[dataTask.taskIdentifier],
+              let inf = inflight[offset] else { return }
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 206,
+              let contentRange = http.value(forHTTPHeaderField: "Content-Range"),
+              contentRange.hasPrefix("bytes "),
+              let slash = contentRange.firstIndex(of: "/"),
+              let total = Int64(contentRange[contentRange.index(after: slash)...]),
+              let dash = contentRange.firstIndex(of: "-"),
+              let start = Int64(contentRange[contentRange.index(contentRange.startIndex, offsetBy: 6)..<dash]),
+              let end = Int64(contentRange[contentRange.index(after: dash)..<slash]),
+              start == offset, end >= start, end < total,
+              end == min(offset + Int64(chunkSize) - 1, total - 1),
+              totalLength == 0 || totalLength == total else {
+            inf.error = URLError(.badServerResponse)
+            DebugLog.log("frame range rejected: status=\((response as? HTTPURLResponse)?.statusCode ?? 0) offset=\(offset)")
+            dataTask.cancel()
+            condition.broadcast()
+            return
         }
+        totalLength = total
+        inf.expectedBytes = Int(end - start + 1)
     }
 
     fileprivate func sessionReceived(data: Data, for dataTask: URLSessionDataTask) {
@@ -230,6 +250,13 @@ final class FFmpegURLSessionIO {
         defer { condition.unlock() }
         guard let offset = taskToOffset[dataTask.taskIdentifier],
               let inf = inflight[offset] else { return }
+        guard inf.error == nil else { return }
+        guard inf.buffer.count + data.count <= inf.expectedBytes else {
+            inf.error = URLError(.badServerResponse)
+            dataTask.cancel()
+            condition.broadcast()
+            return
+        }
         inf.buffer.append(data)
     }
 
@@ -239,14 +266,16 @@ final class FFmpegURLSessionIO {
         guard let offset = taskToOffset[task.taskIdentifier] else { return }
         taskToOffset.removeValue(forKey: task.taskIdentifier)
         guard let inf = inflight[offset] else { return }
-        if let error {
+        if inf.error != nil {
+            // Preserve the response error, including errors completed before a read.
+        } else if let error {
             inf.error = error
             // Keep inflight entry so the waiter can see the error and clear it.
-        } else if !inf.buffer.isEmpty {
+        } else if inf.expectedBytes > 0 && inf.buffer.count == inf.expectedBytes {
             insertCachedLocked(inf.buffer, at: offset)
             inflight.removeValue(forKey: offset)
         } else {
-            inflight.removeValue(forKey: offset)
+            inf.error = URLError(.zeroByteResource)
         }
         condition.broadcast()
     }
@@ -257,6 +286,7 @@ private final class InflightChunk {
     let offset: Int64
     weak var dataTask: URLSessionDataTask?
     var buffer: Data = Data()
+    var expectedBytes: Int = 0
     var error: Error? = nil
     init(offset: Int64) { self.offset = offset }
 }

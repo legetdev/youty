@@ -240,14 +240,14 @@ enum DebugRunner {
             case "phase1":
                 frames = try await PhaseIFrameExtractor.extract(
                     url: stream.url,
-                    userAgent: StreamFetcher.androidVRUA,
+                    userAgent: formatList.userAgent,
                     timestamps: timestamps,
                     maxLongEdge: maxEdge,
                     progress: { _ in })
             case "production", "":
                 frames = try await FFmpegFrameExtractor.extract(
                     url: stream.url,
-                    userAgent: StreamFetcher.androidVRUA,
+                    userAgent: formatList.userAgent,
                     timestamps: timestamps,
                     maxLongEdge: maxEdge,
                     progress: { _ in })
@@ -262,7 +262,7 @@ enum DebugRunner {
                     do {
                         frames = try await PhaseIFrameExtractor.extract(
                             url: stream.url,
-                            userAgent: StreamFetcher.androidVRUA,
+                            userAgent: formatList.userAgent,
                             timestamps: timestamps,
                             maxLongEdge: maxEdge,
                             progress: { _ in })
@@ -270,7 +270,7 @@ enum DebugRunner {
                         print("AUTO_FALLBACK=phase1->production: \(error.localizedDescription)")
                         frames = try await FFmpegFrameExtractor.extract(
                             url: stream.url,
-                            userAgent: StreamFetcher.androidVRUA,
+                            userAgent: formatList.userAgent,
                             timestamps: timestamps,
                             maxLongEdge: maxEdge,
                             progress: { _ in })
@@ -278,7 +278,7 @@ enum DebugRunner {
                 } else {
                     frames = try await FFmpegFrameExtractor.extract(
                         url: stream.url,
-                        userAgent: StreamFetcher.androidVRUA,
+                        userAgent: formatList.userAgent,
                         timestamps: timestamps,
                         maxLongEdge: maxEdge,
                         progress: { _ in })

@@ -3,7 +3,7 @@ import AppKit
 
 // Fast frame extraction pipeline (Phase D — FFmpeg + custom AVIO).
 //
-// 1. ANDROID_VR InnerTube → stream URL  (~300 ms, 3 s timeout)
+// 1. visionOS InnerTube → stream URL  (~300 ms, 3 s timeout)
 // 2. Pick H.264 / VP9 / AV1 at 1080p (or highest available)  (<1 ms)
 // 3. FFmpeg byte-range fetches + decodes via libavformat / libavcodec
 //    through a URLSession-backed AVIOContext (HTTP Range via URLSession's
@@ -15,7 +15,7 @@ import AppKit
 // On PoToken / age-restricted detection: returns .failed(canFallback: true)
 // so ContentView routes to canvas-on-YouTube (existing ParallelCapture
 // pointed at the YouTube watch URL). The slow canvas path is the safety
-// net for the ~1 % of videos FFmpeg-via-ANDROID_VR can't reach.
+// net for the ~1 % of videos FFmpeg-via-visionOS can't reach.
 
 @MainActor
 final class FastFramePipeline: FramePipeline {
@@ -93,7 +93,7 @@ final class FastFramePipeline: FramePipeline {
                 do {
                     frames = try await PhaseIFrameExtractor.extract(
                         url: stream.url,
-                        userAgent: StreamFetcher.androidVRUA,
+                        userAgent: formatList.userAgent,
                         timestamps: timestamps,
                         maxLongEdge: maxEdgeFor(quality: stream.quality),
                         progress: progressEmit
@@ -103,7 +103,7 @@ final class FastFramePipeline: FramePipeline {
                     DebugLog.log("fast: phase-I failed (\(error.localizedDescription)) — falling back to F.1")
                     frames = try await FFmpegFrameExtractor.extract(
                         url: stream.url,
-                        userAgent: StreamFetcher.androidVRUA,
+                        userAgent: formatList.userAgent,
                         timestamps: timestamps,
                         maxLongEdge: maxEdgeFor(quality: stream.quality),
                         progress: progressEmit
@@ -114,7 +114,7 @@ final class FastFramePipeline: FramePipeline {
                 DebugLog.log("fast: small stream (\(stream.contentLength / 1_000_000)MB / \(Int(trueDuration))s) — using F.1 directly")
                 frames = try await FFmpegFrameExtractor.extract(
                     url: stream.url,
-                    userAgent: StreamFetcher.androidVRUA,
+                    userAgent: formatList.userAgent,
                     timestamps: timestamps,
                     maxLongEdge: maxEdgeFor(quality: stream.quality),
                     progress: progressEmit

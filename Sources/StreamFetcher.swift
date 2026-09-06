@@ -1,16 +1,10 @@
 import Foundation
 
-// Fetches H.264 720p+ stream URLs via the ANDROID_VR InnerTube client.
-//
-// Why ANDROID_VR (clientName 28, version 1.65.10):
-//   ANDROID_VR returns plain signed MP4 URLs (no n-decoder, no signature cipher).
-//   The URLs accept arbitrary byte-range requests, unlike the regular ANDROID
-//   client which silently caps at ~1.5 MB total per URL. This is what makes
-//   16-way parallel downloading viable.
-//
-// Visitor data caching:
-//   Stored in UserDefaults with a 7-day TTL. First-run cost is ~250 ms; every
-//   subsequent extraction skips the homepage GET. Invalidated on 401/403.
+// Fetches signed video streams through YouTube's visionOS player client.
+// The older ANDROID_VR client can return playable metadata but reject ranges
+// beyond the opening bytes. Keep its user agent only for PlayerFetcher's
+// cookied legacy response; every FormatList carries the matching user agent.
+// Visitor data is cached for seven days and refreshed on player API 401/403.
 
 struct VideoStream {
     let url: URL
@@ -49,6 +43,8 @@ enum StreamFetcher {
 
     private static let webUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     static let androidVRUA = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+
+    static let visionOSUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
 
     // All resolutions the fast path knows how to handle, expressed as the
     // long-edge pixel count parsed from qualityLabel ("1080p", "1080p60",
@@ -114,6 +110,7 @@ enum StreamFetcher {
         // The file's MP4 mvhd / WebKit <video>.duration can disagree with
         // this value for DASH-fragmented streams; this is the ground truth.
         let lengthSeconds: TimeInterval
+        var userAgent: String = StreamFetcher.androidVRUA
     }
 
     static func fetchFormats(videoID: String,
@@ -121,9 +118,9 @@ enum StreamFetcher {
         var req = URLRequest(url: URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(androidVRUA,         forHTTPHeaderField: "User-Agent")
-        req.setValue("28",                forHTTPHeaderField: "X-YouTube-Client-Name")
-        req.setValue("1.65.10",           forHTTPHeaderField: "X-YouTube-Client-Version")
+        req.setValue(visionOSUA,          forHTTPHeaderField: "User-Agent")
+        req.setValue("101",                forHTTPHeaderField: "X-YouTube-Client-Name")
+        req.setValue("1.02",           forHTTPHeaderField: "X-YouTube-Client-Version")
         if !visitorData.isEmpty {
             req.setValue(visitorData, forHTTPHeaderField: "X-Goog-Visitor-Id")
         }
@@ -131,14 +128,13 @@ enum StreamFetcher {
         let body: [String: Any] = [
             "context": [
                 "client": [
-                    "clientName": "ANDROID_VR",
-                    "clientVersion": "1.65.10",
-                    "androidSdkVersion": 32,
-                    "deviceMake": "Oculus",
-                    "deviceModel": "Quest 3",
-                    "osName": "Android",
-                    "osVersion": "12L",
-                    "userAgent": androidVRUA,
+                    "clientName": "VISIONOS",
+                    "clientVersion": "1.02",
+                    "deviceMake": "Apple",
+                    "deviceModel": "RealityDevice17,1",
+                    "osName": "visionOS",
+                    "osVersion": "26.5.23O471",
+                    "userAgent": visionOSUA,
                     "hl": "en",
                     "gl": "US",
                     "visitorData": visitorData
@@ -181,7 +177,7 @@ enum StreamFetcher {
 
         return FormatList(formats: progressive + adaptive,
                           progressiveCount: progressive.count,
-                          lengthSeconds: length)
+                          lengthSeconds: length, userAgent: visionOSUA)
     }
 
     // MARK: - Format selection
