@@ -1,13 +1,11 @@
-name: Release
+name: Prepare signed release artifacts
 
-# Builds, signs, notarizes, staples, and publishes a Youty release when a `v*`
-# tag is pushed (or via manual dispatch). It reuses the same scripts proven for
-# local releases — release-app.sh, make-dmg.sh, sparkle-sign-and-cut.sh — so CI
-# and local cuts stay identical.
+# Optional manual artifact preparation only. Full publication is owned by the
+# maintainer's coordinated Scripts/release.sh command; see docs/releasing.md.
+# Never publish an app-only release or race that command on a tag push.
 #
 # REQUIRED repository secrets (Settings -> Secrets and variables -> Actions).
-# Until they are all set, the job SKIPS CLEANLY (it does not fail), so a tag
-# push never produces a spurious red X:
+# Until they are all set, a manual preparation run skips cleanly:
 #
 #   DEVELOPER_ID_APP_CERT_P12       base64 of the Developer ID Application .p12
 #   DEVELOPER_ID_APP_CERT_PASSWORD  the .p12 export password
@@ -17,17 +15,14 @@ name: Release
 #   NOTARY_ASC_KEY_P8               base64 of the App Store Connect .p8 key
 #   SPARKLE_ED_PRIVATE_KEY          the Sparkle EdDSA private key string
 #
-# The appcast <item> is emitted as a build artifact ("appcast-item") for you to
-# paste into youty-web/public/appcast.xml — the appcast is served from the
-# separate site repo, so CI can't push it directly.
+# The signed DMG and appcast item are preparation artifacts only. The coordinated
+# release command owns publication and verification across all channels.
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # create the GitHub Release + upload assets
+  contents: read
 
 jobs:
   release:
@@ -107,19 +102,11 @@ jobs:
           echo "---- appcast <item> (paste into youty-web/public/appcast.xml) ----"
           cat appcast-item.xml
 
-      - name: Publish GitHub Release
-        if: steps.gate.outputs.ready == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            build/Youty-*.dmg \
-            --title "Youty ${GITHUB_REF_NAME}" \
-            --notes "Automated release for ${GITHUB_REF_NAME}. See the appcast for auto-update."
-
       - name: Upload appcast item artifact
         if: steps.gate.outputs.ready == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: appcast-item
-          path: appcast-item.xml
+          name: signed-release-artifacts
+          path: |
+            appcast-item.xml
+            build/Youty-*.dmg
