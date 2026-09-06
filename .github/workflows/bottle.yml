@@ -30,6 +30,11 @@ on:
         description: "Release tag to bottle (must already exist, e.g. v1.1.0); or HEAD to verify the build against main"
         required: true
 
+# Explicit Bash enables pipefail, so a failed download cannot become a checksum.
+defaults:
+  run:
+    shell: bash
+
 permissions:
   contents: write # upload the bottle asset to the release
 
