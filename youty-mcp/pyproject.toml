@@ -26,7 +26,7 @@ classifiers = [
 # actually uses; upper bounds capped one major above current (or at the
 # next 0.x for pre-1.0 packages).
 dependencies = [
-    "mcp>=1.28.1,<2.0.0",
+    "mcp>=1.28.1,<3.0.0",
     # Already pulled in by MCP's JWT support; publish the security floor too,
     # so installs outside uv cannot resolve the vulnerable PKCS#7 implementation.
     "cryptography>=50.0.0,<51",
