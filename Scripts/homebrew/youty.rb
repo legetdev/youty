@@ -10,15 +10,11 @@
 class Youty < Formula
   desc "Save YouTube, Instagram, and TikTok videos to a local AI-readable knowledge base"
   homepage "https://github.com/legetdev/youty"
-  url "https://github.com/legetdev/youty/archive/refs/tags/v1.4.8.tar.gz"
-  sha256 "2dbe8f9e9adc1246d5a5d3b3122481de8b782047a8f26c7e965ad1243297f385"
+  url "https://github.com/legetdev/youty/archive/refs/tags/v1.4.9.tar.gz"
+  sha256 "898b5c4f1ab50985cb907384cc643f6bda21cdcdab22a8afefe3bbf3c4841a6b"
   license "MIT"
   head "https://github.com/legetdev/youty.git", branch: "main"
 
-  bottle do
-    root_url "https://github.com/legetdev/youty/releases/download/v1.4.8"
-    sha256 cellar: :any_skip_relocation, arm64_tahoe: "d0d2047c91ec0956646401f18b3c82cdc3ad63add8b305f8059dbc4994df94d1"
-  end
 
   # Bottles (instant binary install) are built + verified on a macOS 26 runner by
   # .github/workflows/bottle.yml, which injects a `bottle do … end` block here with
