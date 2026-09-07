@@ -975,7 +975,11 @@ struct ContentView: View {
         panel.nameFieldStringValue = "\(safeName).md"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            try? content.write(to: url, atomically: true, encoding: .utf8)
+            do {
+                try content.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                vaultError = "Couldn't save the Markdown file. Choose a writable folder and try again."
+            }
         }
     }
 
@@ -1000,4 +1004,3 @@ struct VisualEffectView: NSViewRepresentable {
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
-

@@ -185,7 +185,7 @@ final class ShortFormPipeline {
         //    filter, no cross-platform name collisions.
         let folderName = Self.bundleFolderName(for: preview)
         let platformFolder = vaultURL.appendingPathComponent(preview.platform.rawValue)
-        let folderURL = platformFolder.appendingPathComponent(folderName)
+        let folderURL = platformFolder.appendingPathComponent(".youty-save-\(UUID().uuidString)")
         // Try to acquire security-scoped access (required for user-chosen
         // folders persisted via bookmark). For paths that are already
         // accessible (e.g. the app container's temp dir during tests), this
@@ -193,6 +193,9 @@ final class ShortFormPipeline {
         // operations will surface their own errors if denied.
         let acquired = vaultURL.startAccessingSecurityScopedResource()
         defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
+        let postID = preview.tikTokMetadata?.videoID ?? preview.instagramMetadata?.shortcode ?? "post"
+        let destination = try VaultManager.destinationBundle(in: vaultURL, platform: preview.platform.rawValue,
+                                                              name: folderName, videoID: postID)
 
         // Atomic save: if any step below fails (download, frame extraction, or a
         // write), don't leave a half-written bundle on disk. A partial bundle —
@@ -202,20 +205,23 @@ final class ShortFormPipeline {
         // pre-existing one (a re-save over an existing bundle must not nuke prior
         // data). The cleanup defer is registered AFTER the security-scope defer,
         // so it runs first (LIFO) while scoped access is still held.
-        let folderPreexisted = FileManager.default.fileExists(atPath: folderURL.path)
         var committed = false
-        do {
-            try FileManager.default.createDirectory(at: platformFolder, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
-        } catch {
-            throw ShortFormPipelineError.writeFailed(error)
-        }
         defer {
-            if !committed && !folderPreexisted {
+            if !committed {
                 try? FileManager.default.removeItem(at: folderURL)
             }
         }
-
+        do {
+            try FileManager.default.createDirectory(at: platformFolder, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                // Preserve user-added files while replacing only generated content.
+                try FileManager.default.copyItem(at: destination, to: folderURL)
+            } else {
+                try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            }
+        } catch {
+            throw ShortFormPipelineError.writeFailed(error)
+        }
         let initialMd = Self.composeMarkdown(preview: preview,
                                               transcript: preview.prefetchedTranscript)
         let videoMdURL = folderURL.appendingPathComponent("video.md")
@@ -330,8 +336,13 @@ final class ShortFormPipeline {
             throw ShortFormPipelineError.writeFailed(error)
         }
 
-        // Bundle is complete on disk (video.md + frames) — mark committed so the
-        // failure-cleanup defer leaves it in place.
+        // The prior bundle remains untouched until the entire replacement exists.
+        do {
+            try VaultManager.commitBundle(staged: folderURL, to: destination)
+        } catch {
+            MediaDownloader.remove(tempFileURL)
+            throw ShortFormPipelineError.writeFailed(error)
+        }
         committed = true
         MediaDownloader.remove(tempFileURL)
 
@@ -340,7 +351,7 @@ final class ShortFormPipeline {
 
         let totalMs = Int(Date().timeIntervalSince(started) * 1000)
         return ShortFormSaveResult(
-            folder: folderURL,
+            folder: destination,
             framesWritten: frames.count,
             transcriptSegments: transcript?.count ?? 0,
             totalMs: totalMs

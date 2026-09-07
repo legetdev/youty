@@ -133,6 +133,7 @@ final class InstagramExtractor: NSObject, WKNavigationDelegate, WKScriptMessageH
     /// Parses Instagram URLs in any of the supported post shapes.
     /// Accepts: /reel/{code}/, /p/{code}/, /tv/{code}/, /reels/{code}/
     static func extractShortcode(from url: URL) -> String? {
+        guard PlatformRouter.platform(for: url.absoluteString) == .instagram else { return nil }
         let pattern = #"/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)"#
         guard let m = url.path.range(of: pattern, options: .regularExpression) else { return nil }
         let slice = url.path[m]

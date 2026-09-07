@@ -27,9 +27,13 @@ enum TranscriptCommand {
             cliStderr("error: no saved video matched '\(identifier)'.\n")
             exit(1)
         }
-        let folder = vaultResolution.url.appendingPathComponent(match.folder)
+        guard let folder = VaultManager.bundleURL(relativePath: match.folder, in: vaultResolution.url) else {
+            cliStderr("error: saved bundle is outside the selected vault.\n")
+            exit(1)
+        }
         let noteURL = folder.appendingPathComponent("video.md")
-        guard let text = try? String(contentsOf: noteURL, encoding: .utf8) else {
+        guard (try? noteURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true,
+              let text = try? String(contentsOf: noteURL, encoding: .utf8) else {
             cliStderr("error: bundle for '\(identifier)' is missing video.md (folder: \(match.folder)).\n")
             exit(1)
         }

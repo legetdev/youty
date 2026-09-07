@@ -1,9 +1,26 @@
 import XCTest
+import WebKit
 @testable import youty
 
 // Pure-logic tests for the URL parsing the three extractors depend on. These
 // functions are the most fragile surface (platforms change URL shapes), so they
-// get the most coverage. No network, no I/O.
+// get the most coverage. The navigation fixture uses only local HTML.
+
+@MainActor
+final class TranscriptNavigationTests: XCTestCase {
+    /// A late home-page callback cannot consume or fail the active video's fetch.
+    func testOnlyActiveNavigationCanCompleteFetch() throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let warmup = try XCTUnwrap(webView.loadHTMLString("<html>Warmup</html>", baseURL: nil))
+        let video = try XCTUnwrap(webView.loadHTMLString("<html>Video</html>", baseURL: nil))
+        XCTAssertFalse(TranscriptLoader.isActiveNavigation(warmup, active: video))
+        XCTAssertTrue(TranscriptLoader.isActiveNavigation(video, active: video))
+        XCTAssertFalse(TranscriptLoader.isActiveNavigation(nil, active: video))
+        XCTAssertFalse(TranscriptLoader.isActiveNavigation(nil, active: nil))
+    }
+}
 
 final class YouTubeIDTests: XCTestCase {
 
@@ -37,6 +54,13 @@ final class YouTubeIDTests: XCTestCase {
 
     func testGarbageReturnsNil() {
         XCTAssertNil(TranscriptFetcher.extractVideoID(from: "not a url at all"))
+    }
+
+    func testRejectsForeignHostsAndUnsafeIDs() {
+        XCTAssertNil(TranscriptFetcher.extractVideoID(from: "https://example.com/watch?v=abc123"))
+        XCTAssertNil(TranscriptFetcher.extractVideoID(from: "https://youtu.be.evil.example/abc123"))
+        XCTAssertNil(TranscriptFetcher.extractVideoID(from: "https://youtube.com/watch?v=..%2Fescape"))
+        XCTAssertNil(TranscriptFetcher.extractVideoID(from: "https://youtube.com/watch?v=abc%26other"))
     }
 }
 
@@ -102,5 +126,19 @@ final class PlatformRouterTests: XCTestCase {
     func testUnknownReturnsNil() {
         XCTAssertNil(PlatformRouter.platform(for: "https://example.com/video"))
         XCTAssertNil(PlatformRouter.platform(for: "https://www.instagram.com/someuser/"))
+    }
+
+    func testRejectsSpoofedPlatformURLs() {
+        for url in [
+            "https://notyoutube.com/watch?v=x",
+            "https://example.com/youtube.com/watch?v=x",
+            "https://example.com/?next=https://tiktok.com/@u/video/123",
+            "https://instagram.com.evil.example/reel/x/",
+            "file://youtube.com/watch?v=x",
+            "https://user:password@youtube.com/watch?v=x"
+        ] {
+            XCTAssertNil(PlatformRouter.platform(for: url), url)
+        }
+        XCTAssertEqual(PlatformRouter.platform(for: "YOUTUBE.COM/watch?v=x"), .youtube)
     }
 }

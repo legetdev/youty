@@ -25,7 +25,7 @@ enum ListCommand {
                 entries.filter { $0.platform == p }
             } ?? entries
             let sorted = filtered.sorted { $0.dateSaved > $1.dateSaved }
-            return limit.map { Array(sorted.prefix($0)) } ?? sorted
+            return limit.map { Array(sorted.prefix(max(0, $0))) } ?? sorted
         }
 
         if asText {
@@ -83,7 +83,7 @@ enum ListReader {
            let entries = try? JSONDecoder().decode(
                [VaultManager.ManifestEntry].self, from: data
            ) {
-            return entries
+            return entries.filter { VaultManager.bundleURL(relativePath: $0.folder, in: vaultURL) != nil }
         }
         // Manifest missing — rebuild from the directory tree, then retry.
         VaultManager.writeManifest(in: vaultURL)
@@ -91,7 +91,7 @@ enum ListReader {
            let entries = try? JSONDecoder().decode(
                [VaultManager.ManifestEntry].self, from: data
            ) {
-            return entries
+            return entries.filter { VaultManager.bundleURL(relativePath: $0.folder, in: vaultURL) != nil }
         }
         return []
     }

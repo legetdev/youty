@@ -78,6 +78,19 @@ class ReleaseChecks(unittest.TestCase):
         with self.assertRaises(ValueError):
             release.validate_website(html + f'<a href="{release.dmg_url("0.0.1")}">Old</a>', self.version)
 
+    def test_unlisted_old_release_cannot_roll_back_feed(self):
+        """An absent version must not bypass the monotonic update-build check."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'appcast.xml'
+            path.write_text(self.feed)
+            for build in (str(int(self.build) - 1), self.build, 'invalid'):
+                candidate = self.fragment.replace(self.version, '0.0.1').replace(
+                    f'<sparkle:version>{self.build}</sparkle:version>',
+                    f'<sparkle:version>{build}</sparkle:version>')
+                with self.subTest(build=build), self.assertRaises(ValueError):
+                    release.splice(path, candidate)
+                self.assertEqual(path.read_text(), self.feed)
+
     def test_stale_bottle_and_wrong_checksum_rejected(self):
         """Source version alone is insufficient when the bottle still points backwards."""
         formula = (f'url "https://github.com/legetdev/youty/archive/refs/tags/v{self.version}.tar.gz"\n'

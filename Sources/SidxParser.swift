@@ -73,8 +73,11 @@ enum SidxParser {
         //     subsegment_duration (4)
         //     SAP flags (4)
         let bodyStart = boxStart + 8
-        guard bodyStart + 4 <= data.count else { throw SidxParserError.malformed }
+        guard boxSize >= 12, boxStart + boxSize <= data.count,
+              bodyStart + 4 <= data.count else { throw SidxParserError.malformed }
         let version = data[bodyStart]
+        guard version <= 1,
+              boxSize >= (version == 0 ? 32 : 40) else { throw SidxParserError.malformed }
         var p = bodyStart + 4
         guard p + 8 <= data.count else { throw SidxParserError.malformed }
         // reference_ID + timescale
@@ -93,19 +96,23 @@ enum SidxParser {
         p += 2   // reserved
         let refCount = Int(readUInt16BE(data, p)); p += 2
 
-        guard p + refCount * 12 <= data.count else {
+        guard p + refCount * 12 <= boxStart + boxSize,
+              earliestPts >= 0, firstOffset >= 0 else {
             // Not enough bytes — would need a larger head fetch.
             throw SidxParserError.malformed
         }
 
         // first segment starts after this sidx box + first_offset
         let sidxEnd = Int64(boxStart + boxSize)
-        var segPos = sidxEnd + firstOffset
+        let (firstPos, offsetOverflow) = sidxEnd.addingReportingOverflow(firstOffset)
+        guard !offsetOverflow else { throw SidxParserError.malformed }
+        var segPos = firstPos
         var segPts = earliestPts
         var segments: [SidxSegment] = []
         segments.reserveCapacity(refCount)
         for _ in 0..<refCount {
             let refSizeAndType = readUInt32BE(data, p); p += 4
+            guard refSizeAndType & 0x80000000 == 0 else { throw SidxParserError.malformed }
             let referencedSize = Int64(refSizeAndType & 0x7FFFFFFF)
             // (reference_type bit not relevant for our use)
             let subsegmentDuration = Int64(readUInt32BE(data, p)); p += 4
@@ -113,8 +120,11 @@ enum SidxParser {
             segments.append(SidxSegment(pos: segPos, size: referencedSize,
                                          pts: segPts,
                                          duration: subsegmentDuration))
-            segPos += referencedSize
-            segPts += subsegmentDuration
+            let (nextPos, positionOverflow) = segPos.addingReportingOverflow(referencedSize)
+            let (nextPts, timestampOverflow) = segPts.addingReportingOverflow(subsegmentDuration)
+            guard !positionOverflow, !timestampOverflow else { throw SidxParserError.malformed }
+            segPos = nextPos
+            segPts = nextPts
         }
         return segments
     }

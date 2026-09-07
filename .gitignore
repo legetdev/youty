@@ -2,11 +2,13 @@
 youty.app/
 build/
 DerivedData/
+youty-cli.xcodeproj/
 *.xcuserstate
 youty-mcp/dist/
 youty-mcp/.venv/
 *.dmg
 *.whl
+__pycache__/
 
 # Xcode
 xcuserdata/

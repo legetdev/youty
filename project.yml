@@ -8,7 +8,7 @@ options:
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: 2.6.0
+    exactVersion: 2.9.6
 
 settings:
   base:
@@ -58,8 +58,8 @@ targets:
       # EmbeddingGemma on-device text encoder (Phase S.1): the Core ML model +
       # its compact native tokenizer artifact (vocab/merges/added_tokens .bin —
       # the 32 MB tokenizer.json is deliberately NOT shipped) + the Gemma-license
-      # NOTICE. The .mlpackage auto-compiles to .mlmodelc in the bundle. Dormant
-      # until S.2 flips the default text embedder; bundled now so v1 ships key-free.
+      # NOTICE. The .mlpackage auto-compiles to .mlmodelc in the bundle and
+      # supplies the on-device text encoder used for vault indexing.
       - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
         buildPhase: resources
       - path: Vendor/embeddinggemma/tokenizer/vocab.bin
@@ -154,7 +154,7 @@ targets:
         buildPhase: resources
       # EmbeddingGemma text encoder for CLI text indexing parity (Phase S.1).
       # Standalone CLI resolves these from the shared dir install-cli.sh
-      # populates (SharedResourceLocator); dormant until S.2.
+      # populates (SharedResourceLocator).
       - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
         buildPhase: resources
       - path: Vendor/embeddinggemma/tokenizer/vocab.bin

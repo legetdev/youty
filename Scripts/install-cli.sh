@@ -21,6 +21,7 @@ xcodebuild \
     -scheme youty-cli \
     -configuration Release \
     -derivedDataPath "$ROOT/build/release" \
+    ARCHS=arm64 \
     build > /tmp/youty-cli-install.log 2>&1 || {
         echo "error: build failed. See /tmp/youty-cli-install.log for details." >&2
         exit 1
@@ -39,40 +40,56 @@ fi
 # Populating it here gives `youty save` the exact same full text + frame
 # indexing the Mac app performs — not a degraded capture-only mode.
 RES_DIR="$HOME/Library/Application Support/Youty/resources"
-mkdir -p "$RES_DIR"
-cp "$ROOT/Sources/IndexSchema.sql" "$RES_DIR/IndexSchema.sql"
-echo "==> Installed search-index schema."
+STAGED_RES="$(mktemp -d "${TMPDIR:-/tmp}/youty-cli-resources.XXXXXX")"
+trap 'rm -rf "$STAGED_RES"' EXIT
+cp "$ROOT/Sources/IndexSchema.sql" "$STAGED_RES/IndexSchema.sql"
 
 MLPACKAGE="$ROOT/Vendor/siglip/models/SigLIP-Base-224_image.mlpackage"
 if [ -d "$MLPACKAGE" ]; then
     echo "==> Compiling image-search model (one-time, ~10s)…"
-    rm -rf "$RES_DIR/SigLIP-Base-224_image.mlmodelc"
-    if xcrun coremlcompiler compile "$MLPACKAGE" "$RES_DIR" >/dev/null 2>&1; then
-        echo "==> Installed image-search model."
-    else
-        echo "warning: image-search model compile failed; CLI frame indexing will be unavailable." >&2
+    if ! xcrun coremlcompiler compile "$MLPACKAGE" "$STAGED_RES" >"$STAGED_RES/image-compile.log" 2>&1; then
+        echo "error: image-search model compilation failed; existing installation is unchanged." >&2
+        cat "$STAGED_RES/image-compile.log" >&2
+        exit 1
     fi
 else
-    echo "warning: SigLIP model not found at $MLPACKAGE (Git LFS not pulled?); CLI frame indexing unavailable." >&2
+    echo "error: image-search model not found at $MLPACKAGE; existing installation is unchanged." >&2
+    exit 1
 fi
 
 # EmbeddingGemma on-device text encoder (Phase S.1): the Core ML model + the
-# compact native tokenizer artifact (vocab/merges/added_tokens .bin). Dormant
-# until S.2, but installed now so the CLI has it ready when the default flips.
+# compact native tokenizer artifact (vocab/merges/added_tokens .bin).
 GEMMA_PKG="$ROOT/Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage"
 GEMMA_TOK="$ROOT/Vendor/embeddinggemma/tokenizer"
-if [ -d "$GEMMA_PKG" ] && [ -f "$GEMMA_TOK/vocab.bin" ]; then
+if [ -d "$GEMMA_PKG" ] && [ -f "$GEMMA_TOK/vocab.bin" ] && \
+   [ -f "$GEMMA_TOK/merges.bin" ] && [ -f "$GEMMA_TOK/added_tokens.bin" ]; then
     echo "==> Compiling on-device text model (one-time, ~10s)…"
-    rm -rf "$RES_DIR/EmbeddingGemma-300m_text.mlmodelc"
-    if xcrun coremlcompiler compile "$GEMMA_PKG" "$RES_DIR" >/dev/null 2>&1; then
-        cp "$GEMMA_TOK/vocab.bin" "$GEMMA_TOK/merges.bin" "$GEMMA_TOK/added_tokens.bin" "$RES_DIR/"
-        echo "==> Installed on-device text model + tokenizer."
-    else
-        echo "warning: text model compile failed; CLI on-device text embedding unavailable." >&2
+    if ! xcrun coremlcompiler compile "$GEMMA_PKG" "$STAGED_RES" >"$STAGED_RES/text-compile.log" 2>&1; then
+        echo "error: text model compilation failed; existing installation is unchanged." >&2
+        cat "$STAGED_RES/text-compile.log" >&2
+        exit 1
     fi
+    cp "$GEMMA_TOK/vocab.bin" "$GEMMA_TOK/merges.bin" "$GEMMA_TOK/added_tokens.bin" "$STAGED_RES/"
 else
-    echo "warning: EmbeddingGemma model/tokenizer not found (Git LFS not pulled?); CLI on-device text embedding unavailable." >&2
+    echo "error: text model or tokenizer assets are missing; existing installation is unchanged." >&2
+    exit 1
 fi
+
+# Replace installed resources only after every required asset is ready.
+for MODEL in SigLIP-Base-224_image EmbeddingGemma-300m_text; do
+    if [ ! -d "$STAGED_RES/$MODEL.mlmodelc" ]; then
+        echo "error: compiled $MODEL model is missing; existing installation is unchanged." >&2
+        exit 1
+    fi
+done
+mkdir -p "$RES_DIR"
+for MODEL in SigLIP-Base-224_image EmbeddingGemma-300m_text; do
+    rm -rf "$RES_DIR/$MODEL.mlmodelc"
+    mv "$STAGED_RES/$MODEL.mlmodelc" "$RES_DIR/"
+done
+cp "$STAGED_RES/IndexSchema.sql" "$STAGED_RES/vocab.bin" \
+    "$STAGED_RES/merges.bin" "$STAGED_RES/added_tokens.bin" "$RES_DIR/"
+echo "==> Installed search models, tokenizer, and index schema."
 
 # Pick the destination.
 if [ -n "${YOUTY_INSTALL_DIR:-}" ]; then

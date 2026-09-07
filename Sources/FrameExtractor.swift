@@ -20,9 +20,10 @@ struct FrameExtractor {
     static func frameTimes(duration: TimeInterval,
                             countCap: Int = defaultCountCap,
                             fpsCap: Double = defaultFpsCap) -> [TimeInterval] {
-        guard duration > 0 else { return [] }
-        let raw = Int(floor(duration * fpsCap))
-        let count = min(countCap, max(1, raw))
+        guard duration.isFinite, duration > 0, fpsCap.isFinite, fpsCap > 0, countCap > 0 else { return [] }
+        // Clamp before converting to Int so corrupt metadata cannot overflow.
+        let requested = max(1, floor(duration * fpsCap))
+        let count = requested >= Double(countCap) ? countCap : Int(requested)
         let interval = duration / Double(count)
         return (0..<count).map { Double($0) * interval }
     }

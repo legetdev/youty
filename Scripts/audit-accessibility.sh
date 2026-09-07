@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Static check: flag every SwiftUI control (Button, Toggle, Picker,
 # TextField, SecureField, Link) that has *no* accessibilityLabel /
-# accessibilityHint / visible Text label within its block.
+# visible Text label within its block.
 #
 # Heuristic, not perfect — false positives possible for controls whose
 # label is derived from a `Label("text", systemImage:)` or a passed-in
@@ -10,15 +10,10 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PATTERN='(Button[ (]|Toggle\(|Picker\(|TextField\(|SecureField\()'
+PATTERN='(^|[^[:alnum:]_])(Button[ (]|Toggle\(|Picker\(|TextField\(|SecureField\(|Link\()'
 
-# We scan only the SwiftUI surface — not the CLI, not the share ext.
-FILES=(
-    "$ROOT/Sources/ContentView.swift"
-    "$ROOT/Sources/SettingsView.swift"
-    "$ROOT/Sources/MenuBarController.swift"
-    "$ROOT/Sources/AuthLoginView.swift"
-)
+# Include onboarding and app-menu controls as well as the main window.
+FILES=("$ROOT"/Sources/*.swift)
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -34,23 +29,24 @@ for f in "${FILES[@]}"; do
         CONTROLS=$((CONTROLS + 1))
         # 30-line window catches modifiers placed after a multi-line label closure.
         ctx=$(sed -n "${line},$((line + 30))p" "$f")
-        if echo "$ctx" | grep -qE 'accessibilityLabel\(|accessibilityHint\('; then
+        if grep -qE 'accessibilityLabel\(' <<< "$ctx"; then
             LABELED=$((LABELED + 1))
             continue
         fi
         # Inline string constructor counts as labeled.
-        if echo "$ctx" | head -3 | grep -qE 'Button\("[^"]+"|TextField\("[^"]+"|SecureField\("[^"]+"'; then
+        start=$(sed -n "${line},$((line + 2))p" "$f")
+        if grep -qE '(Button|Toggle|Picker|TextField|SecureField|Link)\("[^"]+"' <<< "$start"; then
             LABELED=$((LABELED + 1))
             continue
         fi
         # Label("…", systemImage:) inside the body.
-        if echo "$ctx" | grep -qE 'Label\("[^"]+", systemImage:'; then
+        if grep -qE 'Label\("[^"]+", systemImage:' <<< "$ctx"; then
             LABELED=$((LABELED + 1))
             continue
         fi
         # Text("…") inside the button's label closure → SwiftUI uses it as the
         # accessibility label automatically.
-        if echo "$ctx" | grep -qE 'Text\("[^"]+"|Text\(label\)|Text\(buttonLabel\)'; then
+        if grep -qE 'Text\("[^"]+"|Text\(label\)|Text\(buttonLabel\)|Text\([^)]*\? "[^"]+" : "[^"]+"\)' <<< "$ctx"; then
             LABELED=$((LABELED + 1))
             continue
         fi

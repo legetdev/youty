@@ -152,7 +152,7 @@ struct OnboardingView: View {
         // purely informational and reads as "done" by default.
         card(number: 2, title: "AI search — on-device", required: false, done: true) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Searching your saved videos by meaning runs 100% on-device — no API key, no account, nothing leaves your Mac. It works the moment you save your first video.")
+                Text("Search runs on your Mac without an API key or Youty account. Connected AI clients receive requested results and may use cloud providers.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

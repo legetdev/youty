@@ -231,7 +231,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("AI search index")
 
-            Text("Lets Claude / Cursor / any MCP-compatible AI search your saved videos by meaning, not just keyword. Runs 100% on-device — no API key, nothing leaves your Mac. Re-indexing rebuilds the on-device text and frame vectors used for search.")
+            Text("Search runs on your Mac without an API key. Connected AI clients receive requested results and may use cloud providers. Re-indexing rebuilds the local text and frame search index.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -258,7 +258,7 @@ struct SettingsView: View {
                 Image(systemName: "lock.laptopcomputer")
                     .foregroundStyle(.green)
                     .font(.system(size: 12))
-                Text("Runs 100% on-device — no API key needed, nothing leaves your Mac.")
+                Text("Search indexing runs on-device. No API key needed.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -542,7 +542,7 @@ struct SettingsView: View {
 
                 Group {
                     aboutRow("FFmpeg 7.1.1", license: "LGPL-2.1+", note: "statically linked")
-                    aboutRow("Sparkle 2.9.2", license: "MIT", note: "auto-update framework")
+                    aboutRow("Sparkle 2.9.6", license: "MIT", note: "auto-update framework")
                     aboutRow("SigLIP-Base-Patch16-224 (CoreML)", license: "Apache-2.0", note: "bundled, on-device frame search")
                     aboutRow("EmbeddingGemma-300m (CoreML)", license: "Gemma Terms", note: "bundled, on-device text search")
                     aboutRow("SQLite", license: "public domain", note: "system library")

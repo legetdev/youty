@@ -6,6 +6,16 @@ import SwiftUI
 @main
 struct AppMain {
     static func main() {
+        #if DEBUG
+        // App-hosted tests need an event loop, but must not initialize the user's
+        // vault, updater, or single-instance handoff to an already running app.
+        if NSClassFromString("XCTestCase") != nil {
+            let application = NSApplication.shared
+            application.setActivationPolicy(.prohibited)
+            application.run()
+            return
+        }
+        #endif
         if DebugRunner.shouldRun() {
             DebugRunner.run()  // calls exit() — never returns
         }

@@ -22,6 +22,12 @@ if [ ! -x "$BIN" ]; then
     exit 2
 fi
 
+# Keep test preferences, indexes, and saved CLI vault paths out of the user's home.
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/youty-smoke.XXXXXX")" || exit 2
+export CFFIXED_USER_HOME="$TEST_ROOT/home"
+mkdir -p "$CFFIXED_USER_HOME"
+trap 'rm -rf "$TEST_ROOT"' EXIT
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
@@ -54,14 +60,14 @@ run() {
         return
     fi
 
-    if echo "$out" | grep -qE '^ERROR=|^EXTRACTION_ERROR='; then
+    if grep -qE '^ERROR=|^EXTRACTION_ERROR=' <<< "$out"; then
         printf "%b✗%b %s\n" "$RED" "$NC" "$name"
         echo "$out" | grep -E '^ERROR=|^EXTRACTION_ERROR=' | head -1 | sed 's/^/    /'
         FAILED=$((FAILED+1))
         return
     fi
 
-    if echo "$out" | grep -qE "$ok_pattern"; then
+    if grep -qE "$ok_pattern" <<< "$out"; then
         printf "%b✓%b %s\n" "$GREEN" "$NC" "$name"
         PASSED=$((PASSED+1))
     else
@@ -122,10 +128,10 @@ run_instagram_skip "veganer.wandel — Kartoffelpuffer Crunchwrap"
 echo
 echo "== Phase L surfaces =="
 # Headless probe — exercises IngestionFunnel queue serialization, URL
-# classifier, SpotlightIndexer reconcile, and VaultLocalSearch. Share
+# classifier and VaultLocalSearch. Share
 # Sheet activation / Services menu click / menu bar popover require
 # driving the system UI and are verified via the in-app flow.
-run "Ingestion + classifier + spotlight + local search" \
+run "Ingestion + classifier + local search" \
     'PHASE_L_PROBE OK' \
     "$BIN" --phase-l-probe
 
@@ -138,14 +144,14 @@ run "Indexer bench (1000 synthetic bundles)" \
     "$BIN" --bench-indexer 1000
 
 # Static accessibility audit — every interactive SwiftUI control must
-# carry an explicit accessibilityLabel/Hint OR a visible Text/Label
+# carry an explicit accessibilityLabel OR a visible Text/Label
 # that SwiftUI uses as the spoken label automatically.
-if "$ROOT/Scripts/audit-accessibility.sh" > /tmp/a11y-audit.txt 2>&1; then
+if "$ROOT/Scripts/audit-accessibility.sh" > "$TEST_ROOT/a11y-audit.txt" 2>&1; then
     printf "%b✓%b Accessibility audit (every SwiftUI control labeled)\n" "$GREEN" "$NC"
     PASSED=$((PASSED + 1))
 else
     printf "%b✗%b Accessibility audit\n" "$RED" "$NC"
-    cat /tmp/a11y-audit.txt | sed 's/^/    /'
+    sed 's/^/    /' "$TEST_ROOT/a11y-audit.txt"
     FAILED=$((FAILED + 1))
 fi
 
@@ -190,7 +196,7 @@ run "Vault weird-state survival" \
 echo
 echo "== Phase M — youty CLI =="
 CLI_BIN="$ROOT/build/dd/Build/Products/Debug/youty"
-CLI_VAULT="$(mktemp -d)/youty-cli-smoke"
+CLI_VAULT="$TEST_ROOT/vault"
 mkdir -p "$CLI_VAULT"
 if [ ! -x "$CLI_BIN" ]; then
     printf "%b∼%b CLI smoke (binary missing — run xcodebuild for youty-cli)${NC}\n" "$YELLOW" "$NC"
@@ -249,9 +255,7 @@ else
     # Q.5 — CLI weird-vault survival (exit-code matters; pipe to /dev/null to keep run() happy)
     run "youty list on garbage manifest (no crash)" \
         '\[' \
-        "$CLI_BIN" list --vault /tmp/youty-garbage-vault-doesnt-exist
-
-    rm -rf "$CLI_VAULT"
+        "$CLI_BIN" list --vault "$TEST_ROOT/does-not-exist"
 fi
 
 echo

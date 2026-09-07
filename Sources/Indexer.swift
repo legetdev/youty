@@ -69,7 +69,7 @@ enum Indexer {
                               progress: ((String) -> Void)? = nil) async throws -> ReindexSummary {
         let kickoff = Date()
         let embedder = try embedderOverride ?? makeEmbedderOrThrow()
-        let bundles = enumerateBundles(at: vaultRoot)
+        let bundles = try enumerateBundles(at: vaultRoot)
         var summary = ReindexSummary()
         var seenIDs = Set<String>()
         for url in bundles {
@@ -98,7 +98,7 @@ enum Indexer {
         // disk. Cascade deletes chunks + frames + their vec0 partitions + the
         // FTS5 rows via the schema's ON DELETE CASCADE.
         let allIDs = (try? await IndexStore.shared.allVideoIDs()) ?? []
-        for id in allIDs where !seenIDs.contains(id) {
+        for id in allIDs where summary.failures.isEmpty && !seenIDs.contains(id) {
             do {
                 try await IndexStore.shared.deleteVideo(videoID: id)
                 summary.videosDeleted += 1
@@ -161,7 +161,7 @@ enum Indexer {
         guard ocrEnabled else { return 0 }
         let embedder = try embedderOverride ?? makeEmbedderOrThrow()
         var processed = 0
-        for url in enumerateBundles(at: vaultRoot) {
+        for url in try enumerateBundles(at: vaultRoot) {
             // Skip a bundle only when its on-screen-text layer is truly done: the
             // section is present AND either it found no text (placeholder) or its
             // frame_text chunks are in the index. A section written by a prior run
@@ -211,7 +211,7 @@ enum Indexer {
         // 1. Cheap diff — NO model load. Collect bundles missing from / stale in
         //    the index. `videoIndexState` is a single indexed sqlite lookup.
         var pending: [URL] = []
-        for url in enumerateBundles(at: vaultRoot) {
+        for url in try enumerateBundles(at: vaultRoot) {
             guard let md = try? String(contentsOf: url, encoding: .utf8),
                   let vid = (try? Chunker.parse(text: md))?.qualifiedID, !vid.isEmpty
             else { continue }
@@ -263,7 +263,7 @@ enum Indexer {
                                       progress: ((String) -> Void)? = nil) async throws -> ReindexSummary {
         let kickoff = Date()
         let embedder = try embedderOverride ?? makeEmbedderOrThrow()
-        let bundles = enumerateBundles(at: vaultRoot)
+        let bundles = try enumerateBundles(at: vaultRoot)
         var summary = ReindexSummary()
         for url in bundles {
             do {
@@ -491,7 +491,7 @@ enum Indexer {
     static func reindexFrames(vaultRoot: URL,
                                progress: ((String) -> Void)? = nil) async throws -> FrameReindexSummary {
         let kickoff = Date()
-        let bundles = enumerateBundles(at: vaultRoot)
+        let bundles = try enumerateBundles(at: vaultRoot)
         var summary = FrameReindexSummary()
         for url in bundles {
             do {
@@ -558,26 +558,31 @@ enum Indexer {
 
     // MARK: - Vault walking
 
-    private static func enumerateBundles(at vaultRoot: URL) -> [URL] {
+    static func enumerateBundles(at vaultRoot: URL) throws -> [URL] {
         let fm = FileManager.default
         var bundles: [URL] = []
         // Per-platform subfolders. We also tolerate legacy bundles directly
         // under the vault root (pre-platform-subfolder vaults).
         let platformDirs = ["youtube", "instagram", "tiktok"]
-        for p in platformDirs {
-            let dir = vaultRoot.appendingPathComponent(p)
-            guard let inner = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
-            for bundle in inner {
-                let md = bundle.appendingPathComponent("video.md")
-                if fm.fileExists(atPath: md.path) { bundles.append(md) }
+        // A failed directory walk is not evidence that saved videos were deleted.
+        let roots = try fm.contentsOfDirectory(at: vaultRoot,
+            includingPropertiesForKeys: [.isDirectoryKey])
+        for item in roots {
+            guard try item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else { continue }
+            let candidates: [URL]
+            if platformDirs.contains(item.lastPathComponent) {
+                candidates = try fm.contentsOfDirectory(at: item,
+                    includingPropertiesForKeys: [.isDirectoryKey])
+            } else {
+                candidates = [item]
             }
-        }
-        // Legacy flat bundles.
-        if let inner = try? fm.contentsOfDirectory(at: vaultRoot, includingPropertiesForKeys: [.isDirectoryKey]) {
-            for bundle in inner {
-                let name = bundle.lastPathComponent
-                if Set(platformDirs).contains(name) { continue }
+            for bundle in candidates {
+                guard !bundle.lastPathComponent.hasPrefix(".youty-save-"),
+                      !bundle.lastPathComponent.hasPrefix(".youty-frames-") else { continue }
+                let relative = relativePath(of: bundle, under: vaultRoot)
+                guard VaultManager.bundleURL(relativePath: relative, in: vaultRoot) != nil else { continue }
                 let md = bundle.appendingPathComponent("video.md")
+                guard (try? md.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true else { continue }
                 if fm.fileExists(atPath: md.path) { bundles.append(md) }
             }
         }

@@ -28,7 +28,10 @@ it gets a dedicated launch entry below.
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
+import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -190,6 +193,27 @@ def current_entry(client: Client):
 
 
 # --- write / remove ------------------------------------------------------
+def _atomic_write(path: Path, text: str) -> None:
+    """Replace a complete config atomically, preserving existing permissions."""
+    # Keep symlinked config setups intact by replacing their target file.
+    target = path.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
+                                         prefix=f".{target.name}.", delete=False) as output:
+            temporary = Path(output.name)
+            if target.exists():
+                os.fchmod(output.fileno(), stat.S_IMODE(target.stat().st_mode))
+            output.write(text)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def write_entry(client: Client) -> str:
     """Add/refresh Youty in this client's config. Returns a status word:
     "added" | "updated" | "unchanged". Raises ManualEditRequired when a TOML
@@ -211,9 +235,7 @@ def _write_json(client: Client) -> str:
     if existing == client.entry:
         return "unchanged"
     servers[SERVER_KEY] = client.entry
-    with open(client.path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    _atomic_write(client.path, json.dumps(data, indent=2) + "\n")
     return "updated" if existing is not None else "added"
 
 
@@ -233,9 +255,9 @@ def _write_toml(client: Client) -> str:
     if client.path.exists():
         prev = client.path.read_text(encoding="utf-8")
         sep = "" if prev.endswith("\n\n") else ("\n" if prev.endswith("\n") else "\n\n")
-        client.path.write_text(prev + sep + block, encoding="utf-8")
+        _atomic_write(client.path, prev + sep + block)
     else:
-        client.path.write_text(block, encoding="utf-8")
+        _atomic_write(client.path, block)
     return "added"
 
 
@@ -258,9 +280,7 @@ def remove_entry(client: Client) -> bool:
     if SERVER_KEY not in servers:
         return False
     del servers[SERVER_KEY]
-    with open(client.path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    _atomic_write(client.path, json.dumps(data, indent=2) + "\n")
     return True
 
 

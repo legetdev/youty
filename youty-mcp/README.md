@@ -7,8 +7,8 @@ MCP-compatible AI (Claude Desktop, Claude Code, Cursor).
 
 Seven tools, hybrid dense + BM25 retrieval over your captured YouTube /
 Instagram / TikTok videos, plus joint text → frame retrieval via
-Google's SigLIP-Base-Patch16-224 (Apache-2.0). Queries land in ~300 ms
-for text, ~32 ms warm for frames on Apple Silicon.
+Google's SigLIP-Base-Patch16-224 (Apache-2.0). Search runs locally on macOS;
+latency depends on model warm-up, hardware, and vault size.
 
 | Tool | Returns |
 |---|---|
@@ -22,8 +22,8 @@ for text, ~32 ms warm for frames on Apple Silicon.
 
 **The loop:** `search` finds the relevant moments → `get_transcript` pulls the
 words into context → `view_frames` loads the matching frames into the model's
-vision. `search` / `search_frames` also return raw frame *paths*, but only
-Claude Code can open a path itself — `view_frames` returns the images inline, so
+vision. `search` / `search_frames` also return raw frame *paths*, which require
+a client with local-file access; `view_frames` returns the images inline, so
 the visual half of the loop works in Claude Desktop, Cursor, and Claude Code
 alike.
 
@@ -37,13 +37,15 @@ visible in the video; pair it with `view_frames` to see that moment.
 
 ```bash
 cd youty-mcp
-uv sync                       # creates .venv, installs deps
+uv sync --locked              # creates .venv with the checked-in dependency set
 ```
 
 Dependencies: `mcp`, `cryptography`, `sqlite-vec`, `httpx`, `numpy`, `tokenizers`,
 `huggingface-hub`, `sentencepiece`, `protobuf`, and `coremltools` (macOS only).
-Python ≥ 3.11. No PyTorch or Transformers: existing tokenizer engines prepare
-queries directly, and all inference runs through Core ML. Tokenizer assets use
+Python ≥ 3.11; macOS is required for Core ML query inference. Linux supports the
+fixture test suite, not production semantic search. No PyTorch or Transformers:
+existing tokenizer engines prepare queries directly, and all inference runs
+through Core ML. Tokenizer assets use
 fixed revisions to preserve compatibility with the existing vault index.
 
 ## Text + frame search: 100% on-device — no key, zero config
@@ -52,7 +54,8 @@ The server embeds each query on-device with **the same Core ML models the index
 was built with** — Google's EmbeddingGemma (text) and the SigLIP-Base text tower
 (frames) — so query and document vectors share one space. Inference is CPU-only
 via `coremltools` to match the int8-quantized indexer. No key, no provider
-option, no cloud call of any kind.
+option, or remote embedding call. Requested evidence is returned to your MCP
+client, which may send it to its AI provider according to its own settings.
 
 The models are **not** a ~1.6 GB HuggingFace download. They come from Youty's own
 release asset (`youty-models-<ver>.tar.gz`, a few hundred MB of Core ML),
@@ -62,8 +65,9 @@ fetched once and verified by SHA-256, then cached under:
 ~/.cache/youty/coreml-models/<version>/
 ```
 
-One-time per machine; every query after that is fully offline. Hot-path embed is
-~300 ms for text and ~32 ms for frames on Apple Silicon. (Set
+Tokenizer assets are downloaded separately from fixed Hugging Face revisions
+and cached by `huggingface-hub`. Once model and tokenizer assets are cached,
+query embedding can run offline. (Set
 `YOUTY_COREML_MODELS_DIR` to point at a local `.mlpackage` tree in dev/CI.)
 
 ## Wiring it into your AI client
@@ -117,7 +121,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 The `@latest` pin means `uvx` fetches the newest published `youty-mcp` on each
 launch — so a normal restart always loads the current server with no manual
 `uv tool upgrade`. (The Mac app auto-updates via Sparkle and the CLI via
-Homebrew, so the whole stack stays in step on its own.)
+Homebrew with `brew upgrade legetdev/youty/youty`; those updates are separate.)
 
 Restart Claude Desktop. Then ask: _"What are best practices on creating
 AI influencers, and what tools should I use? Use my Youty vault."_
@@ -153,7 +157,7 @@ The Mac app writes here when it saves a video (background, non-blocking).
 The MCP server reads here and promotes data to `sqlite-vec` and FTS5
 virtual tables at startup.
 
-The index is **rebuildable** from the vault's `video.md` files alone —
+The index is **rebuildable** from the vault's `video.md` files and frame JPEGs —
 losing it is recoverable, never catastrophic. Use the Mac app's Settings
 window → "Re-index entire vault", or run headless:
 
@@ -164,13 +168,14 @@ window → "Re-index entire vault", or run headless:
 
 ## Troubleshooting
 
-- **`search` returns 0 results** — the index is empty. Save a video from
+- **`search` returns 0 results** — check whether the index is empty or your
+  filters exclude the available videos. Save a video from
   the Mac app (indexer enabled in Settings) or run `--reindex` on an
   existing vault. No key needed — text indexing is on-device by default.
 - **First `search` / `search_frames` is slow** — the Core ML models asset
   downloads once (`youty-models-<ver>.tar.gz`, a few hundred MB, SHA-verified)
   into `~/.cache/youty/coreml-models/` and the encoders load lazily. Subsequent
-  queries are ~300 ms (text) / ~32 ms (frames).
+  queries reuse cached assets and loaded models.
 - **Legacy bundles with 4-digit-second JPEG names** (`0717.jpg`) are
   silently skipped by frame indexing. The current contract is 8-digit
   milliseconds (`00718000.jpg`). Re-saving the video regenerates frames

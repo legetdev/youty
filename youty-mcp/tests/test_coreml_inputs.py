@@ -1,5 +1,6 @@
 """Cover bounded input ownership and an opt-in real-model idle-cleanup check."""
 import os
+from contextlib import contextmanager
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -8,6 +9,36 @@ import numpy as np
 import pytest
 
 from youty_mcp import coreml_models
+
+
+def test_failed_model_stream_removes_partial_archive(tmp_path, monkeypatch):
+    """A mid-download disconnect leaves neither an archive nor extracted weights."""
+    import httpx
+
+    class InterruptedResponse:
+        """Return some bytes before simulating a stalled connection."""
+
+        def raise_for_status(self):
+            """The connection succeeds before its body stalls."""
+
+        def iter_bytes(self):
+            """Exercise cleanup after actual partial-file writes."""
+            yield b"partial archive"
+            raise httpx.ReadTimeout("stalled download")
+
+    @contextmanager
+    def stream(*args, **kwargs):
+        """Require a finite read timeout without contacting the network."""
+        assert kwargs["timeout"] == 60
+        yield InterruptedResponse()
+
+    monkeypatch.setattr(coreml_models, "_CACHE", tmp_path / "cache")
+    monkeypatch.setattr(coreml_models.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(httpx, "stream", stream)
+    with pytest.raises(httpx.ReadTimeout):
+        coreml_models._download_models()
+    assert list(tmp_path.iterdir()) == [tmp_path / "cache"]
+    assert not list((tmp_path / "cache").iterdir())
 
 
 def test_predict_reuses_owned_buffers_and_rejects_shape_changes():

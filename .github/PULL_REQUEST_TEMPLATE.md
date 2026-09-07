@@ -10,8 +10,8 @@
 
 ## Checklist
 
-- [ ] Builds locally (`xcodebuild` for app/CLI; `uv run pytest -q` for the MCP)
+- [ ] Relevant build and regression checks pass (see `CONTRIBUTING.md`)
 - [ ] No new third-party dependencies (Sparkle + statically-linked FFmpeg only)
-- [ ] Stays 100% on-device — no network calls with user data, no keys, no telemetry
-- [ ] Sandbox-safe (no subprocesses; network via `URLSession`/`WKWebView`)
+- [ ] Processing stays local; no remote embeddings or telemetry; MCP disclosure remains accurate
+- [ ] Mac app remains sandbox-safe (no subprocesses; network via `URLSession`/`WKWebView`)
 - [ ] Regenerated the Xcode project if `project.yml` or source files changed (`xcodegen generate`)

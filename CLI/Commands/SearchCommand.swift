@@ -17,7 +17,7 @@ enum SearchCommand {
             cliStderr(VaultResolver.noVaultMessage + "\n")
             exit(78)
         }
-        let limit = args.intValue(for: "limit") ?? 10
+        let limit = max(0, args.intValue(for: "limit") ?? 10)
         let asText = args.bool("text")
 
         let entries = MainActor.assumeIsolated {

@@ -9,9 +9,8 @@
 # issues (long-description rendering, missing classifiers, etc.) before
 # they hit a real index.
 #
-# Never uploads to PyPI — Phase R.6 does the actual TestPyPI upload by
-# hand once the legetdev TestPyPI token is available. Run this any time
-# the MCP server's source or pyproject.toml changes.
+# Never uploads. Scripts/release.sh coordinates production publication;
+# GitHub Actions publishes to PyPI through Trusted Publishing (OIDC).
 
 set -euo pipefail
 
@@ -38,8 +37,7 @@ TMP_VENV=$(mktemp -d)
 trap 'rm -rf "$TMP_VENV"' EXIT
 uv venv --quiet "$TMP_VENV"
 uv pip install --python "$TMP_VENV/bin/python" --quiet "$WHEEL"
-# `youty-mcp` is a stdio server — no --version or --help, so just confirm
-# the entry script resolves + Python can import the package.
+# Confirm the entry script resolves and Python can import the server.
 "$TMP_VENV/bin/python" -c "from youty_mcp import server; print('import-ok')"
 test -x "$TMP_VENV/bin/youty-mcp"
 echo "==> Entry script: $TMP_VENV/bin/youty-mcp"
@@ -50,11 +48,11 @@ echo "==> Wheel verified."
 # `twine check` reads the long-description, validates the README
 # rendering, and confirms every required classifier is present. PyPI
 # itself runs the same check before accepting an upload — catching it
-# here means a R.6 TestPyPI push won't bounce on something cosmetic.
+# here catches metadata errors before production publication.
 
 echo "==> Running twine check..."
 uvx --quiet --from twine twine check "$WHEEL" "$SDIST" || {
-    echo "error: twine check failed. Fix the issues above before the next R.6 push." >&2
+    echo "error: twine check failed. Fix the issues above before release." >&2
     exit 1
 }
 
@@ -63,8 +61,4 @@ echo "==> All checks passed."
 echo "    Wheel:  $WHEEL"
 echo "    Sdist:  $SDIST"
 echo
-echo "    To push to TestPyPI (Phase R.6, requires the legetdev TestPyPI token):"
-echo "      uvx --from twine twine upload --repository testpypi $WHEEL $SDIST"
-echo
-echo "    To verify on a clean machine after upload:"
-echo "      uv tool install --index https://test.pypi.org/simple/ youty-mcp"
+echo "    Release all channels through Scripts/release.sh; see docs/releasing.md."

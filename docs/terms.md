@@ -2,8 +2,8 @@
 
 Youty is a personal user-agent. It loads the same public web pages your
 browser would, parses what it finds, and saves the result to a folder on
-your Mac. AI search over what you save runs 100% on-device; nothing about
-that result is ever sent anywhere.
+your Mac. AI search embeddings run on-device. Connected MCP clients receive the
+evidence they request and may process it through their own cloud providers.
 
 These terms describe what you can expect from Youty and what is on you.
 They are deliberately short.
@@ -18,9 +18,10 @@ They are deliberately short.
 
 ## What you can do with the output
 
-The output — markdown notes, JPEG frames, the search index — is yours.
-Read it, archive it, feed it into your own AI workflow, write a book
-from it. Youty makes no claim on what you save.
+You control the local files: Markdown notes, JPEG frames, and the search index.
+Youty makes no ownership claim on what you save. Saving content does not transfer
+the original creator's copyright or grant permission to publish, redistribute,
+or otherwise reuse it; your use must respect the rights attached to that content.
 
 ## What you are responsible for
 
@@ -59,7 +60,8 @@ those pages serve.
 - Re-host, distribute, or share any saved content. The vault is on
   your Mac; what leaves it leaves through your action.
 
-For the complete network-traffic picture, see `docs/privacy.md`.
+For the network-traffic picture and connected-client boundary, see
+[`docs/privacy.md`](privacy.md).
 
 ## No warranty
 

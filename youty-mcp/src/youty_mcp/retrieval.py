@@ -46,6 +46,7 @@ def dense_top_k(
     k: int = 50,
     platform: str | None = None,
     model_version: str | None = None,
+    since_ms: int | None = None,
 ) -> list[tuple[int, float]]:
     """Cosine top-k via sqlite-vec. Returns [(chunk_id, distance), ...] ascending.
 
@@ -69,26 +70,29 @@ def dense_top_k(
     if platform:
         where_clauses.append("platform = ?")
         params.append(platform)
+    eligibility: list[str] = []
+    if model_version:
+        eligibility.append("c.model_version = ?")
+        params.append(model_version)
+    if since_ms is not None:
+        eligibility.append("v.date_saved >= ?")
+        params.append(since_ms)
+    if eligibility:
+        # vec0 applies primary-key IN constraints before its nearest-neighbor
+        # limit, so excluded old/model-incompatible chunks cannot crowd out hits.
+        where_clauses.append(
+            "chunk_id IN (SELECT c.chunk_id FROM chunks c "
+            "JOIN videos v ON v.video_id = c.video_id WHERE "
+            + " AND ".join(eligibility) + ")"
+        )
     sql = (
         "SELECT chunk_id, distance FROM vec_chunks WHERE "
         + " AND ".join(where_clauses)
         + " ORDER BY distance"
     )
     rows = conn.execute(sql, params).fetchall()
-    hits = [(int(r["chunk_id"]), float(r["distance"])) for r in rows]
-    if model_version and hits:
-        ids = [cid for cid, _ in hits]
-        placeholders = ",".join("?" * len(ids))
-        keep = {
-            int(r["chunk_id"])
-            for r in conn.execute(
-                f"SELECT chunk_id FROM chunks "
-                f"WHERE chunk_id IN ({placeholders}) AND model_version = ?",
-                [*ids, model_version],
-            ).fetchall()
-        }
-        hits = [(cid, d) for cid, d in hits if cid in keep]
-    return hits
+    # vec0 may emit a candidate per selected partition for very small k.
+    return [(int(r["chunk_id"]), float(r["distance"]) ** 2 / 2) for r in rows[:k]]
 
 
 def dense_top_k_frames(
@@ -110,7 +114,9 @@ def dense_top_k_frames(
         + " ORDER BY distance"
     )
     rows = conn.execute(sql, params).fetchall()
-    return [(int(r["frame_id"]), float(r["distance"])) for r in rows]
+    # vec0 defaults to Euclidean distance. All stored/query vectors are unit
+    # normalized, so cosine distance is squared Euclidean distance divided by 2.
+    return [(int(r["frame_id"]), float(r["distance"]) ** 2 / 2) for r in rows[:k]]
 
 
 def sparse_top_k(
@@ -118,28 +124,37 @@ def sparse_top_k(
     query: str,
     k: int = 50,
     platform: str | None = None,
+    since_ms: int | None = None,
 ) -> list[tuple[int, float]]:
     """BM25 top-k via FTS5. Returns [(chunk_id, bm25), ...] ascending (smaller = better)."""
     safe = _sanitize_fts(query)
     if not safe:
         return []
-    if platform:
+    if platform or since_ms is not None:
+        filters = []
+        params: list[object] = [safe]
+        if platform:
+            filters.append("v.platform = ?")
+            params.append(platform)
+        if since_ms is not None:
+            filters.append("v.date_saved >= ?")
+            params.append(since_ms)
         sql = (
             "SELECT f.rowid AS chunk_id, bm25(chunks_fts) AS score "
             "FROM chunks_fts f "
             "JOIN chunks c ON c.chunk_id = f.rowid "
             "JOIN videos v ON v.video_id = c.video_id "
-            "WHERE chunks_fts MATCH ? AND v.platform = ? "
+            "WHERE chunks_fts MATCH ? AND " + " AND ".join(filters) + " "
             "ORDER BY score LIMIT ?"
         )
-        params: tuple = (safe, platform, k)
+        params.append(k)
     else:
         sql = (
             "SELECT rowid AS chunk_id, bm25(chunks_fts) AS score "
             "FROM chunks_fts WHERE chunks_fts MATCH ? "
             "ORDER BY score LIMIT ?"
         )
-        params = (safe, k)
+        params = [safe, k]
     try:
         rows = conn.execute(sql, params).fetchall()
     except sqlite3.OperationalError:
@@ -222,6 +237,17 @@ def dedupe_per_video(
 # ─────────────────── result assembly ───────────────────
 
 
+def vault_path(vault: Path | None, relative: str | None) -> Path | None:
+    """Resolve an indexed path only when it stays inside the selected vault."""
+    if vault is None or not relative:
+        return None
+    try:
+        candidate = (vault / relative).resolve()
+        return candidate if candidate.is_relative_to(vault.resolve()) else None
+    except (OSError, RuntimeError):
+        return None
+
+
 def hydrate_results(
     hits: list[FusedHit],
     conn: sqlite3.Connection,
@@ -251,9 +277,8 @@ def hydrate_results(
         r = by_id.get(h.chunk_id)
         if r is None:
             continue
-        folder_abs = (
-            (vault_root / r["folder_path"]) if vault_root and r["folder_path"] else None
-        )
+        folder_abs = vault_path(vault_root, r["folder_path"])
+        md_path = vault_path(vault_root, str(folder_abs / "video.md")) if folder_abs else None
         tags = _parse_tags(r["tags_json"])
         chunk_obj = {
             "text": r["chunk_text"],
@@ -280,7 +305,7 @@ def hydrate_results(
                     duration_ms=r["duration_ms"],
                 ),
                 "video_md_path": (
-                    str(folder_abs / "video.md") if folder_abs else None
+                    str(md_path) if md_path else None
                 ),
             }
         )
@@ -397,6 +422,7 @@ def hybrid_search(
     pool: int = 50,
     platform: str | None = None,
     model_version: str | None = None,
+    since_ms: int | None = None,
 ) -> list[FusedHit]:
     """Run hybrid retrieval for one or more (vector, text) query pairs and fuse.
 
@@ -405,9 +431,11 @@ def hybrid_search(
     """
     rankings: list[list[int]] = []
     for vec, text in zip(query_vecs, query_texts):
-        if vec:
-            rankings.append([cid for cid, _ in dense_top_k(conn, vec, pool, platform, model_version)])
-        rankings.append([cid for cid, _ in sparse_top_k(conn, text, pool, platform)])
+        rankings.append(
+            [cid for cid, _ in dense_top_k(conn, vec, pool, platform, model_version, since_ms)]
+            if vec else []
+        )
+        rankings.append([cid for cid, _ in sparse_top_k(conn, text, pool, platform, since_ms)])
     fused = rrf_fuse(rankings)
     fused = dedupe_per_video(fused, conn, max_per_video=2)
     return fused[:top_k]

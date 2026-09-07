@@ -54,10 +54,24 @@ jobs:
             Scripts/test-frame-ranges.swift -o /tmp/youty-frame-range-tests
           /tmp/youty-frame-range-tests
 
+      - name: Verify CLI and malformed media boundaries
+        run: |
+          xcrun swiftc Sources/SidxParser.swift Sources/MP4MoofParser.swift \
+            Sources/PlatformRouter.swift CLI/ArgsParser.swift \
+            Scripts/test-swift-boundaries.swift -o /tmp/youty-boundary-tests
+          /tmp/youty-boundary-tests
+
       - name: Build CLI (Debug, unsigned)
         run: |
           xcodebuild -project youty.xcodeproj -scheme youty-cli \
             -configuration Debug -derivedDataPath build/ci \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Build the standalone Homebrew CLI project
+        run: |
+          xcodegen generate --spec project-cli.yml
+          xcodebuild -project youty-cli.xcodeproj -scheme youty-cli \
+            -configuration Debug -derivedDataPath build/cli-ci \
             CODE_SIGNING_ALLOWED=NO build
 
   mcp-tests:
@@ -68,6 +82,9 @@ jobs:
 
       - name: Test coordinated release checks
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Scripts -p 'test_release*.py' -v
+
+      - name: Verify CLI installation failure preserves working resources
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s Scripts -p 'test_install_cli.py' -v
 
       - name: Install uv
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6

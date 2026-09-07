@@ -85,20 +85,21 @@ def _models_base() -> Path:
 
 
 def _download_models() -> None:
+    """Fetch and verify pinned weights, cleaning temporary bytes on every exit."""
     import hashlib
     import httpx  # already a dependency
 
     _CACHE.mkdir(parents=True, exist_ok=True)
     _log.info("Fetching Youty Core ML models (one-time) from %s …", MODELS_URL)
     digest = hashlib.sha256()
-    with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-        with httpx.stream("GET", MODELS_URL, follow_redirects=True, timeout=None) as r:
-            r.raise_for_status()
-            for chunk in r.iter_bytes():
-                tmp.write(chunk)
-                digest.update(chunk)
-        tarball = tmp.name
-    try:
+    with tempfile.TemporaryDirectory(prefix="youty-model-download-") as directory:
+        tarball = Path(directory) / "models.tar.gz"
+        with tarball.open("wb") as tmp:
+            with httpx.stream("GET", MODELS_URL, follow_redirects=True, timeout=60) as r:
+                r.raise_for_status()
+                for chunk in r.iter_bytes():
+                    tmp.write(chunk)
+                    digest.update(chunk)
         # Defense-in-depth over TLS: verify the asset's SHA-256 before extracting,
         # so a truncated, corrupted, or tampered download is rejected — never trusted.
         actual = digest.hexdigest()
@@ -109,8 +110,6 @@ def _download_models() -> None:
             )
         with tarfile.open(tarball) as tf:
             tf.extractall(_CACHE)  # noqa: S202 — SHA-256-verified, our own release asset
-    finally:
-        os.unlink(tarball)
     if not _find(_CACHE, GEMMA_TEXT):
         raise RuntimeError(
             f"models asset did not contain {GEMMA_TEXT}; "

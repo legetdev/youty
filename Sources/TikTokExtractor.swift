@@ -147,6 +147,7 @@ enum TikTokExtractor {
     /// Pulls a 19-digit (-ish) numeric video id out of TikTok URLs in any of
     /// the canonical web shapes.
     static func extractVideoID(from url: URL) -> String? {
+        guard PlatformRouter.platform(for: url.absoluteString) == .tiktok else { return nil }
         // /@user/video/12345  or /v/12345.html (mobile)
         if let m = url.path.range(of: #"/video/(\d{6,25})"#, options: .regularExpression) {
             let s = url.path[m]

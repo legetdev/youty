@@ -96,6 +96,8 @@ def splice(path, fragment):
     candidate = item(fragment)
     version = candidate.findtext(SPARKLE + 'shortVersionString')
     root = ET.fromstring(text)
+    candidate_build = candidate.findtext(SPARKLE + 'version', '')
+    require(candidate_build.isdecimal(), 'Invalid appcast build number')
     existing = [entry for entry in root.findall('channel/item')
                 if entry.findtext(SPARKLE + 'shortVersionString') == version]
     if existing:
@@ -104,6 +106,11 @@ def splice(path, fragment):
                 'Existing appcast entry conflicts with prepared release')
         require(root.find('channel/item') is existing[0], 'A newer appcast release exists; refuse rollback')
         return
+    for entry in root.findall('channel/item'):
+        existing_build = entry.findtext(SPARKLE + 'version', '')
+        require(existing_build.isdecimal(), 'Invalid existing appcast build number')
+        require(int(candidate_build) > int(existing_build),
+                'Appcast build must increase; refuse rollback or reused build')
     marker = '</language>'
     require(marker in text, 'Missing appcast insertion point')
     updated = text.replace(marker, marker + '\n' + fragment.rstrip() + '\n', 1)

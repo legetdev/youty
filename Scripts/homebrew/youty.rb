@@ -4,8 +4,7 @@
 # Homebrew formula for the youty CLI.
 #
 # Canonical copy lives in the tap repo at legetdev/homebrew-youty/Formula/youty.rb.
-# On each release, bump `url` to the new tag's source tarball and set `sha256`
-# to `curl -sL <url> | shasum -a 256`.
+# Scripts/release.sh synchronizes the source checksum and verified bottle.
 
 # Build + install the youty CLI from the tagged GitHub source release.
 class Youty < Formula
@@ -29,7 +28,7 @@ class Youty < Formula
   # On-device Core ML model weights (EmbeddingGemma + SigLIP). These live
   # outside git — too large for the repo — and ship as a release asset, so the
   # source tarball above doesn't contain them. Fetched here and laid into
-  # Vendor/ before the build. Bump url + sha256 in lockstep with `version`.
+  # Vendor/ before the build. This separate pin changes only with model weights.
   resource "models" do
     url "https://github.com/legetdev/youty/releases/download/v1.1.0/youty-models-1.1.0.tar.gz"
     sha256 "56e9da609720b5a598bb74d678bc33a41ba563b6742c6dee120e8e5236ab6a96"

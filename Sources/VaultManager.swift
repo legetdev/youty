@@ -48,7 +48,7 @@ final class VaultManager: NSObject, ObservableObject {
 
     // Creates the video bundle folder and writes video.md instantly.
     // Returns the folder URL so frames can be written there later.
-    // Removes any existing bundle for the same video_id first (safe — writes new before deleting old).
+    // Existing same-video bundles remain available until frame writing succeeds.
     @discardableResult
     func saveNote(result: FetchResult, metadata: VideoMetadata) throws -> URL {
         guard let vault = vaultURL else { throw VaultError.noVault }
@@ -63,19 +63,13 @@ final class VaultManager: NSObject, ObservableObject {
         // to browse, and avoids cross-platform name collisions.
         let platformFolder = vault.appendingPathComponent("youtube")
         try fm.createDirectory(at: platformFolder, withIntermediateDirectories: true)
-        let folderURL  = platformFolder.appendingPathComponent(folderName)
+        let folderURL = try Self.destinationBundle(in: vault, platform: "youtube",
+                                                   name: folderName, videoID: metadata.videoID)
 
         // Write video.md inside the new folder
         try fm.createDirectory(at: folderURL, withIntermediateDirectories: true)
         try composeNote(metadata: metadata, segments: result.segments)
             .write(to: folderURL.appendingPathComponent("video.md"), atomically: true, encoding: .utf8)
-
-        // Remove any old bundle for the same video_id (different folder name = re-saved with new title)
-        let relativeFolder = "youtube/\(folderName)"
-        if let existing = findExistingEntry(videoID: metadata.videoID, in: vault),
-           existing.folder != relativeFolder && existing.folder != folderName {
-            try? fm.removeItem(at: vault.appendingPathComponent(existing.folder))
-        }
 
         updateManifest(in: vault)
         return folderURL
@@ -86,6 +80,16 @@ final class VaultManager: NSObject, ObservableObject {
         guard let vault = vaultURL else { throw VaultError.noVault }
         let acquired = vault.startAccessingSecurityScopedResource()
         defer { if acquired { vault.stopAccessingSecurityScopedResource() } }
+        let rootPath = vault.standardizedFileURL.path + "/"
+        let targetPath = folderURL.standardizedFileURL.path
+        guard targetPath.hasPrefix(rootPath),
+              Self.bundleURL(relativePath: String(targetPath.dropFirst(rootPath.count)), in: vault) != nil else {
+            throw VaultError.accessDenied
+        }
+        guard !frames.isEmpty,
+              frames.allSatisfy({ $0.timestamp.isFinite && $0.timestamp >= 0 && $0.timestamp < Double(Int32.max) / 1000 }) else {
+            throw VaultError.frameWriteFailed("No valid frames were available")
+        }
 
         // Filenames are the timestamp in milliseconds, zero-padded to 8 digits
         // (covers ≤ 27 hours). AI consumers resolve [M:SS] timestamps by
@@ -116,23 +120,34 @@ final class VaultManager: NSObject, ObservableObject {
         }
         group.wait()
         // All-or-nothing (hard requirement: no partial / silently-padded bundle).
-        // A failed encode aborts before any write; a failed write removes what was
-        // already written and throws, so the caller surfaces it rather than
-        // shipping a bundle with fewer frames than were extracted.
+        // A failed encode aborts before any write; staging keeps write failures
+        // from replacing the previous complete capture.
         guard encodeFailures == 0 else {
             throw VaultError.frameWriteFailed("\(encodeFailures) of \(frames.count) frame(s) failed to JPEG-encode")
         }
-        var written: [URL] = []
+        let fm = FileManager.default
+        let staging = folderURL.deletingLastPathComponent()
+            .appendingPathComponent(".youty-frames-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: staging) }
+        // Replace the complete directory only after every frame is on disk;
+        // failed re-saves retain prior frames and cannot leave mixed captures.
+        try fm.copyItem(at: folderURL, to: staging)
+        for item in try fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil) {
+            if item.pathExtension.lowercased() == "jpg",
+               Int(item.deletingPathExtension().lastPathComponent) != nil {
+                try fm.removeItem(at: item)
+            }
+        }
         for (name, data) in encoded {
-            let url = folderURL.appendingPathComponent(name)
+            let url = staging.appendingPathComponent(name)
             do {
                 try data.write(to: url)
-                written.append(url)
             } catch {
-                for w in written { try? FileManager.default.removeItem(at: w) }
                 throw VaultError.frameWriteFailed("couldn't write \(name): \(error.localizedDescription)")
             }
         }
+        try Self.commitBundle(staged: staging, to: folderURL)
+        removeSupersededYouTubeBundles(for: folderURL, in: vault)
     }
 
     // MARK: - Manifest
@@ -159,8 +174,8 @@ final class VaultManager: NSObject, ObservableObject {
     /// a new IG / TikTok bundle so the corpus index picks it up immediately.
     func regenerateManifest() {
         guard let vault = vaultURL else { return }
-        guard vault.startAccessingSecurityScopedResource() else { return }
-        defer { vault.stopAccessingSecurityScopedResource() }
+        let acquired = vault.startAccessingSecurityScopedResource()
+        defer { if acquired { vault.stopAccessingSecurityScopedResource() } }
         updateManifest(in: vault)
     }
 
@@ -193,8 +208,11 @@ final class VaultManager: NSObject, ObservableObject {
         var entries: [ManifestEntry] = []
         let platformDirs: Set<String> = ["youtube", "tiktok", "instagram"]
         for item in contents {
+            guard !item.lastPathComponent.hasPrefix(".youty-save-"),
+                  !item.lastPathComponent.hasPrefix(".youty-frames-") else { continue }
             guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-            if let entry = readBundleStatic(at: item, relativePath: item.lastPathComponent) {
+            if bundleURL(relativePath: item.lastPathComponent, in: vault) != nil,
+               let entry = readBundleStatic(at: item, relativePath: item.lastPathComponent) {
                 entries.append(entry)
                 continue
             }
@@ -203,9 +221,12 @@ final class VaultManager: NSObject, ObservableObject {
                     at: item, includingPropertiesForKeys: [.isDirectoryKey]
                 ) else { continue }
                 for bundle in inner {
+                    guard !bundle.lastPathComponent.hasPrefix(".youty-save-"),
+                          !bundle.lastPathComponent.hasPrefix(".youty-frames-") else { continue }
                     guard (try? bundle.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
                     let rel = "\(item.lastPathComponent)/\(bundle.lastPathComponent)"
-                    if let entry = readBundleStatic(at: bundle, relativePath: rel) {
+                    if bundleURL(relativePath: rel, in: vault) != nil,
+                       let entry = readBundleStatic(at: bundle, relativePath: rel) {
                         entries.append(entry)
                     }
                 }
@@ -221,8 +242,83 @@ final class VaultManager: NSObject, ObservableObject {
 
     nonisolated private static func readBundleStatic(at folderURL: URL, relativePath: String) -> ManifestEntry? {
         let noteURL = folderURL.appendingPathComponent("video.md")
+        guard (try? noteURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true else { return nil }
         guard let text = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
         return manifestEntryStatic(from: text, folderName: relativePath)
+    }
+
+    /// Resolves a bundle path only when it stays below the vault, including
+    /// symlink resolution. Accepts legacy flat and current platform layouts.
+    nonisolated static func bundleURL(relativePath: String, in vault: URL) -> URL? {
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        guard (1...2).contains(components.count),
+              !components.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
+              !relativePath.contains("\0"),
+              components.count == 1 || ["youtube", "tiktok", "instagram"].contains(String(components[0])) else { return nil }
+        // Resolving a nonexistent leaf can leave its symlinked ancestors
+        // unresolved. Reject links component-by-component before new writes.
+        var ancestor = vault
+        for component in components {
+            ancestor.appendPathComponent(String(component))
+            if (try? FileManager.default.destinationOfSymbolicLink(atPath: ancestor.path)) != nil {
+                return nil
+            }
+        }
+        let root = vault.resolvingSymlinksInPath().standardizedFileURL
+        let candidate = vault.appendingPathComponent(relativePath)
+        let resolved = candidate.resolvingSymlinksInPath().standardizedFileURL
+        guard resolved.path.hasPrefix(root.path + "/"),
+              resolved != root else { return nil }
+        // A one-component platform directory is never itself a video bundle.
+        guard components.count != 1 || !["youtube", "tiktok", "instagram"].contains(relativePath) else { return nil }
+        return candidate
+    }
+
+    /// Commits a completed sibling directory without exposing partial contents.
+    nonisolated static func commitBundle(staged: URL, to destination: URL) throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path) {
+            _ = try fm.replaceItemAt(destination, withItemAt: staged, options: .usingNewMetadataOnly)
+        } else {
+            try fm.moveItem(at: staged, to: destination)
+        }
+    }
+
+    /// Keeps readable titles while disambiguating different videos with the same name.
+    nonisolated static func destinationBundle(in vault: URL, platform: String, name: String, videoID: String) throws -> URL {
+        guard !videoID.isEmpty, videoID.count <= 64,
+              videoID.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else {
+            throw VaultError.accessDenied
+        }
+        let safeName = name.isEmpty || name.allSatisfy({ $0 == "." }) ? videoID : name
+        for candidateName in [safeName, "\(safeName) - \(videoID)"] {
+            let relative = "\(platform)/\(candidateName)"
+            guard let candidate = bundleURL(relativePath: relative, in: vault) else { throw VaultError.accessDenied }
+            if !FileManager.default.fileExists(atPath: candidate.path)
+                || readBundleStatic(at: candidate, relativePath: relative)?.videoID == videoID {
+                return candidate
+            }
+        }
+        throw VaultError.accessDenied
+    }
+
+    /// Retires prior titles only after the replacement's frames are committed.
+    private func removeSupersededYouTubeBundles(for folder: URL, in vault: URL) {
+        guard folder.deletingLastPathComponent().lastPathComponent == "youtube",
+              let current = Self.readBundleStatic(at: folder, relativePath: "youtube/\(folder.lastPathComponent)"),
+              current.platform == "youtube",
+              let currentFileID = (try? folder.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier as? NSObject,
+              let data = try? Data(contentsOf: vault.appendingPathComponent("manifest.json")),
+              let entries = try? JSONDecoder().decode([ManifestEntry].self, from: data) else { return }
+        for entry in entries where entry.videoID == current.videoID && entry.platform == "youtube" {
+            guard let oldFolder = Self.bundleURL(relativePath: entry.folder, in: vault),
+                  oldFolder.standardizedFileURL != folder.standardizedFileURL,
+                  let oldFileID = (try? oldFolder.resourceValues(forKeys: [.fileResourceIdentifierKey]))?.fileResourceIdentifier as? NSObject,
+                  !oldFileID.isEqual(currentFileID),
+                  Self.readBundleStatic(at: oldFolder, relativePath: entry.folder)?.videoID == current.videoID else { continue }
+            try? FileManager.default.removeItem(at: oldFolder)
+        }
+        updateManifest(in: vault)
     }
 
     nonisolated private static func manifestEntryStatic(from text: String, folderName: String) -> ManifestEntry? {
@@ -243,7 +339,7 @@ final class VaultManager: NSObject, ObservableObject {
         // tampered source (Dropbox, iCloud, a different machine), the
         // manifest could legitimately contain `..` or absolute paths that
         // would escape the vault on subsequent writes. Reject those rows.
-        let rejectsPathEscape = folderName.contains("..")
+        let rejectsPathEscape = folderName.split(separator: "/").contains("..")
             || folderName.hasPrefix("/")
             || folderName.contains("\0")
         guard !rejectsPathEscape else { return nil }
@@ -279,139 +375,8 @@ final class VaultManager: NSObject, ObservableObject {
     // ({vault}/{youtube,tiktok,instagram}/{bundle}) is discovered uniformly
     // alongside any legacy flat bundles still living at the vault root.
     private func updateManifest(in vault: URL) {
-        let fm = FileManager.default
-        guard let contents = try? fm.contentsOfDirectory(at: vault,
-                                                          includingPropertiesForKeys: [.isDirectoryKey]) else { return }
-        var entries: [ManifestEntry] = []
-        let platformDirs = Set(["youtube", "tiktok", "instagram"])
-
-        for item in contents {
-            guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-
-            // Direct-bundle case: video.md lives one level under {vault}.
-            if let entry = readBundle(at: item, relativePath: item.lastPathComponent) {
-                entries.append(entry)
-                continue
-            }
-
-            // Platform subfolder: video.md lives one more level deep.
-            if platformDirs.contains(item.lastPathComponent) {
-                guard let inner = try? fm.contentsOfDirectory(at: item,
-                                                               includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
-                for bundle in inner {
-                    guard (try? bundle.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-                    let rel = "\(item.lastPathComponent)/\(bundle.lastPathComponent)"
-                    if let entry = readBundle(at: bundle, relativePath: rel) {
-                        entries.append(entry)
-                    }
-                }
-            }
-        }
-        entries.sort { $0.dateSaved > $1.dateSaved }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(entries) {
-            try? data.write(to: vault.appendingPathComponent("manifest.json"), options: .atomic)
-        }
+        Self.writeManifest(in: vault)
     }
-
-    private func readBundle(at folderURL: URL, relativePath: String) -> ManifestEntry? {
-        let noteURL = folderURL.appendingPathComponent("video.md")
-        guard let text = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
-        return manifestEntry(from: text, folderName: relativePath)
-    }
-
-    // Finds an existing manifest entry by video_id. Checks manifest.json first, then scans.
-    private func findExistingEntry(videoID: String, in vault: URL) -> ManifestEntry? {
-        let manifestURL = vault.appendingPathComponent("manifest.json")
-        if let data = try? Data(contentsOf: manifestURL),
-           let entries = try? JSONDecoder().decode([ManifestEntry].self, from: data) {
-            return entries.first { $0.videoID == videoID }
-        }
-        let fm = FileManager.default
-        let platformDirs = Set(["youtube", "tiktok", "instagram"])
-        guard let contents = try? fm.contentsOfDirectory(at: vault,
-                                                          includingPropertiesForKeys: [.isDirectoryKey]) else { return nil }
-        for item in contents {
-            guard (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-            // Direct legacy bundle at the vault root.
-            if let entry = readBundle(at: item, relativePath: item.lastPathComponent),
-               entry.videoID == videoID {
-                return entry
-            }
-            // Per-platform subfolder — recurse one level.
-            if platformDirs.contains(item.lastPathComponent) {
-                guard let inner = try? fm.contentsOfDirectory(at: item,
-                                                               includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
-                for bundle in inner {
-                    guard (try? bundle.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { continue }
-                    let rel = "\(item.lastPathComponent)/\(bundle.lastPathComponent)"
-                    if let entry = readBundle(at: bundle, relativePath: rel),
-                       entry.videoID == videoID {
-                        return entry
-                    }
-                }
-            }
-        }
-        return nil
-    }
-
-    private func manifestEntry(from text: String, folderName: String) -> ManifestEntry? {
-        guard text.hasPrefix("---") else { return nil }
-        let lines = text.components(separatedBy: "\n")
-        guard let closeIdx = lines.dropFirst().firstIndex(of: "---") else { return nil }
-        let frontmatter = lines[1..<closeIdx]
-
-        var kv: [String: String] = [:]
-        for line in frontmatter {
-            let parts = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            guard parts.count == 2 else { continue }
-            kv[parts[0]] = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-        }
-
-        // Accept either YouTube's `video_id` or short-form's `post_id`. Both
-        // are universal-ish identifiers and the parser doesn't care which.
-        let id = kv["video_id"] ?? kv["post_id"] ?? ""
-        guard !id.isEmpty else { return nil }
-
-        // Platform: explicit when set (IG/TikTok), else default to youtube
-        // for the historical entries that predate this field.
-        let platform = kv["platform"] ?? "youtube"
-
-        // Tags / hashtags — accept either key. Hashtags from IG/TikTok serve
-        // the same "topical labels" role as YouTube tags.
-        let tagsRaw = kv["tags"] ?? kv["hashtags"] ?? "[]"
-        let tags = tagsRaw
-            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            .components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
-            .filter { !$0.isEmpty }
-
-        // "channel" is the canonical author label across all platforms.
-        // YouTube uses `channel`, IG/TikTok use `author` / `author_display_name`.
-        let channel = kv["channel"] ?? kv["author_display_name"] ?? kv["author"] ?? ""
-
-        // url fallback varies per platform.
-        let urlFallback: String
-        switch platform {
-        case "tiktok":   urlFallback = "https://www.tiktok.com/"
-        case "instagram":urlFallback = "https://www.instagram.com/p/\(id)/"
-        default:         urlFallback = "https://www.youtube.com/watch?v=\(id)"
-        }
-
-        return ManifestEntry(
-            folder:    folderName,
-            videoID:   id,
-            title:     kv["title"]      ?? "",
-            channel:   channel,
-            duration:  kv["duration"]   ?? "",
-            dateSaved: kv["date_saved"] ?? "",
-            tags:      tags,
-            url:       kv["url"]        ?? urlFallback,
-            platform:  platform
-        )
-    }
-
     // MARK: - Folder naming
 
     // Returns the bundle folder name: "Channel - Title" (no extension).

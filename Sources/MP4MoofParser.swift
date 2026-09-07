@@ -64,7 +64,8 @@ enum MP4MoofParser {
     /// - Returns: samples in trun decode order.
     static func parse(segmentData: Data, segmentStartInFile: Int64) throws -> [MP4Sample] {
         return try segmentData.withUnsafeBytes { rawBuf in
-            let base = rawBuf.baseAddress!.assumingMemoryBound(to: UInt8.self)
+            guard let address = rawBuf.baseAddress, rawBuf.count >= 8 else { throw MP4MoofError.noMoof }
+            let base = address.assumingMemoryBound(to: UInt8.self)
             let total = rawBuf.count
 
             // 1. Find the moof box at top level.
@@ -73,7 +74,8 @@ enum MP4MoofParser {
             }
             let moofStart = moofRange.start
             let moofEnd = moofRange.end                       // exclusive
-            let moofStartInFile = segmentStartInFile + Int64(moofStart)
+            let (moofStartInFile, offsetOverflow) = segmentStartInFile.addingReportingOverflow(Int64(moofStart))
+            guard segmentStartInFile >= 0, !offsetOverflow else { throw MP4MoofError.malformed("segment offset") }
 
             // 2. Find traf inside moof. Skip moof's full-box-style header bytes
             //    (moof itself is a plain box, not a fullbox — payload begins
@@ -159,7 +161,7 @@ enum MP4MoofParser {
     private static func parseTfhd(base: UnsafePointer<UInt8>,
                                    payloadStart: Int,
                                    payloadEnd: Int) throws -> TfhdInfo {
-        guard payloadStart + 4 <= payloadEnd else { throw MP4MoofError.malformed("tfhd header") }
+        guard payloadStart + 8 <= payloadEnd else { throw MP4MoofError.malformed("tfhd header") }
         let flags = UInt32(base[payloadStart + 1]) << 16
                   | UInt32(base[payloadStart + 2]) << 8
                   | UInt32(base[payloadStart + 3])
@@ -172,6 +174,7 @@ enum MP4MoofParser {
             baseDataOffset = readInt64BE(base, p); p += 8
         }
         if (flags & 0x000002) != 0 {
+            guard p + 4 <= payloadEnd else { throw MP4MoofError.malformed("tfhd sample_description_index") }
             p += 4   // sample_description_index (skip)
         }
         var defDur: UInt32 = 0
@@ -231,6 +234,7 @@ enum MP4MoofParser {
 
         guard p + 4 <= payloadEnd else { throw MP4MoofError.malformed("trun sample_count") }
         let sampleCount = Int(readUInt32BE(base, p)); p += 4
+        guard sampleCount <= 1_000_000 else { throw MP4MoofError.malformed("trun sample_count too large") }
 
         var dataOffset: Int32 = 0
         if (flags & 0x000001) != 0 {
@@ -252,15 +256,9 @@ enum MP4MoofParser {
         // CMAF / DASH: default_base_is_moof set, base_data_offset absent →
         // sample data starts at moof_start + data_offset.
         // Pre-spec fallback: if base_data_offset is present, use it.
-        let dataStart: Int64
-        if let bdo = tfhd.baseDataOffset {
-            dataStart = bdo + Int64(dataOffset)
-        } else if tfhd.defaultBaseIsMoof {
-            dataStart = moofStartInFile + Int64(dataOffset)
-        } else {
-            // Legacy fallback: relative to moof start anyway (CMAF assumes it).
-            dataStart = moofStartInFile + Int64(dataOffset)
-        }
+        let (dataStart, offsetOverflow) = (tfhd.baseDataOffset ?? moofStartInFile)
+            .addingReportingOverflow(Int64(dataOffset))
+        guard !offsetOverflow, dataStart >= 0 else { throw MP4MoofError.malformed("trun data_offset") }
 
         var samples: [MP4Sample] = []
         samples.reserveCapacity(sampleCount)
@@ -287,13 +285,13 @@ enum MP4MoofParser {
             } else {
                 sFlags = tfhd.defaultSampleFlags
             }
-            var cts: Int32 = 0
+            var cts: Int64 = 0
             if perSampleCts {
                 guard p + 4 <= payloadEnd else { throw MP4MoofError.malformed("trun per-sample cts") }
                 if version == 0 {
-                    cts = Int32(bitPattern: readUInt32BE(base, p))  // legacy: stored unsigned, treat as positive
+                    cts = Int64(readUInt32BE(base, p))
                 } else {
-                    cts = Int32(bitPattern: readUInt32BE(base, p))  // signed
+                    cts = Int64(Int32(bitPattern: readUInt32BE(base, p)))
                 }
                 p += 4
             }
@@ -303,16 +301,20 @@ enum MP4MoofParser {
             let isNonSync  = (sFlags >> 16) & 0x1
             let isSync = (dependsOn == 2) || (isNonSync == 0 && dependsOn != 1)
 
+            let (pts, ptsOverflow) = dts.addingReportingOverflow(cts)
+            let (nextCursor, cursorOverflow) = cursorBytes.addingReportingOverflow(Int64(size))
+            let (nextDts, dtsOverflow) = dts.addingReportingOverflow(Int64(dur))
+            guard !ptsOverflow, !cursorOverflow, !dtsOverflow else { throw MP4MoofError.malformed("sample offset overflow") }
             samples.append(MP4Sample(
                 offset: cursorBytes,
                 size: Int(size),
                 dts: dts,
-                pts: dts + Int64(cts),
+                pts: pts,
                 duration: Int64(dur),
                 isSync: isSync
             ))
-            cursorBytes += Int64(size)
-            dts += Int64(dur)
+            cursorBytes = nextCursor
+            dts = nextDts
         }
 
         return (samples, dts)
@@ -357,7 +359,7 @@ enum MP4MoofParser {
             totalSize = Int(rawSize)
             headerLen = 8
         }
-        guard totalSize >= headerLen, offset + totalSize <= end else {
+        guard totalSize >= headerLen, totalSize <= end - offset else {
             throw MP4MoofError.malformed("box \(type) size \(totalSize) at \(offset) exceeds container end \(end)")
         }
         return BoxHeader(start: offset,

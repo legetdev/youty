@@ -45,6 +45,25 @@ def test_list_videos_returns_seeded(seeded_db):
         assert "title" in v and "platform" in v and "tags" in v
 
 
+def test_search_date_filter_keeps_recent_lower_ranked_hit(seeded_db):
+    """The date restriction must apply before the user-facing result cap."""
+    from youty_mcp import server
+
+    conn = server._STATE.conn()
+    # Both videos match HeyGen, but the newer one has deliberately weaker text.
+    conn.execute("UPDATE videos SET date_saved=2000000000000 WHERE video_id='ig:DEF456'")
+    conn.execute("UPDATE chunks SET chunk_text=? WHERE video_id='ig:DEF456' AND chunk_type='header'",
+                 ("HeyGen " + "filler " * 1000,))
+    conn.commit()
+    from youty_mcp import db
+    db.sync_index(conn, force=True)
+    unfiltered = server._do_search("HeyGen", k=1)
+    assert unfiltered["results"][0]["video_id"] == "yt:abc123"
+    recent = server._do_search("HeyGen", k=1, since_iso="2030-01-01")
+    assert len(recent["results"]) == 1
+    assert recent["results"][0]["video_id"] == "ig:DEF456"
+
+
 def test_list_videos_platform_filter(seeded_db):
     from youty_mcp import server
 
@@ -121,6 +140,18 @@ def test_find_similar_seeded(seeded_db):
     # but the shape must be right.
     assert "results" in out
     assert out["anchor_video_id"] == "yt:abc123"
+    assert {row["video_id"] for row in out["results"]} == {"ig:DEF456", "tt:789xyz"}
+    import numpy as np
+    conn = server._STATE.conn()
+    source = [np.frombuffer(row[0], dtype=np.float32) for row in conn.execute(
+        "SELECT embedding FROM chunks WHERE video_id='yt:abc123' AND chunk_type='body'")]
+    centroid = np.mean(source, axis=0)
+    centroid /= np.linalg.norm(centroid)
+    for result in out["results"]:
+        blob = conn.execute("SELECT embedding FROM chunks WHERE video_id=? AND chunk_type='header'",
+                            (result["video_id"],)).fetchone()[0]
+        expected = float(np.dot(centroid, np.frombuffer(blob, dtype=np.float32)))
+        assert abs(result["score"] - expected) < 1e-6
 
 
 def test_get_video_not_found(seeded_db):

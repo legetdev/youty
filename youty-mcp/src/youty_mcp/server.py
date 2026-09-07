@@ -39,6 +39,8 @@ from .retrieval import (
     hydrate_results,
     resolve_vault_root,
     sparse_top_k,
+    _list_frame_jpgs,
+    vault_path,
 )
 
 
@@ -146,7 +148,9 @@ class _State:
 
     def close(self) -> None:
         if self._conn is not None:
+            _db._VAULT_CACHE.pop(id(self._conn), None)
             self._conn.close()
+            self._conn = None
 
 
 _STATE = _State()
@@ -314,7 +318,7 @@ def get_video(video_id: str) -> dict[str, Any]:
     frames: list[str] = []
     if folder is not None and folder.exists():
         for f in sorted(folder.iterdir()):
-            if not f.is_file():
+            if f.is_symlink() or not f.is_file():
                 continue
             files.append(f.name)
             if f.suffix.lower() == ".jpg" and f.stem.isdigit():
@@ -409,10 +413,7 @@ def _do_view_frames(
         return [f"no bundle folder found on disk for {video_id!r}"]
 
     # Frame filename stem is the timestamp in ms (8-digit zero-pad), e.g. 00438000.jpg.
-    available: list[tuple[int, Path]] = []
-    for f in sorted(folder.iterdir()):
-        if f.is_file() and f.suffix.lower() == ".jpg" and f.stem.isdigit():
-            available.append((int(f.stem), f))
+    available = _list_frame_jpgs(folder)
     if not available:
         return [
             f"no frames on disk for {video_id!r} — re-save the video from the Mac app "
@@ -548,13 +549,14 @@ def find_similar(video_id: str, k: int = 10) -> dict[str, Any]:
     avg = _average_vectors([r["embedding"] for r in rows], rows[0]["embedding_dim"])
     blob = struct.pack(f"<{len(avg)}f", *avg)
     # Search header chunks of OTHER videos, in the same embedding space.
+    k = max(1, min(int(k), 50))
     sql = (
         "SELECT vc.chunk_id, vc.distance, c.video_id "
         "FROM vec_chunks vc JOIN chunks c ON c.chunk_id = vc.chunk_id "
         "WHERE vc.embedding MATCH ? AND vc.k = ? AND vc.chunk_type = 'header' "
-        "AND c.video_id != ?"
-        + (" AND c.model_version = ?" if model else "")
-        + " ORDER BY vc.distance"
+        "AND vc.chunk_id IN (SELECT chunk_id FROM chunks WHERE video_id != ?"
+        + (" AND model_version = ?" if model else "")
+        + ") ORDER BY vc.distance"
     )
     knn_params: list[object] = [blob, max(k * 3, 20), video_id] + ([model] if model else [])
     try:
@@ -587,7 +589,7 @@ def find_similar(video_id: str, k: int = 10) -> dict[str, Any]:
                 "platform": info["platform"],
                 "url": info["url"],
                 "tags": _safe_load_list(info["tags_json"]),
-                "score": round(1.0 - float(r["distance"]), 6),
+                "score": round(1.0 - float(r["distance"]) ** 2 / 2, 6),
             }
         )
         if len(out) >= k:
@@ -666,6 +668,7 @@ def _do_search_frames(
     # Dense top-k against vec_frames, generously oversampled so per-video
     # dedupe still leaves at least k results.
     t_retrieve = time.perf_counter()
+    k = max(1, min(int(k), 50))
     pool = max(k * 5, 30)
     raw = dense_top_k_frames(conn, query_vec, k=pool, platform=platform)
     if not raw:
@@ -710,8 +713,9 @@ def _do_search_frames(
         if per_video.get(vid, 0) >= 3:
             continue
         per_video[vid] = per_video.get(vid, 0) + 1
-        folder_abs = (vault / r["folder_path"]) if vault else None
-        frame_abs = (vault / r["frame_path"]) if vault else None
+        folder_abs = vault_path(vault, r["folder_path"])
+        frame_abs = vault_path(vault, r["frame_path"])
+        md_path = vault_path(vault, str(folder_abs / "video.md")) if folder_abs else None
         tags = _safe_load_list(r["tags_json"])
         results.append(
             {
@@ -724,12 +728,12 @@ def _do_search_frames(
                 "tags": tags,
                 "score": round(1.0 - float(dist), 6),
                 "frame": {
-                    "path": str(frame_abs) if frame_abs else r["frame_path"],
+                    "path": str(frame_abs) if frame_abs else None,
                     "frame_ms": int(r["frame_ms"]),
                     "timestamp_label": _ms_to_label(int(r["frame_ms"])),
                 },
                 "video_md_path": (
-                    str(folder_abs / "video.md") if folder_abs else None
+                    str(md_path) if md_path else None
                 ),
             }
         )
@@ -771,14 +775,16 @@ def _resolve_video_md(
        direct — self-healing for stale folder_paths.
     Returns None if no match anywhere.
     """
-    direct = vault / folder_path / "video.md"
-    if direct.exists():
+    direct = vault_path(vault, str(Path(folder_path) / "video.md"))
+    if direct is not None and direct.is_file():
         return direct
     raw_id = video_id.split(":", 1)[1] if ":" in video_id else video_id
     platforms = [platform] if platform else ["youtube", "instagram", "tiktok"]
     for plat in platforms:
+        if plat not in {"youtube", "instagram", "tiktok"}:
+            continue
         platform_dir = vault / plat
-        if not platform_dir.is_dir():
+        if not platform_dir.is_dir() or vault_path(vault, str(platform_dir)) is None:
             continue
         try:
             candidates = list(platform_dir.iterdir())
@@ -788,7 +794,7 @@ def _resolve_video_md(
             if not entry.is_dir():
                 continue
             md = entry / "video.md"
-            if not md.is_file():
+            if not md.is_file() or vault_path(vault, str(md)) is None:
                 continue
             try:
                 head = md.read_text(encoding="utf-8", errors="ignore")[:2000]
@@ -815,13 +821,12 @@ def _resolve_video_md(
 
 def _frontmatter_id_matches(raw: str, raw_id: str) -> bool:
     """True if raw video.md head contains `video_id: {raw_id}` or `post_id: {raw_id}` in the frontmatter block."""
-    if not raw.startswith("---"):
-        return False
-    end = raw.find("\n---", 3)
-    block = raw[: end if end != -1 else len(raw)]
-    needle_video = f"video_id: {raw_id}"
-    needle_post = f"post_id: {raw_id}"
-    return needle_video in block or needle_post in block
+    frontmatter, _ = _split_video_md(raw)
+    return any(
+        isinstance(value := frontmatter.get(key), str)
+        and value.split(":", 1)[-1] == raw_id
+        for key in ("video_id", "post_id")
+    )
 
 
 # ─────────────────── core search impl ───────────────────
@@ -873,24 +878,8 @@ def _do_search(
         # Confine the dense side to the index's current text-embedding space so
         # a mixed-model index (mid-migration) never returns garbage cosines.
         model_version=_STATE.current_text_model() or None,
+        since_ms=_parse_since(since_iso),
     )
-
-    # Optional since_iso post-filter (lightweight: parse + compare unix ms).
-    since_cutoff_ms: int | None = _parse_since(since_iso)
-    if since_cutoff_ms is not None and fused:
-        placeholders = ",".join("?" * len(fused))
-        ds_rows = conn.execute(
-            f"""SELECT c.chunk_id, v.date_saved FROM chunks c
-                JOIN videos v ON v.video_id = c.video_id
-                WHERE c.chunk_id IN ({placeholders})""",
-            [h.chunk_id for h in fused],
-        ).fetchall()
-        keep = {
-            int(r["chunk_id"])
-            for r in ds_rows
-            if r["date_saved"] is not None and int(r["date_saved"]) >= since_cutoff_ms
-        }
-        fused = [h for h in fused if h.chunk_id in keep]
 
     vault = resolve_vault_root(conn)
     results = hydrate_results(fused, conn, vault)
@@ -1060,7 +1049,11 @@ def main() -> None:
     # Never blocks stdio startup or shutdown; a query arriving mid-warm safely
     # waits on the shared load lock.
     try:
-        if _STATE.current_text_model().startswith("embeddinggemma"):
+        has_text = _STATE.conn().execute(
+            "SELECT 1 FROM chunks WHERE model_version = ? LIMIT 1",
+            (_STATE.current_text_model(),),
+        ).fetchone() is not None
+        if has_text and _STATE.current_text_model().startswith("embeddinggemma"):
             threading.Thread(target=_STATE.warm_text_embedder,
                              name="eg-warm", daemon=True).start()
     except Exception as exc:  # noqa: BLE001

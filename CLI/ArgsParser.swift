@@ -58,7 +58,7 @@ enum ArgsParser {
     ///   • `-h`, `--help`, `-v`, `--version` short-circuits
     ///   • `--` ends flag parsing (everything after is positional)
     static func parse(_ argv: [String]) -> ParsedArgs {
-        var args = Array(argv.dropFirst())
+        let args = Array(argv.dropFirst())
 
         var wantsHelp = false
         var wantsVersion = false
@@ -67,22 +67,23 @@ enum ArgsParser {
         var positionals: [String] = []
         var subcommand: String?
 
-        // Pre-pass: pull out --help / --version so they short-circuit
-        // even if mixed with subcommand syntax.
-        args.removeAll { token in
-            switch token {
-            case "-h", "--help":    wantsHelp = true;    return true
-            case "-v", "--version": wantsVersion = true; return true
-            default:                                     return false
-            }
-        }
-
         var afterDoubleDash = false
         var i = 0
         while i < args.count {
             let token = args[i]
             if afterDoubleDash {
-                positionals.append(token)
+                if subcommand == nil { subcommand = token }
+                else { positionals.append(token) }
+                i += 1
+                continue
+            }
+            if token == "-h" || token == "--help" {
+                wantsHelp = true
+                i += 1
+                continue
+            }
+            if token == "-v" || token == "--version" {
+                wantsVersion = true
                 i += 1
                 continue
             }
@@ -97,6 +98,14 @@ enum ArgsParser {
                     let key = String(body[..<eq])
                     let value = String(body[body.index(after: eq)...])
                     flags[key] = value
+                    i += 1
+                    continue
+                }
+                // Boolean options must not consume a following URL or query.
+                // `text` is value-bearing only for the embed command.
+                let booleanOptions: Set<String> = ["quiet", "json", "no-index", "text-only", "query"]
+                if booleanOptions.contains(body) || (body == "text" && subcommand != "embed") {
+                    bools.insert(body)
                     i += 1
                     continue
                 }

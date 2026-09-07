@@ -200,19 +200,12 @@ def _backfill_fts(conn: sqlite3.Connection) -> None:
     `chunks_fts` is declared with `content='chunks'`, so the proper idiom for
     rebuilding the index is the special `('rebuild')` command rather than
     direct INSERTs (which create position-list rows but no index data).
-    We rebuild whenever the indexed chunk count diverges from the live count —
-    tracked via the `fts_indexed_count` row in `index_meta`. Cheap detection,
-    full correctness, idempotent on every startup.
+    The caller has already detected index changes. Rebuild even when the row
+    count is unchanged: re-saving a video replaces its chunks with new IDs.
     """
     n_chunks = int(
         conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
     )
-    row = conn.execute(
-        "SELECT value FROM index_meta WHERE key = 'fts_indexed_count'"
-    ).fetchone()
-    last_indexed = int(row["value"]) if row and row["value"] else -1
-    if last_indexed == n_chunks:
-        return
     conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')")
     conn.execute(
         "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('fts_indexed_count', ?)",
@@ -288,18 +281,22 @@ def resolve_vault_root(conn: sqlite3.Connection) -> Path | None:
     The scan is bounded (max depth 3, skips hidden dirs) and cached per-connection
     so retrieval doesn't pay an iCloud walk on every call.
     """
-    cached = _VAULT_CACHE.get(id(conn), -1)
-    if cached != -1:
-        return cached  # type: ignore[return-value]
-
     row = conn.execute(
         "SELECT value FROM index_meta WHERE key = 'vault_root'"
     ).fetchone()
     if row and row["value"]:
         p = Path(row["value"]).expanduser()
-        if p.exists():
+        if p.is_dir():
             _VAULT_CACHE[id(conn)] = p
             return p
+
+    # A saved root may change while this server remains connected. Consult the
+    # authoritative row first; cache only the expensive fallback scan.
+    cached = _VAULT_CACHE.get(id(conn), -1)
+    if cached != -1 and cached is not None and cached.is_dir():
+        return cached
+    if cached is None:
+        return None
 
     for parent in _FALLBACK_VAULT_PARENTS:
         if not parent.exists():

@@ -32,10 +32,11 @@ CREATE TABLE IF NOT EXISTS videos (
 CREATE INDEX IF NOT EXISTS idx_videos_platform   ON videos(platform);
 CREATE INDEX IF NOT EXISTS idx_videos_date_saved ON videos(date_saved);
 
--- One row per chunk. Three types:
+-- One row per chunk. Four types:
 --   header      — structured metadata literal, no transcript content. Always 1 per video.
 --   description — title + channel + caption/description, only when caption > 50 tokens.
 --   body        — transcript window (~400 tokens, 60-token overlap, segment-aligned).
+--   frame_text  — on-screen text recognized in saved frames.
 --
 -- embedding is the raw fp32 vector as bytes (little-endian float32, length =
 -- embedding_dim * 4). The Python server reads this column and copies into the

@@ -75,7 +75,7 @@ enum VaultLocalSearch {
             if a.1 != b.1 { return a.1 > b.1 }
             return a.0.dateSaved > b.0.dateSaved
         }
-        return Array(sorted.prefix(limit).map { $0.0 })
+        return Array(sorted.prefix(max(0, limit)).map { $0.0 })
     }
 
     // MARK: - Transcript lookup
@@ -99,7 +99,8 @@ enum VaultLocalSearch {
         defer {
             if acquired { vaultRootURL()?.stopAccessingSecurityScopedResource() }
         }
-        guard let text = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
+        guard (try? noteURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true,
+              let text = try? String(contentsOf: noteURL, encoding: .utf8) else { return nil }
         let body = stripFrontmatter(text)
         return Transcript(title: entry.title, text: body)
     }
@@ -111,7 +112,7 @@ enum VaultLocalSearch {
     static func recents(limit: Int) -> [Match] {
         let entries = loadManifestEntries()
             .sorted { $0.dateSaved > $1.dateSaved }
-            .prefix(limit)
+            .prefix(max(0, limit))
         return entries.compactMap { entry in
             guard let folder = bundleFolderURL(for: entry) else { return nil }
             return Match(
@@ -157,7 +158,7 @@ enum VaultLocalSearch {
 
     private static func bundleFolderURL(for entry: VaultManager.ManifestEntry) -> URL? {
         guard let vault = vaultRootURL() else { return nil }
-        return vault.appendingPathComponent(entry.folder)
+        return VaultManager.bundleURL(relativePath: entry.folder, in: vault)
     }
 
     // MARK: - Helpers

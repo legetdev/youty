@@ -7,9 +7,9 @@
 # Apple's notary service, staples the ticket, and validates the result
 # against Gatekeeper as if the DMG had just been downloaded.
 #
-# This is the script Phase R.5 standardises on. It is safe to run
-# repeatedly — each pass produces an identical signed + notarized
-# youty.app under build/release/Build/Products/Release/.
+# Produces youty.app under build/release/Build/Products/Release/.
+# Signing timestamps and notarization change artifact bytes on each run.
+# Use release.sh --resume after publication to preserve released artifacts.
 #
 # Required environment:
 #   DEVELOPER_ID_APPLICATION_CERT — e.g. "Developer ID Application: Bent Eisheuer (TEAMID)"
@@ -83,8 +83,8 @@ python3 "$ROOT/Scripts/verify-updater.py"
 "$ROOT/Scripts/fetch-models.sh"
 
 echo "==> Building Release youty.app (arm64)..."
-# arm64-only: macOS Tahoe is Apple-Silicon-only, and the SigLIP frame embedder
-# uses Float16 (which has no x86_64 initializer). A plain Release build would
+# arm64-only: Youty's SigLIP frame embedder uses Float16 (which has no
+# x86_64 initializer). A plain Release build would
 # default to a universal slice and fail to compile the Intel half.
 xcodebuild \
     -project "$ROOT/youty.xcodeproj" \

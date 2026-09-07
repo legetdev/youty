@@ -51,6 +51,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     private var continuation: CheckedContinuation<FetchResult, Error>?
     private var jsInjected = false
     private var currentURL: URL?
+    private var currentNavigation: WKNavigation?
     private var retriedNoResponse = false
     private var fetchGen = 0
 
@@ -112,7 +113,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         fetchGen += 1
         let gen = fetchGen
         jsInjected = false
-        webView.load(URLRequest(url: url))
+        currentNavigation = webView.load(URLRequest(url: url))
         DispatchQueue.main.asyncAfter(deadline: .now() + 35) { [weak self] in
             guard let self, self.fetchGen == gen, self.continuation != nil else { return }
             self.finish(throwing: FetchError.parseError)
@@ -122,7 +123,10 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard continuation != nil, !jsInjected else { return }
+        // A late completion from attachToWindow's home-page prewarm must not
+        // consume the one script injection reserved for this video's load.
+        guard Self.isActiveNavigation(navigation, active: currentNavigation),
+              continuation != nil, !jsInjected else { return }
         jsInjected = true
 
         let js = """
@@ -273,10 +277,18 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        guard Self.isActiveNavigation(navigation, active: currentNavigation) else { return }
         finish(throwing: FetchError.networkError)
     }
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        guard Self.isActiveNavigation(navigation, active: currentNavigation) else { return }
         finish(throwing: FetchError.networkError)
+    }
+
+    /// Filters late warm-up and previous-attempt callbacks from the active fetch.
+    nonisolated static func isActiveNavigation(_ navigation: WKNavigation?, active: WKNavigation?) -> Bool {
+        guard let active else { return false }
+        return navigation === active
     }
 
     // MARK: - WKScriptMessageHandler
@@ -376,21 +388,26 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 enum TranscriptFetcher {
 
     static func extractVideoID(from raw: String) -> String? {
-        var s = raw.trimmingCharacters(in: .whitespaces)
-        if !s.hasPrefix("http") { s = "https://" + s }
-        guard let url = URL(string: s) else { return nil }
-        let host = url.host ?? ""
-        if host.contains("youtu.be") {
-            let id = url.pathComponents.dropFirst().first
-            return id?.isEmpty == false ? String(id!) : nil
-        }
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !s.contains("://") { s = "https://" + s }
+        guard PlatformRouter.platform(for: s) == .youtube,
+              let url = URL(string: s) else { return nil }
+        let host = url.host?.lowercased() ?? ""
         let path = url.pathComponents
-        if let idx = path.firstIndex(where: { $0 == "shorts" || $0 == "embed" }),
-           idx + 1 < path.count { return path[idx + 1] }
-        if let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           let v = comps.queryItems?.first(where: { $0.name == "v" })?.value,
-           !v.isEmpty { return v }
-        return nil
+        let id: String?
+        if host == "youtu.be" {
+            id = path.dropFirst().first
+        } else if path.count >= 3, ["shorts", "embed", "live"].contains(path[1]) {
+            id = path[2]
+        } else if url.path == "/watch" {
+            id = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "v" })?.value
+        } else {
+            id = nil
+        }
+        guard let id, !id.isEmpty, id.count <= 64,
+              id.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { return nil }
+        return id
     }
 
     static func formatMarkdown(title: String, segments: [String]) -> String {

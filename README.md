@@ -4,16 +4,17 @@ Save YouTube, Instagram, and TikTok videos to a local folder of Markdown
 notes + frame snapshots — searchable from your Mac, your shell, and any
 MCP-compatible AI.
 
-Everything runs on your device. No accounts. No telemetry. Your vault is
-just a folder of `.md` files and JPEGs you fully own.
+Capture, transcription, and search run on your Mac. No Youty account or
+telemetry; Instagram requires a one-time platform sign-in. Your vault is
+just a folder of `.md` files and JPEGs under your control.
 
 ## Install
 
 | | How | Need |
 |---|---|---|
-| **Mac app** | Download the DMG from [Releases](https://github.com/legetdev/youty/releases/latest), drag to `/Applications` | macOS 26 (Tahoe) |
-| **CLI** | `brew install legetdev/youty/youty` &nbsp;or&nbsp; `./Scripts/install-cli.sh` from a clone | Xcode 26 to build |
-| **MCP server** | wire `uvx youty-mcp@latest` into your MCP client (e.g. `claude mcp add youty -- uvx youty-mcp@latest`) — always the newest, no manual upgrade | Python 3.11+, `uv` |
+| **Mac app** | Download the DMG from [Releases](https://github.com/legetdev/youty/releases/latest), drag to `/Applications` | Apple Silicon, macOS 26 (Tahoe) |
+| **CLI** | `brew install legetdev/youty/youty` or `./Scripts/install-cli.sh` from a clone | Apple Silicon, macOS 26; Xcode 26 for source builds |
+| **MCP server** | Run `uvx youty-mcp@latest install` to connect detected MCP clients | Python 3.11+, `uv`; macOS for local Core ML search |
 
 The Mac app auto-updates via Sparkle once installed — *Check for
 Updates…* lives in the app menu (or *Settings → About*). New releases
@@ -53,7 +54,8 @@ youty login instagram      # one-time, only for Instagram saves
 
 **MCP.** Add `youty-mcp` to your Claude Desktop / Cursor / Claude Code
 config and your AI can semantically search the vault, retrieve
-transcripts, and find frames. See `youty-mcp/README.md`.
+transcripts, and find frames. Results are passed to that client, whose own
+privacy settings govern any cloud processing. See [`youty-mcp/README.md`](youty-mcp/README.md).
 
 ## What lands in the vault
 
@@ -63,7 +65,7 @@ transcripts, and find frames. See `youty-mcp/README.md`.
     00000000.jpg      # frame snapshots, filename = ms offset
     00007560.jpg
     ...
-manifest.json         # one-line-per-video corpus index
+manifest.json         # JSON array of video metadata and bundle paths
 ```
 
 YouTube transcripts are scraped from YouTube's caption panel. TikTok
@@ -76,10 +78,10 @@ transcribed on-device via Apple's `SpeechAnalyzer` + `SpeechTranscriber`
 See [`docs/privacy.md`](docs/privacy.md). The short version: vault is
 local, transcripts and frames are local, **AI search is 100% on-device**,
 no telemetry. Text search uses Google's EmbeddingGemma converted to Core ML
-and runs entirely on your Mac — no API key, no provider option, nothing
-leaves the device. The only network calls are (a) platform fetches to
-scrape the video, and (b) Sparkle's anonymous once-a-day check for a newer
-Youty release.
+without an API key or remote embedding provider. Network access supplies
+platform media, software updates, and initially required model, tokenizer,
+or speech-language assets. Connected AI clients receive requested vault
+content and may send it to their providers; see the privacy page for details.
 
 ## Terms
 
@@ -100,28 +102,31 @@ call it for you:
 ```
 
 ```bash
-xcodebuild -scheme youty     -configuration Release build   # Mac app
-xcodebuild -scheme youty-cli -configuration Release build   # CLI binary
-./Scripts/make-dmg.sh                                       # DMG installer (versioned filename)
-./Scripts/build-mcp-wheel.sh                                # MCP wheel + twine check
-./Scripts/smoke-test-extractors.sh                          # full smoke
+xcodebuild -scheme youty -configuration Release -derivedDataPath build/release ARCHS=arm64 build
+xcodebuild -scheme youty-cli -configuration Release -derivedDataPath build/release ARCHS=arm64 build
+./Scripts/build-mcp-wheel.sh                                # MCP wheel + metadata check
 ```
 
-Release pipeline (requires a Developer ID certificate + a notarytool
-keychain profile):
+The live extractor smoke suite expects a separate Debug app at `build/dd`:
 
 ```bash
-export DEVELOPER_ID_APPLICATION_CERT="Developer ID Application: ... (TEAMID)"
-export NOTARY_KEYCHAIN_PROFILE="youty-notary"
-./Scripts/release-app.sh                              # build → sign → notarize → staple
-./Scripts/make-dmg.sh                                 # signed versioned DMG
-./Scripts/sparkle-sign-and-cut.sh build/Youty-*.dmg   # emits the appcast <item>
+xcodebuild -scheme youty -configuration Debug -derivedDataPath build/dd build
+xcodebuild -scheme youty-cli -configuration Debug -derivedDataPath build/dd build
+./Scripts/smoke-test-extractors.sh                          # YouTube + TikTok; Instagram skipped
 ```
+
+For contributor prerequisites and verification commands, see
+[`CONTRIBUTING.md`](CONTRIBUTING.md). These commands produce local builds and
+checks; they do not complete a public release.
+
+Maintainers use the locally configured `Scripts/release.sh` to coordinate
+GitHub, Apple notarization, Homebrew, PyPI, the website, and automatic updates.
+See [`docs/releasing.md`](docs/releasing.md) for the release and recovery contract.
 
 One vetted Swift Package dependency in the Mac app (**Sparkle**, MIT,
 auto-update — pinned in `Package.resolved`). FFmpeg ships statically
 linked from `Vendor/ffmpeg/`. The MCP server is a separate Python
-package with its own pinned dependencies.
+package with dependency bounds in `pyproject.toml` and a reproducible `uv.lock`.
 
 ## Security
 
@@ -153,16 +158,16 @@ from-scratch Swift BPE tokenizer reproduces Gemma's tokenizer with no
 third-party dependency.
 
 The app also bundles Sparkle (MIT, the auto-update framework). Pinned
-at version 2.9.2 in
+at version 2.9.6 in
 [`Package.resolved`](youty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved);
 license text ships inside the framework at
 `Sparkle.framework/Versions/Current/Resources/LICENSE`. Vetted against
 the third-party checklist (MIT, 20-year track record, EdDSA-signed
 updates, single-purpose).
 
-To relink the app against a modified FFmpeg: edit the FFmpeg source
-unpacked by `Scripts/build-ffmpeg.sh`, re-run that script, then re-run
-`xcodebuild -scheme youty -configuration Release`. To rebuild the SigLIP
+To relink the app against a modified FFmpeg, follow the source-build steps in
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md#lgpl-6--relinking-obligation).
+To rebuild the SigLIP
 Core ML artifact: edit and re-run
 [`Scripts/convert-siglip-coreml.py`](Scripts/convert-siglip-coreml.py).
 Pinned versions for both also appear in the app's *About* panel

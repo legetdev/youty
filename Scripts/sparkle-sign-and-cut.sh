@@ -14,12 +14,8 @@
 # Xcode at least once (Scripts/release-app.sh does this as a side
 # effect). The script auto-locates the bundled `sign_update` tool.
 #
-# Phase R checklist:
-#   1. Run Scripts/release-app.sh → produces signed + notarized .app
-#   2. Run Scripts/make-dmg.sh    → produces signed DMG
-#   3. Run this script on the DMG → produces the appcast <item>
-#   4. Drop the <item> into release/appcast.xml as the newest entry
-#   5. Push, redeploy Vercel (auto on push to main)
+# This is a packaging building block. Scripts/release.sh owns publication
+# and recovery across every channel; see docs/releasing.md.
 
 set -euo pipefail
 
@@ -109,10 +105,10 @@ PUBDATE=$(date -u "+%a, %d %b %Y %H:%M:%S +0000")
 
 echo "==> Signing DMG with Sparkle EdDSA key..." >&2
 # Local default: read the private key from the Keychain. CI: pass it directly
-# via the SPARKLE_ED_PRIVATE_KEY env var (a repo secret) so no Keychain is
-# needed on the runner.
+# from the SPARKLE_ED_PRIVATE_KEY environment variable through standard input,
+# keeping the secret out of process arguments. No Keychain is needed in CI.
 if [ -n "${SPARKLE_ED_PRIVATE_KEY:-}" ]; then
-    SIGN_OUTPUT=$("$SIGN_UPDATE" -s "$SPARKLE_ED_PRIVATE_KEY" "$DMG")
+    SIGN_OUTPUT=$(printf '%s\n' "$SPARKLE_ED_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - "$DMG")
 else
     SIGN_OUTPUT=$("$SIGN_UPDATE" "$DMG")
 fi
@@ -155,11 +151,6 @@ cat >&2 <<EOF
     Signature:    $SIGNATURE
     Pub date:     $PUBDATE
 
-    Next:
-      1. Paste the <item> block above into release/appcast.xml as the
-         newest entry (above the previous <item>).
-      2. Replace the TODO release notes with the user-facing changelog.
-      3. Commit + push.
-      4. Verify the appcast at https://youtyapp.vercel.app/appcast.xml
-         after Vercel redeploys.
+    Publication and verification are coordinated by Scripts/release.sh.
+    This item alone does not complete a release; see docs/releasing.md.
 EOF

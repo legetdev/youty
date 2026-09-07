@@ -1,8 +1,8 @@
 # Third-party notices
 
 Youty bundles or builds against the third-party software listed below.
-Every entry's full license text lives at the linked path in this repo —
-nothing here is summarised away.
+Entries link to full license texts in the repository, installed packages,
+or their upstream sources.
 
 Youty itself is MIT-licensed (see [`LICENSE`](LICENSE)).
 
@@ -38,9 +38,11 @@ version of that library. Youty satisfies that obligation as follows:
    FFmpeg 7.1.1 from `ffmpeg.org`, applies the exact `./configure` flags
    used by every shipped binary, and emits the static archives into
    `Vendor/ffmpeg/`. A user who wants to relink against a modified FFmpeg
-   only needs to (a) edit the FFmpeg source they unpack from the tarball,
-   (b) re-run the build script pointing it at their modified tree, and
-   (c) re-run `xcodebuild -scheme youty -configuration Release`.
+   can unpack and modify that source, run the script's `./configure`, `make`,
+   and copy steps against the modified tree, then rebuild Youty with
+   `xcodebuild -scheme youty -configuration Release build`. The script itself
+   always downloads a fresh upstream tree; it does not accept a source-directory
+   argument.
 3. **The exact upstream FFmpeg version is pinned** at the top of
    `Scripts/build-ffmpeg.sh` and printed at runtime in the app's
    *About* panel (Settings → About). Replacing it is a one-line edit.
@@ -52,8 +54,9 @@ and similar LGPL-FFmpeg-linking apps.
 
 ## sqlite-vec
 
-- **Component:** Python dependency of the MCP server (`youty-mcp`); also
-  loaded as a SQLite extension by the Mac app's indexer.
+- **Component:** Python dependency of the MCP server (`youty-mcp`), which loads
+  it as a SQLite extension. The Mac app writes ordinary SQLite tables without
+  loading this extension.
 - **License:** Dual-licensed under **MIT OR Apache-2.0** — recipients
   may choose either. Verified from the project's `pyproject.toml`
   metadata.
@@ -80,7 +83,7 @@ and similar LGPL-FFmpeg-linking apps.
   Package Manager from the upstream GitHub repo at build time. Used to
   check `https://youtyapp.vercel.app/appcast.xml` for new releases and
   download + EdDSA-verify signed DMGs.
-- **Version:** Pinned at 2.9.2 in
+- **Version:** Pinned at [2.9.6](https://github.com/sparkle-project/Sparkle/releases/tag/2.9.6) in
   [`Package.resolved`](youty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved).
 - **License:** MIT. The full text ships inside the framework bundle at
   `Sparkle.framework/Versions/Current/Resources/LICENSE` and is
@@ -116,11 +119,11 @@ and similar LGPL-FFmpeg-linking apps.
   bundled model accepts plain RGB pixels at 224×224. Cosine similarity
   vs the PyTorch reference is **0.9999** at conversion verification time
   (see `--skip-verify` flag for the cosine check).
-- **Text encoder counterpart:** The Python MCP server (`youty-mcp`)
-  embeds user queries using the same SigLIP model via the HuggingFace
-  `transformers` library directly — see the `transformers` and `torch`
-  dependencies in [`youty-mcp/pyproject.toml`](youty-mcp/pyproject.toml).
-  Both sides land in the same vector space.
+- **Text encoder counterpart:** The Python MCP server (`youty-mcp`) runs
+  the converted SigLIP text encoder locally through `coremltools`, using
+  SentencePiece for tokenization. The model comes from Youty's checksummed
+  release assets; tokenizer files come from a fixed Hugging Face revision.
+  No PyTorch or Transformers runtime is required.
 - **Citation:** "Sigmoid Loss for Language Image Pre-Training", Zhai et
   al., ICCV 2023 (<https://arxiv.org/abs/2303.15343>).
 
@@ -159,10 +162,11 @@ and similar LGPL-FFmpeg-linking apps.
   reproduces Gemma's tokenizer bit-for-bit from a compact binary artifact
   (`Vendor/embeddinggemma/tokenizer/*.bin`) built by
   [`Scripts/build-gemma-tokenizer-artifact.py`](Scripts/build-gemma-tokenizer-artifact.py).
-- **Text encoder counterpart:** the Python MCP server (`youty-mcp`) embeds
-  user queries with the same checkpoint via `sentence-transformers`, so
-  query + document vectors share one space. The model is fetched from
-  HuggingFace on first use and cached locally.
+- **Text encoder counterpart:** the Python MCP server (`youty-mcp`) runs the
+  same converted model through `coremltools` with the `tokenizers` engine.
+  Query and document vectors share one space. Core ML weights are downloaded
+  from Youty's checksummed release assets and tokenizer data from a fixed
+  Hugging Face revision, then cached locally.
 - **Citation:** EmbeddingGemma, Google DeepMind, 2025.
 
 ---
@@ -178,8 +182,15 @@ Agreement; they are neither bundled with nor redistributed by Youty.
 
 ## Python runtime dependencies (`youty-mcp`)
 
-The MCP server's runtime dependencies are pinned in
-[`youty-mcp/pyproject.toml`](youty-mcp/pyproject.toml). Each is installed
+The query tokenizer compatibility adapter includes code adapted from Transformers
+4.57.6 under Apache-2.0. Its source attribution, modification notice, and full
+license are shipped in
+[`THIRD_PARTY_NOTICES.txt`](youty-mcp/src/youty_mcp/THIRD_PARTY_NOTICES.txt).
+This does not add the Transformers package as a runtime dependency.
+
+The MCP server's runtime dependency bounds are declared in
+[`youty-mcp/pyproject.toml`](youty-mcp/pyproject.toml), with exact development
+resolutions in [`youty-mcp/uv.lock`](youty-mcp/uv.lock). Each is installed
 from PyPI by `pip` / `uv` at install time, not redistributed by this repo:
 
 | Package | License |

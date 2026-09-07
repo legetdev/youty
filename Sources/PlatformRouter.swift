@@ -14,25 +14,18 @@ enum PlatformRouter {
     /// Returns the platform for a pasted URL string, or `nil` if the string
     /// doesn't resemble any known platform's post URL.
     static func platform(for urlString: String) -> Platform? {
-        let s = urlString.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        if isYouTube(s) { return .youtube }
-        if isTikTok(s)  { return .tiktok }
-        if isInstagram(s) { return .instagram }
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.contains("://") ? trimmed : "https://" + trimmed
+        guard let url = URL(string: normalized),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host?.lowercased(), url.user == nil, url.password == nil else { return nil }
+        if host == "youtube.com" || host.hasSuffix(".youtube.com")
+            || host == "youtu.be" { return .youtube }
+        if host == "tiktok.com" || host.hasSuffix(".tiktok.com") { return .tiktok }
+        if host == "instagram.com" || host.hasSuffix(".instagram.com") {
+            let path = url.pathComponents.filter { $0 != "/" }
+            if path.count >= 2, ["reel", "reels", "p", "tv"].contains(path[0]) { return .instagram }
+        }
         return nil
-    }
-
-    private static func isYouTube(_ s: String) -> Bool {
-        return s.contains("youtube.com/") || s.contains("youtu.be/") || s.contains("youtube.com/shorts/")
-    }
-
-    private static func isTikTok(_ s: String) -> Bool {
-        return s.contains("tiktok.com/") || s.contains("vm.tiktok.com/")
-    }
-
-    private static func isInstagram(_ s: String) -> Bool {
-        return s.contains("instagram.com/reel/")
-            || s.contains("instagram.com/p/")
-            || s.contains("instagram.com/tv/")
-            || s.contains("instagram.com/reels/")
     }
 }
