@@ -49,7 +49,7 @@ dependencies = [
     "huggingface-hub>=1.5,<2",
     # 0.2.2 changes BPE tie-breaking (9/520 golden cases). Keep the version
     # that matches existing vault vectors until a future encoder migration.
-    "sentencepiece==0.2.1",
+    "sentencepiece==0.2.2",
     "protobuf>=4,<8",
 ]
 
