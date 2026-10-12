@@ -153,8 +153,9 @@ def pr_ready(repo, number, timeout=3600):
         failed = [c.get('name') or c.get('context') for c in checks
                   if (c.get('conclusion') or c.get('state')) in FAILED]
         require(not failed, f'PR #{number} checks failed ({", ".join(failed)}); fix them, then resume')
-        if not any(c.get('status', 'COMPLETED') != 'COMPLETED' or c.get('state') in ('PENDING', 'EXPECTED')
-                   for c in checks):
+        # No reported checks yet counts as pending: CI must actually run and pass.
+        if checks and not any(c.get('status', 'COMPLETED') != 'COMPLETED' or c.get('state') in ('PENDING', 'EXPECTED')
+                              for c in checks):
             return pr['headRefOid']
         require(time.monotonic() < deadline, f'PR #{number} checks did not finish in time; resume once they pass')
         print(f'Waiting for PR #{number} checks…', file=sys.stderr, flush=True)

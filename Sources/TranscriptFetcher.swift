@@ -389,10 +389,13 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     /// Completes the pending fetch with an on-device transcript of the audio.
     private func transcribeAudio(details: VideoDetails) {
         fetchGen += 1   // the page's watchdog no longer applies; transcription takes longer
+        let gen = fetchGen
         let locale = SettingsStore.transcriptionLocale(hint: "\(details.title)\n\(details.shortDescription)")
         Task {
             do {
                 let segments = try await YouTubeAudioTranscript.transcribe(videoID: details.videoID, locale: locale)
+                // A newer fetch replaced this one while transcribing: never answer it with this video.
+                guard fetchGen == gen else { return }
                 guard !segments.isEmpty else { throw FetchError.noTranscript }
                 finish(returning: FetchResult(
                     videoID: details.videoID,
@@ -403,6 +406,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
                     transcriptSource: .onDeviceSpeech))
             } catch {
                 NSLog("[youty] on-device transcription failed: %@", error.localizedDescription)
+                guard fetchGen == gen else { return }
                 finish(throwing: FetchError.noTranscript)
             }
         }

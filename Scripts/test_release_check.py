@@ -139,10 +139,11 @@ class ReleaseChecks(unittest.TestCase):
         pending = json.dumps({'state': 'OPEN', 'headRefOid': 'h2', 'statusCheckRollup': [
             {'name': 'ci', 'status': 'IN_PROGRESS', 'conclusion': None}]})
         green = pending.replace('IN_PROGRESS', 'COMPLETED').replace('null', '"SUCCESS"')
-        with patch.object(release, 'run', side_effect=[pending, green]), \
+        unreported = json.dumps({'state': 'OPEN', 'headRefOid': 'h2', 'statusCheckRollup': []})
+        with patch.object(release, 'run', side_effect=[unreported, pending, green]), \
                 patch.object(release.time, 'sleep') as sleep:
             self.assertEqual(release.pr_ready('o/r', 7), 'h2')
-            sleep.assert_called_once()
+            self.assertEqual(sleep.call_count, 2)
         failed = green.replace('SUCCESS', 'FAILURE')
         with patch.object(release, 'run', return_value=failed), self.assertRaises(ValueError):
             release.pr_ready('o/r', 7)

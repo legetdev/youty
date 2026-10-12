@@ -199,7 +199,11 @@ def _resolve_note(row) -> Path | None:
     platform_dir = vault / row["platform"]
     if row["platform"] not in _PLATFORMS or not platform_dir.is_dir():
         return None
-    for entry in platform_dir.iterdir():
+    try:
+        entries = list(platform_dir.iterdir())
+    except OSError:  # e.g. an iCloud folder that is temporarily unavailable
+        return None
+    for entry in entries:
         md = entry / "video.md"
         if not md.is_file() or vault_path(vault, str(md)) is None:
             continue
