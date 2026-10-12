@@ -40,7 +40,6 @@ struct ContentView: View {
     @State private var recents: [VaultLocalSearch.Match] = []
     @State private var framePrefetch: FramePrefetch?
     @State private var justSaved: URL?
-    @State private var savingURL: String?
     @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
 
@@ -399,18 +398,17 @@ struct ContentView: View {
         savePending = true
         defer { savePending = false }
         let requested = urlInput
-        savingURL = requested
         startFramePrefetch()
         await fetch()
         // Another link (Share Sheet, menu bar, AI) replaced this one meanwhile.
         guard urlInput == requested else {
-            framePrefetch?.task.cancel(); framePrefetch = nil
+            dropFramePrefetch()
             return
         }
         // Instagram sign-in in progress: the login sheet continues the save.
         if showInstagramLogin { saveAfterLogin = true; return }
         guard lastResult != nil || shortFormPreview != nil else {
-            framePrefetch?.task.cancel(); framePrefetch = nil
+            dropFramePrefetch()
             return
         }
         // Keep the button busy until frames are captured and indexing starts, so
@@ -734,14 +732,13 @@ struct ContentView: View {
     /// Drive a single fetch+save cycle. Re-entrant: the Instagram login
     /// flow may re-invoke this after the user signs in.
     private func runAutoIngest() async {
-        savingURL = urlInput
         startFramePrefetch()
         await fetch()
         // Instagram login in progress — sheet handler will re-call us.
         if showInstagramLogin { return }
         // Fetch failed (no preview, no result) → tell the funnel we're done.
         if lastResult == nil && shortFormPreview == nil {
-            framePrefetch?.task.cancel(); framePrefetch = nil
+            dropFramePrefetch()
             finishExternalIngest()
             return
         }
@@ -785,6 +782,8 @@ struct ContentView: View {
     @discardableResult
     private func saveToVault(allowVaultPrompt: Bool = true) -> Task<Void, Never>? {
         vaultError = nil
+        // The link this save belongs to, so finishing never clears a newer one.
+        let savedURL = urlInput
 
         // No vault configured. For a user-initiated save, prompt them to pick a
         // folder. For a BACKGROUND ingest (Share / Services / Shortcuts / menu
@@ -794,8 +793,9 @@ struct ContentView: View {
         if vault.vaultURL == nil {
             if allowVaultPrompt {
                 vault.chooseVault()
-                guard vault.vaultURL != nil else { return nil }
+                guard vault.vaultURL != nil else { dropFramePrefetch(); return nil }
             } else {
+                dropFramePrefetch()
                 vaultError = VaultError.noVault.localizedDescription
                 finishExternalIngest()
                 return nil
@@ -821,7 +821,8 @@ struct ContentView: View {
                                  videoID: preview.tikTokMetadata?.videoID
                                        ?? preview.instagramMetadata?.shortcode
                                        ?? "post",
-                                 folderURL: outcome.folder)
+                                 folderURL: outcome.folder,
+                                 savedURL: savedURL)
                     triggerIndexer(bundleFolder: outcome.folder)
                 } catch {
                     vaultError = error.localizedDescription
@@ -832,6 +833,7 @@ struct ContentView: View {
 
         // YouTube path.
         guard let result = lastResult else {
+            dropFramePrefetch()
             vaultError = "Nothing to save yet. Load a video first."
             finishExternalIngest()
             return nil
@@ -846,9 +848,10 @@ struct ContentView: View {
             }
             let videoID = result.videoID
             return Task {
-                await runFramePipeline(videoID: videoID, folderURL: folderURL)
+                await runFramePipeline(videoID: videoID, folderURL: folderURL, savedURL: savedURL)
             }
         } catch {
+            dropFramePrefetch()
             vaultError = error.localizedDescription
             finishExternalIngest()
             return nil
@@ -874,7 +877,12 @@ struct ContentView: View {
         framePrefetch = FramePrefetch(videoID: id, pipeline: pipeline, task: pipeline.prefetch(videoID: id))
     }
 
-    private func runFramePipeline(videoID: String, folderURL: URL) async {
+    private func dropFramePrefetch() {
+        framePrefetch?.task.cancel()
+        framePrefetch = nil
+    }
+
+    private func runFramePipeline(videoID: String, folderURL: URL, savedURL: String) async {
         frameProgress = 0
         downloadProgress = 0
         fastFailure = nil
@@ -888,7 +896,7 @@ struct ContentView: View {
                                              prefetched: prefetch?.task) { stage in
             applyStage(stage)
         }
-        applyOutcome(outcome, videoID: videoID, folderURL: folderURL)
+        applyOutcome(outcome, videoID: videoID, folderURL: folderURL, savedURL: savedURL)
         if case .success = outcome {
             triggerIndexer(bundleFolder: folderURL)
         }
@@ -975,7 +983,8 @@ struct ContentView: View {
 
     private func applyOutcome(_ outcome: FramePipelineOutcome,
                               videoID: String,
-                              folderURL: URL) {
+                              folderURL: URL,
+                              savedURL: String? = nil) {
         switch outcome {
         case .success(let count, let ms, let mode):
             NSLog("[youty] \(mode): \(count) frames in \(ms)ms")
@@ -984,7 +993,7 @@ struct ContentView: View {
                 // Saved: back to the library, new video on top, ready for the
                 // next link — unless the user already pasted that next link.
                 justSaved = folderURL
-                if urlInput == savingURL || urlInput.isEmpty {
+                if let savedURL, urlInput == savedURL || urlInput.isEmpty {
                     withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
                         state = .idle
                         urlInput = ""
