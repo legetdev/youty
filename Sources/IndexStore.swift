@@ -341,35 +341,6 @@ actor IndexStore {
         try execBound("DELETE FROM videos WHERE video_id = ?;", text: videoID)
     }
 
-    /// Drops every `frames` row whose `model_version` doesn't match the
-    /// caller's current frame-model identifier, then records that
-    /// identifier in `index_meta`. Called once per app session at the
-    /// start of any frame-indexing path — if the binary has been
-    /// upgraded to a new frame model (e.g. SigLIP → EmbeddingGemma 2),
-    /// existing vectors live in a different embedding space and must be
-    /// re-computed before any retrieval can correctly compare new query
-    /// embeddings against them. Idempotent — once the table is purged,
-    /// subsequent calls are no-ops because the rows now all match.
-    /// Returns the number of stale rows dropped (for logging).
-    @discardableResult
-    func purgeStaleFrameVectors(currentModel: String) throws -> Int {
-        try openIfNeeded()
-        let countSQL = "SELECT COUNT(*) FROM frames WHERE model_version <> ?;"
-        let countStmt = try prepare(countSQL)
-        bindText(countStmt, 1, currentModel)
-        var stale = 0
-        if sqlite3_step(countStmt) == SQLITE_ROW {
-            stale = Int(sqlite3_column_int64(countStmt, 0))
-        }
-        sqlite3_finalize(countStmt)
-        if stale > 0 {
-            try execBound("DELETE FROM frames WHERE model_version <> ?;", text: currentModel)
-        }
-        // Always advance the meta key so the next session sees the right value.
-        try setMeta(key: "current_frame_model", value: currentModel)
-        return stale
-    }
-
     /// Aggregate stats for the Settings UI. Single round-trip through the
     /// DB — counts + the relevant `index_meta` rows + file size.
     func indexStats() throws -> IndexStats {
@@ -503,14 +474,17 @@ actor IndexStore {
         return sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) != 0
     }
 
-    /// Frames of `videoID` already embedded by `model`.
-    func frameCount(videoID: String, model: String) throws -> Int {
+    /// True when `videoID` has rows in `table` ("chunks" or "frames") and every
+    /// one of them was embedded by `model` — i.e. the upgrade can skip it.
+    func isCurrent(_ table: String, videoID: String, model: String) throws -> Bool {
+        precondition(table == "chunks" || table == "frames")
         try openIfNeeded()
-        let stmt = try prepare("SELECT COUNT(*) FROM frames WHERE video_id = ? AND model_version = ?;")
+        let stmt = try prepare("SELECT COUNT(*), COALESCE(SUM(model_version <> ?), 0) FROM \(table) WHERE video_id = ?;")
         defer { sqlite3_finalize(stmt) }
-        bindText(stmt, 1, videoID)
-        bindText(stmt, 2, model)
-        return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int64(stmt, 0)) : 0
+        bindText(stmt, 1, model)
+        bindText(stmt, 2, videoID)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return false }
+        return sqlite3_column_int64(stmt, 0) > 0 && sqlite3_column_int64(stmt, 1) == 0
     }
 
     /// Convenience: updates an `index_meta` key.

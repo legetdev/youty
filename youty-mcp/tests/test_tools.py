@@ -77,5 +77,21 @@ def test_save_video_ids_and_validation(server_state):
     assert already.startswith("Already saved as `yt:abc123`")
 
 
+def test_save_video_resaves_missing_notes_and_never_guesses(server_state, monkeypatch):
+    _, vault = server_state
+    opened = []
+    monkeypatch.setattr(server.subprocess, "run", lambda args, **kw: opened.append(args[-1]))
+    for path in vault.rglob("video.md"):
+        if "abc123" in path.read_text():
+            path.unlink()
+    # The index still lists the video, but its note is gone: hand it to the app again.
+    pending = asyncio.run(server._do_save_video("https://www.youtube.com/watch?v=abc123", timeout_s=0))
+    assert opened and "abc123" in opened[-1] and "still working" in pending
+    # A short link that can't be expanded is sent, but never matched to an unrelated video.
+    monkeypatch.setattr(server, "_expand_short_link", lambda url: None)
+    sent = asyncio.run(server._do_save_video("https://vm.tiktok.com/ZMabc/"))
+    assert sent.startswith("Sent to Youty") and "vm.tiktok.com" in opened[-1]
+
+
 def test_instructions_fit_client_limit():
     assert len(server.INSTRUCTIONS) < 2048

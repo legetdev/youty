@@ -121,10 +121,8 @@ enum Indexer {
         // SigLIP → EmbeddingGemma 2 move). Without this, the
         // text index gets rebuilt cleanly but visual search returns
         // nothing until the user runs the CLI re-index probe by hand.
-        // Idempotent at the bundle level via `purgeStaleFrameVectors`
-        // — bundles already embedded under the current model identifier
-        // are no-ops; bundles under a stale identifier are re-embedded
-        // here once and then become no-ops on subsequent calls.
+        // Each bundle's frames are replaced as a unit, so frames from an
+        // older model disappear only when their video is re-embedded.
         progress?("FRAME_REINDEX_START")
         let frameSummary = try await reindexFrames(vaultRoot: vaultRoot,
                                                     progress: progress)
@@ -305,10 +303,19 @@ enum Indexer {
             let rel = url.path.replacingOccurrences(of: vaultRoot.path + "/", with: "")
             summary.failures.append((folder: rel, error: error.localizedDescription))
         }
+        // Resumable: stale rows are replaced one video at a time and finished
+        // videos are skipped, so an interrupted upgrade continues next launch
+        // (`needsModelMigration` stays true while any stale row remains).
+        let model = EmbeddingGemma2.modelIdentifier
+        func videoID(_ url: URL) throws -> String {
+            try Chunker.parse(text: String(contentsOf: url, encoding: .utf8)).qualifiedID
+        }
         for url in bundles {
             do {
-                summary.chunksWritten += try await indexBundle(videoMdURL: url, vaultRoot: vaultRoot,
-                                                               embedder: embedder)
+                if try await !IndexStore.shared.isCurrent("chunks", videoID: videoID(url), model: model) {
+                    summary.chunksWritten += try await indexBundle(videoMdURL: url, vaultRoot: vaultRoot,
+                                                                   embedder: embedder)
+                }
                 summary.videosIndexed += 1
             } catch { record(url, error) }
             done += 1
@@ -316,10 +323,7 @@ enum Indexer {
         }
         for url in bundles {
             do {
-                let markdown = try String(contentsOf: url, encoding: .utf8)
-                let videoID = try Chunker.parse(text: markdown).qualifiedID
-                if try await IndexStore.shared.frameCount(videoID: videoID,
-                                                          model: EmbeddingGemma2.modelIdentifier) == 0 {
+                if try await !IndexStore.shared.isCurrent("frames", videoID: videoID(url), model: model) {
                     let (kept, dropped) = try await indexFrames(videoMdURL: url, vaultRoot: vaultRoot)
                     summary.framesKept += kept
                     summary.framesDroppedDedupe += dropped
@@ -450,14 +454,6 @@ enum Indexer {
             throw IndexerError.vaultMismatch("video.md has no video_id / post_id field")
         }
 
-        // Purge frame rows embedded by an older model (e.g. SigLIP before the
-        // EmbeddingGemma 2 shared space). Idempotent — once every row matches,
-        // this is a no-op COUNT(*). Mixed-space frame vectors would otherwise
-        // be compared against text queries they were never trained against.
-        _ = try? await IndexStore.shared.purgeStaleFrameVectors(
-            currentModel: EmbeddingGemma2.modelIdentifier
-        )
-
         let bundleFolder = videoMdURL.deletingLastPathComponent()
         let folderPath = relativePath(of: bundleFolder, under: vaultRoot)
 
@@ -473,6 +469,9 @@ enum Indexer {
         }.sorted { $0.ms < $1.ms }
 
         guard !jpegs.isEmpty else {
+            // No frames on disk: drop any rows left by an older model so the
+            // upgrade check doesn't wait on this video forever.
+            try await IndexStore.shared.replaceFrames(videoID: parsed.qualifiedID, rows: [])
             return (0, 0)
         }
 

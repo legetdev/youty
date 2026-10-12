@@ -21,7 +21,9 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -600,6 +602,24 @@ def _expected_id(url: str) -> str | None:
     return f"yt:{vid}" if vid and re.fullmatch(r"[A-Za-z0-9_-]{6,64}", vid) else None
 
 
+def _expand_short_link(url: str) -> str | None:
+    """Follow a short TikTok link (vm./vt.tiktok.com, tiktok.com/t/…) to its video id."""
+    full = url if "://" in url else "https://" + url
+    request = urllib.request.Request(full, headers={"User-Agent": "Mozilla/5.0 (Macintosh)"})
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            return _expected_id(response.geturl())
+    except urllib.error.HTTPError as error:  # the redirect target may refuse bots; its URL still tells
+        return _expected_id(error.geturl())
+    except (OSError, ValueError):
+        return None
+
+
+def _note_exists(conn, row) -> bool:
+    folder = vault_path(resolve_vault_root(conn), row["folder_path"])
+    return folder is not None and (folder / "video.md").is_file()
+
+
 def _supported(url: str) -> bool:
     host = (urllib.parse.urlparse(url if "://" in url else "https://" + url).hostname or "").lower()
     return any(host == d or host.endswith("." + d) for d in ("youtube.com", "youtu.be", "instagram.com", "tiktok.com"))
@@ -609,10 +629,15 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
     url = (_clamp(url) or "").strip()
     if not _supported(url):
         return "save_video takes a YouTube, Instagram, or TikTok link."
+    expected = _expected_id(url)
+    if expected is None and "tiktok.com" in url.lower():
+        import anyio
+
+        expected = await anyio.to_thread.run_sync(_expand_short_link, url)
     with _STATE.lock:
         conn = _STATE.conn()
-        expected = _expected_id(url)
-        already = expected is not None and _video_row(expected) is not None
+        existing = _video_row(expected) if expected else None
+        already = existing is not None and _note_exists(conn, existing)
     if already:
         return f"Already saved as `{expected}` — search it or read it with get_transcript(\"{expected}\")."
     started_ms = int(time.time() * 1000)
@@ -622,6 +647,9 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
     except (subprocess.SubprocessError, OSError):
         return ("Couldn't reach the Youty app. Install Youty (youtyapp.vercel.app) and open it once, "
                 "then try again.")
+    if expected is None:
+        return ("Sent to Youty. This link doesn't show which video it is, so check list_videos in a minute "
+                "for the newest entry.")
     import anyio
 
     deadline = time.monotonic() + timeout_s
@@ -640,15 +668,13 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
             "to sign in.")
 
 
-def _saved_row(conn, expected: str | None, started_ms: int):
-    """The newly saved video (by expected id, else the newest since the request)."""
+def _saved_row(conn, expected: str, started_ms: int):
+    """The requested video once this request's save has been indexed."""
     _db.sync_index(conn)
-    base = ("SELECT v.video_id, v.title, COUNT(c.chunk_id) AS n FROM videos v "
-            "LEFT JOIN chunks c ON c.video_id = v.video_id ")
-    if expected:
-        return conn.execute(base + "WHERE v.video_id = ? GROUP BY v.video_id", (expected,)).fetchone()
-    return conn.execute(base + "WHERE v.indexed_at >= ? GROUP BY v.video_id ORDER BY v.indexed_at DESC LIMIT 1",
-                        (started_ms,)).fetchone()
+    return conn.execute(
+        "SELECT v.video_id, v.title, COUNT(c.chunk_id) AS n FROM videos v "
+        "LEFT JOIN chunks c ON c.video_id = v.video_id "
+        "WHERE v.video_id = ? AND v.indexed_at >= ? GROUP BY v.video_id", (expected, started_ms)).fetchone()
 
 
 @mcp.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False,

@@ -20,7 +20,7 @@ determine whether it sends those results to a cloud service.
 | Speech transcription | Apple for missing language assets | Apple's `SpeechAnalyzer` transcribes on-device. Required language assets may download first; audio is not uploaded for transcription. |
 | AI-search indexing | nowhere | Transcripts, on-screen text, and frames are embedded **on-device** with EmbeddingGemma 2 (Core ML). No key, no provider option, no network. |
 | MCP setup | PyPI and its download CDN; GitHub release assets only without the app or CLI | Install the Python package and its dependencies (Claude Desktop's extension does this with its own bundled uv). The server reuses the models of an installed Youty app or CLI; otherwise it downloads Youty's checksummed models asset once. Queries are always embedded locally. |
-| Saving from your AI | the platform, as for any save | `save_video` hands the link to the Youty app on your Mac, which saves it like a pasted link. |
+| Saving from your AI | the platform, as for any save | `save_video` hands the link to the Youty app on your Mac, which saves it like a pasted link. A short TikTok link is first expanded with one request to TikTok to learn which video it is. |
 | Auto-update | `youtyapp.vercel.app/appcast.xml`, `github.com/legetdev/youty/releases/…` | Sparkle checks the HTTPS feed once every 24 hours while the app runs. Downloaded release archives are verified with EdDSA before installation; the XML feed itself is delivered over HTTPS. Settings → About also offers a manual check. |
 
 Network services receive ordinary connection information, including your IP
