@@ -17,6 +17,7 @@ struct ContentView: View {
     @EnvironmentObject private var settings: SettingsStore
     @ObservedObject private var funnel = IngestionFunnel.shared
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var urlInput = ""
     @State private var state: AppState = .idle
     @State private var lastResult: FetchResult?
@@ -54,6 +55,7 @@ struct ContentView: View {
         let reason: String
         let videoID: String
         let folderURL: URL
+        let savedURL: String?
     }
 
     private var isValidURL: Bool {
@@ -354,7 +356,7 @@ struct ContentView: View {
             HStack(spacing: 8) {
                 Image(systemName: primarySymbol)
                     .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.pulse, options: .repeating, isActive: isBusy)
+                    .symbolEffect(.pulse, options: .repeating, isActive: isBusy && !reduceMotion)
                 Text(primaryLabel)
                     .font(.system(size: 13, weight: .medium))
                     .contentTransition(.interpolate)
@@ -536,7 +538,7 @@ struct ContentView: View {
                         Button {
                             fastFailure = nil
                             Task {
-                                await runCanvasFallback(videoID: failure.videoID,
+                                await runCanvasFallback(savedURL: failure.savedURL, videoID: failure.videoID,
                                                         folderURL: failure.folderURL)
                             }
                         } label: {
@@ -953,7 +955,7 @@ struct ContentView: View {
         }
     }
 
-    private func runCanvasFallback(videoID: String, folderURL: URL) async {
+    private func runCanvasFallback(savedURL: String? = nil, videoID: String, folderURL: URL) async {
         frameProgress = 0
         withAnimation { vault.frameState = .capturingStream }
         let pipeline: any FramePipeline = CanvasFramePipeline(
@@ -963,7 +965,7 @@ struct ContentView: View {
         let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL) { stage in
             applyStage(stage)
         }
-        applyOutcome(outcome, videoID: videoID, folderURL: folderURL)
+        applyOutcome(outcome, videoID: videoID, folderURL: folderURL, savedURL: savedURL)
     }
 
     private func applyStage(_ stage: FrameStage) {
@@ -1009,7 +1011,7 @@ struct ContentView: View {
             if canFallback {
                 withAnimation {
                     vault.frameState = .idle
-                    fastFailure = FastFailure(reason: reason, videoID: videoID, folderURL: folderURL)
+                    fastFailure = FastFailure(reason: reason, videoID: videoID, folderURL: folderURL, savedURL: savedURL)
                 }
             } else {
                 withAnimation { vault.frameState = .failed(reason) }
