@@ -15,7 +15,6 @@ import xml.etree.ElementTree as ET
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 REPO = 'legetdev/youty'
 SITE = 'https://youtyapp.vercel.app'
-CODEX = 'chatgpt-codex-connector[bot]'
 FAILED = {'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'}
 
 
@@ -141,40 +140,24 @@ def wait_run(repo, workflow, sha, title=None, timeout=3600):
     raise ValueError(f'Timed out waiting for {workflow}; release remains incomplete')
 
 
-def pr_ready(repo, number, timeout=3600, review_timeout=1800):
-    """Wait for a release PR's checks and the automatic Codex review of its head.
-
-    Prints `merged` for an already merged PR, else the reviewed head commit.
-    Failed checks or Codex findings on the head stop the release for review.
-    """
-    started = time.monotonic()
+def pr_ready(repo, number, timeout=3600):
+    """Wait until a generated release PR's checks pass (prints `merged` if already merged)."""
+    deadline = time.monotonic() + timeout
     while True:
         pr = json.loads(run('gh', 'pr', 'view', str(number), '--repo', repo,
                             '--json', 'headRefOid,statusCheckRollup,state'))
         if pr['state'] == 'MERGED':
             return 'merged'
         require(pr['state'] == 'OPEN', f'PR #{number} is {pr["state"].lower()}; review it, then resume')
-        head, checks = pr['headRefOid'], pr['statusCheckRollup'] or []
+        checks = pr['statusCheckRollup'] or []
         failed = [c.get('name') or c.get('context') for c in checks
                   if (c.get('conclusion') or c.get('state')) in FAILED]
         require(not failed, f'PR #{number} checks failed ({", ".join(failed)}); fix them, then resume')
-        pending = any(c.get('status', 'COMPLETED') != 'COMPLETED' or c.get('state') in ('PENDING', 'EXPECTED')
-                      for c in checks)
-        comments = json.loads(run('gh', 'api', f'repos/{repo}/pulls/{number}/comments'))
-        findings = [c for c in comments if c['user']['login'] == CODEX
-                    and c.get('original_commit_id') == head and not c.get('in_reply_to_id')]
-        require(not findings, f'Codex left {len(findings)} finding(s) on PR #{number}; address them, then resume')
-        reviews = json.loads(run('gh', 'api', f'repos/{repo}/pulls/{number}/reviews'))
-        # Only a review carrying the exact head SHA counts; a 👍 has no commit.
-        reviewed = any(r['user']['login'] == CODEX and r.get('commit_id') == head for r in reviews)
-        if reviewed and not pending:
-            return head
-        elapsed = time.monotonic() - started
-        require(reviewed or elapsed < review_timeout,
-                f'No Codex review on PR #{number} within {review_timeout // 60} minutes; '
-                'request one with "@codex review", then resume')
-        require(elapsed < timeout, f'PR #{number} checks did not finish in time; resume once they pass')
-        print(f'Waiting for PR #{number} checks and Codex review…', file=sys.stderr, flush=True)
+        if not any(c.get('status', 'COMPLETED') != 'COMPLETED' or c.get('state') in ('PENDING', 'EXPECTED')
+                   for c in checks):
+            return pr['headRefOid']
+        require(time.monotonic() < deadline, f'PR #{number} checks did not finish in time; resume once they pass')
+        print(f'Waiting for PR #{number} checks…', file=sys.stderr, flush=True)
         time.sleep(30)
 
 

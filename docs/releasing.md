@@ -6,11 +6,11 @@ and DMG must both be signed, accepted by Apple for notarization, and stapled.
 An approved release includes source commits, Apple uploads, publication on every
 channel, and verification of the public artifacts.
 
-Every change to a default branch — this repository, the website, and the Homebrew
-tap — lands through a pull request that waits for its checks and the automatic
-Codex review, then squash-merges. Nothing is pushed to `main` directly. Codex
-findings stop the release; fix them on the open pull request and resume, which
-reuses it.
+The release's generated changes to this repository and the website (versions,
+update feed, download link, formula) land through pull requests that squash-merge
+once their checks pass; a failed check stops the release, and resuming reuses the
+open pull request. The Homebrew tap holds only generated files and is updated
+directly.
 
 The maintainer runs one local command, using signing credentials already in the
 macOS Keychain:

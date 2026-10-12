@@ -170,12 +170,14 @@ else:
         calls = [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
         self.assertEqual(sum(name == 'gh' and args[:2] == ['workflow', 'run'] for name, args in calls), 1)
         self.assertFalse(any(name == 'gh' and args[:2] in (['release', 'create'], ['release', 'upload']) for name, args in calls))
-        # Every default-branch change lands through a merged pull request, never a direct push.
-        self.assertFalse(any(name == 'git' and 'push' in args and 'main' in args for name, args in calls))
+        # Source and website changes land through merged pull requests; only the
+        # generated-file Homebrew tap is pushed directly.
+        main_pushes = [args for name, args in calls if name == 'git' and 'push' in args and 'main' in args]
+        self.assertTrue(main_pushes and all(args[:1] == ['-C'] and 'youty-web' not in args[1] for args in main_pushes))
         merged = {args[2] for name, args in calls if name == 'gh' and args[:2] == ['pr', 'merge']}
         self.assertEqual(merged, {'7'})
-        created = [args[args.index('--repo') + 1] for name, args in calls if name == 'gh' and args[:2] == ['pr', 'create']]
-        self.assertTrue({'legetdev/youty', 'legetdev/youty-web', 'legetdev/homebrew-youty'} <= set(created))
+        created = {args[args.index('--repo') + 1] for name, args in calls if name == 'gh' and args[:2] == ['pr', 'create']}
+        self.assertEqual(created, {'legetdev/youty', 'legetdev/youty-web'})
         self.assertEqual((self.state / 'build').read_text(), '15')
 
     def test_skip_flags_cannot_create_partial_release(self):
