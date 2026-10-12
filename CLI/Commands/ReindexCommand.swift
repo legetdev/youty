@@ -3,8 +3,7 @@ import Foundation
 // `youty reindex` — rebuilds the local search index for the resolved vault.
 //
 // Default: full (text + frames). `--text-only` re-embeds just transcript text
-// (the fast Phase S.4 path; frames keep their SigLIP vectors). All embedding is
-// on-device — no key, no cloud.
+// (frames keep their vectors). All embedding is on-device — no key, no cloud.
 //
 // Pure compute (DB + Core ML, no WKWebView), so it runs on a detached Task and
 // blocks main on a semaphore — no NSApplication run loop required.

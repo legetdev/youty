@@ -20,7 +20,9 @@ final class MainWindowKeeper: NSObject {
     static let shared = MainWindowKeeper()
 
     private(set) weak var managedWindow: NSWindow?
-    private var originalDelegate: NSWindowDelegate?
+    // Read by the NSObject forwarding overrides below, which AppKit calls on the
+    // main thread but which Swift sees as nonisolated.
+    nonisolated(unsafe) private var originalDelegate: NSWindowDelegate?
 
     /// Take over the window's delegate. Idempotent — calling twice on the
     /// same window is a no-op.

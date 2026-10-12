@@ -43,8 +43,13 @@ class ReleaseCommand(unittest.TestCase):
             (self.state / name).write_text(value)
         dmg = self.root / 'build/Youty-1.4.8.dmg'
         dmg.write_bytes(b'fixture immutable dmg')
+        (self.root / 'Sources/Youty.mcpb').write_bytes(b'fixture extension')
         (self.state / 'dmg.sha256').write_text(hashlib.sha256(dmg.read_bytes()).hexdigest() + '  ' + str(dmg) + '\n')
         feed = (self.root / 'release/appcast.xml').read_text()
+        # The scenario re-labels the newest entry as 1.4.8, so drop any real
+        # 1.4.8 entry first; otherwise later releases make the fixture invalid.
+        feed = re.sub(r'\s*<item>(?:(?!</item>).)*<sparkle:shortVersionString>1\.4\.8</sparkle:shortVersionString>.*?</item>',
+                      '', feed, flags=re.S)
         entry = ET.fromstring(feed).find('channel/item')
         old_version = entry.findtext('{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString')
         old_build = entry.findtext('{http://www.andymatuschak.org/xml-namespaces/sparkle}version')
@@ -69,6 +74,8 @@ if sys.argv[1] == 'wait':
     if sys.argv[2] == 'bottle.yml' and not (root / 'repaired').exists():
         sys.exit('simulated failed bottle workflow')
     print('123')
+elif sys.argv[1] == 'pr':
+    print('ready')
 elif sys.argv[1] == 'public':
     if not (root / 'public-ready').exists():
         sys.exit('simulated stale public channel')
@@ -95,17 +102,30 @@ elif name == 'git':
     elif args[:1] == ['rev-parse']:
         print('main' if '--abbrev-ref' in args else 'a' * 40)
     elif args[:1] == ['clone']:
-        dest = pathlib.Path(args[-1]); (dest / '.git').mkdir(); (dest / 'Formula').mkdir()
-        shutil.copyfile(root / 'bottled.rb', dest / 'Formula/youty.rb')
+        dest = pathlib.Path(args[-1]); (dest / '.git').mkdir(parents=True)
+        if 'youty-web' in args[-2]:
+            shutil.copytree(root / 'AI/youty-web/public', dest / 'public')
+            shutil.copytree(root / 'AI/youty-web/lib', dest / 'lib')
+        else:
+            (dest / 'Formula').mkdir()
+            shutil.copyfile(root / 'bottled.rb', dest / 'Formula/youty.rb')
+    elif args[:3] == ['diff', '--quiet', '--']:
+        sys.exit(1)  # release edits are pending, so each step lands a pull request
     elif args[:1] == ['ls-remote']:
         print('a' * 40 + '\\trefs/tags/v1.4.8')
 elif name == 'gh':
     if args[:2] == ['release', 'list']:
         print('1')
     elif args[:2] == ['release', 'view']:
-        print('Youty-1.4.8.dmg' if 'assets' in args else '{"isDraft": false, "isPrerelease": false}')
+        print('Youty-1.4.8.dmg\\nYouty.mcpb' if 'assets' in args else '{"isDraft": false, "isPrerelease": false}')
     elif args[:2] == ['release', 'download']:
-        shutil.copyfile(root / 'build/Youty-1.4.8.dmg', pathlib.Path(args[args.index('--dir') + 1]) / 'Youty-1.4.8.dmg')
+        name = args[args.index('--pattern') + 1]
+        source = root / ('Sources' if name.endswith('.mcpb') else 'build') / name
+        shutil.copyfile(source, pathlib.Path(args[args.index('--dir') + 1]) / name)
+    elif args[:2] == ['pr', 'create']:
+        print('https://github.com/legetdev/example/pull/7')
+    elif args[:2] == ['pr', 'view']:
+        print('7')
     elif args[:2] == ['run', 'list']:
         print('1' if (root / 'dispatched').exists() else '0')
     elif args[:2] == ['workflow', 'run']:
@@ -150,6 +170,14 @@ else:
         calls = [json.loads(line) for line in (self.root / 'calls.jsonl').read_text().splitlines()]
         self.assertEqual(sum(name == 'gh' and args[:2] == ['workflow', 'run'] for name, args in calls), 1)
         self.assertFalse(any(name == 'gh' and args[:2] in (['release', 'create'], ['release', 'upload']) for name, args in calls))
+        # Source and website changes land through merged pull requests; only the
+        # generated-file Homebrew tap is pushed directly.
+        main_pushes = [args for name, args in calls if name == 'git' and 'push' in args and 'main' in args]
+        self.assertTrue(main_pushes and all(args[:1] == ['-C'] and 'youty-web' not in args[1] for args in main_pushes))
+        merged = {args[2] for name, args in calls if name == 'gh' and args[:2] == ['pr', 'merge']}
+        self.assertEqual(merged, {'7'})
+        created = {args[args.index('--repo') + 1] for name, args in calls if name == 'gh' and args[:2] == ['pr', 'create']}
+        self.assertEqual(created, {'legetdev/youty', 'legetdev/youty-web'})
         self.assertEqual((self.state / 'build').read_text(), '15')
 
     def test_skip_flags_cannot_create_partial_release(self):

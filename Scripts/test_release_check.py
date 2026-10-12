@@ -134,6 +134,22 @@ class ReleaseChecks(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 release.fetch('https://example.com/missing')
 
+    def test_release_pr_merges_only_after_green_checks(self):
+        """A generated release PR waits for pending checks and stops on a failed one."""
+        pending = json.dumps({'state': 'OPEN', 'headRefOid': 'h2', 'statusCheckRollup': [
+            {'name': 'ci', 'status': 'IN_PROGRESS', 'conclusion': None}]})
+        green = pending.replace('IN_PROGRESS', 'COMPLETED').replace('null', '"SUCCESS"')
+        unreported = json.dumps({'state': 'OPEN', 'headRefOid': 'h2', 'statusCheckRollup': []})
+        with patch.object(release, 'run', side_effect=[unreported, pending, green]), \
+                patch.object(release.time, 'sleep') as sleep:
+            self.assertEqual(release.pr_ready('o/r', 7), 'h2')
+            self.assertEqual(sleep.call_count, 2)
+        failed = green.replace('SUCCESS', 'FAILURE')
+        with patch.object(release, 'run', return_value=failed), self.assertRaises(ValueError):
+            release.pr_ready('o/r', 7)
+        merged = json.dumps({'state': 'MERGED', 'headRefOid': 'h2', 'statusCheckRollup': []})
+        with patch.object(release, 'run', return_value=merged):
+            self.assertEqual(release.pr_ready('o/r', 7), 'merged')
 
 if __name__ == '__main__':
     unittest.main()

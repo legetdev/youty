@@ -35,7 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_videos_date_saved ON videos(date_saved);
 -- One row per chunk. Four types:
 --   header      — structured metadata literal, no transcript content. Always 1 per video.
 --   description — title + channel + caption/description, only when caption > 50 tokens.
---   body        — transcript window (~400 tokens, 60-token overlap, segment-aligned).
+--   body        — transcript window (~360 model tokens, 48-token overlap, segment-aligned).
 --   frame_text  — on-screen text recognized in saved frames.
 --
 -- embedding is the raw fp32 vector as bytes (little-endian float32, length =
@@ -46,10 +46,10 @@ CREATE TABLE IF NOT EXISTS chunks (
     video_id        TEXT    NOT NULL REFERENCES videos(video_id) ON DELETE CASCADE,
     chunk_type      TEXT    NOT NULL CHECK (chunk_type IN ('header','description','body','frame_text')),
     chunk_index     INTEGER NOT NULL,        -- 0 for header/description; 0..N for body
-    chunk_text      TEXT    NOT NULL,        -- raw chunk text (no metadata prefix) — needed for rerank + display
+    chunk_text      TEXT    NOT NULL,        -- plain chunk text (no prompt or title) for keyword search + display
     chunk_start_ms  INTEGER,                 -- NULL for header/description; ms offset for body
     chunk_end_ms    INTEGER,                 -- NULL for header/description; ms offset for body
-    model_version   TEXT    NOT NULL,        -- e.g. "embeddinggemma-300m@768"
+    model_version   TEXT    NOT NULL,        -- e.g. "embeddinggemma-2@768"
     embedding_dim   INTEGER NOT NULL,
     embedding       BLOB    NOT NULL,        -- fp32 little-endian, length = embedding_dim * 4
     UNIQUE(video_id, chunk_type, chunk_index)
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS frames (
     frame_ms        INTEGER NOT NULL,        -- timestamp of the frame in milliseconds
     frame_path      TEXT    NOT NULL,        -- relative to vault root
     phash           INTEGER,                 -- 64-bit perceptual hash, useful for "find visually similar"
-    model_version   TEXT    NOT NULL,        -- e.g. "siglip-base-patch16-224@768"
+    model_version   TEXT    NOT NULL,        -- e.g. "embeddinggemma-2@768" (same space as chunks)
     embedding_dim   INTEGER NOT NULL,
     embedding       BLOB    NOT NULL,
     UNIQUE(video_id, frame_ms)
@@ -88,5 +88,5 @@ CREATE TABLE IF NOT EXISTS index_meta (
 -- vault) these are what `search` dispatches on, so they must name the shipped
 -- on-device models — not the legacy cloud / MobileCLIP ones.
 INSERT OR IGNORE INTO index_meta(key, value) VALUES ('schema_version', '2');
-INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'embeddinggemma-300m@768');
-INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'siglip-base-patch16-224@768');
+INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_text_model',  'embeddinggemma-2@768');
+INSERT OR IGNORE INTO index_meta(key, value) VALUES ('current_frame_model', 'embeddinggemma-2@768');

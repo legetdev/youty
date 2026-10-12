@@ -66,21 +66,30 @@ targets:
           - "IndexBadgeView.swift"
           - "IndexStatusStore.swift"
           - "AppUpdater.swift"
+          - "Youty.mcpb"
       - path: Sources/IndexSchema.sql
         buildPhase: resources
-      - path: Vendor/siglip/models/SigLIP-Base-224_image.mlpackage
+      # Same EmbeddingGemma 2 resources as the app, so CLI saves index text and
+      # frames in the identical space. A standalone CLI resolves them from the
+      # shared directory install-cli.sh / the Homebrew formula populate
+      # (SharedResourceLocator).
+      - path: Vendor/embeddinggemma2/models/EmbeddingGemma2Text.mlpackage
         buildPhase: resources
-      - path: Vendor/siglip/licenses
+      - path: Vendor/embeddinggemma2/models/EmbeddingGemma2Vision.mlpackage
         buildPhase: resources
-      - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
+      - path: Vendor/embeddinggemma2/resources/EmbeddingGemma2Tokens.bf16
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/vocab.bin
+      - path: Vendor/embeddinggemma2/resources/EmbeddingGemma2Positions.f16
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/merges.bin
+      - path: Vendor/embeddinggemma2/tokenizer/vocab.bin
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/added_tokens.bin
+      - path: Vendor/embeddinggemma2/tokenizer/merges.bin
         buildPhase: resources
-      - path: Vendor/embeddinggemma/licenses
+      - path: Vendor/embeddinggemma2/tokenizer/added_tokens.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma2/tokenizer/tokenizer.json
+        buildPhase: resources
+      - path: Vendor/embeddinggemma2/licenses
         buildPhase: resources
       - path: CLI
     settings:

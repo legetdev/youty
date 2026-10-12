@@ -19,11 +19,14 @@ struct VideoDetails: Sendable {
 }
 
 struct FetchResult: Sendable {
+    enum TranscriptSource: Sendable { case captions, onDeviceSpeech }
+
     let videoID: String
     let title: String
     let markdown: String
     let segments: [TranscriptSegment]
     let videoDetails: VideoDetails
+    var transcriptSource: TranscriptSource = .captions
 }
 
 // MARK: - Loader
@@ -100,6 +103,8 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
         currentURL = url
         return try await withCheckedThrowingContinuation { cont in
+            // A newer request supersedes any in-flight one: end that one first.
+            self.continuation?.resume(throwing: CancellationError())
             self.continuation = cont
             self.startAttempt()
         }
@@ -162,12 +167,21 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             }
             if (!ipr.videoDetails) return post({error: 'no_response'});
             const vd = ipr.videoDetails;
+            const details = {
+              videoID:          vd.videoId || '',
+              title:            vd.title || '',
+              author:           vd.author || '',
+              lengthSeconds:    parseInt(vd.lengthSeconds || '0', 10),
+              keywords:         vd.keywords || [],
+              shortDescription: (vd.shortDescription || '').slice(0, 2000),
+              youtubeSummary:   ''
+            };
 
             // 2. Verify captions exist
             const tracks = (ipr.captions &&
                             ipr.captions.playerCaptionsTracklistRenderer &&
                             ipr.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
-            if (!tracks.length) return post({error: 'no_captions'});
+            if (!tracks.length) return post({error: 'no_captions', videoDetails: details});
 
             // 3. Find and click "Show transcript" button
             let btn = null;
@@ -180,7 +194,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
               if (btn) break;
               await new Promise(r => setTimeout(r, 200));
             }
-            if (!btn) return post({error: 'no_btn'});
+            if (!btn) return post({error: 'no_btn', videoDetails: details});
             btn.click();
 
             // 4. Wait for segments — handles both legacy and modern YouTube UI.
@@ -229,7 +243,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
                 if (segs.length) break;
               }
             }
-            if (!segs.length) return post({error: 'panel_empty'});
+            if (!segs.length) return post({error: 'panel_empty', videoDetails: details});
 
             // 5. Opportunistically extract YouTube's AI summary
             let youtubeSummary = '';
@@ -254,15 +268,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
               title:   vd.title || '',
               videoID: vd.videoId || '',
               segments: segs,
-              videoDetails: {
-                videoID:          vd.videoId || '',
-                title:            vd.title || '',
-                author:           vd.author || '',
-                lengthSeconds:    parseInt(vd.lengthSeconds || '0', 10),
-                keywords:         vd.keywords || [],
-                shortDescription: (vd.shortDescription || '').slice(0, 2000),
-                youtubeSummary:   youtubeSummary.slice(0, 3000)
-              }
+              videoDetails: Object.assign({}, details, {youtubeSummary: youtubeSummary.slice(0, 3000)})
             });
           })();
         })();
@@ -307,7 +313,15 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             case "unavailable_video":
                 finish(throwing: FetchError.unavailableVideo)
             case "no_captions", "no_btn", "panel_empty":
-                finish(throwing: FetchError.noTranscript)
+                // Missing captions, or a transcript panel YouTube changed: fall
+                // back to on-device transcription of the audio instead of failing.
+                guard let details = (dict["videoDetails"] as? [String: Any]).flatMap(Self.videoDetails),
+                      !details.videoID.isEmpty else {
+                    finish(throwing: FetchError.noTranscript)
+                    return
+                }
+                NSLog("[youty] %@ — transcribing audio on-device", errKey)
+                transcribeAudio(details: details)
             case "no_response" where !retriedNoResponse:
                 // ytInitialPlayerResponse wasn't ready in time — almost always a
                 // transient first-load race (e.g. the first fetch right after
@@ -331,15 +345,10 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             return
         }
 
-        let videoDetails = VideoDetails(
-            videoID:          videoID,
-            title:            title,
-            author:           vdRaw["author"]           as? String   ?? "",
-            lengthSeconds:    vdRaw["lengthSeconds"]    as? Int      ?? 0,
-            keywords:         vdRaw["keywords"]         as? [String] ?? [],
-            shortDescription: vdRaw["shortDescription"] as? String   ?? "",
-            youtubeSummary:   vdRaw["youtubeSummary"]   as? String   ?? ""
-        )
+        guard let videoDetails = Self.videoDetails(vdRaw) else {
+            finish(throwing: FetchError.parseError)
+            return
+        }
 
         let segments = rawSegs.compactMap { raw -> TranscriptSegment? in
             guard let text = raw["text"] as? String, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
@@ -364,6 +373,46 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     }
 
     // MARK: - Private
+
+    nonisolated static func videoDetails(_ raw: [String: Any]) -> VideoDetails? {
+        guard let videoID = raw["videoID"] as? String, let title = raw["title"] as? String,
+              !title.isEmpty else { return nil }
+        return VideoDetails(
+            videoID:          videoID,
+            title:            title,
+            author:           raw["author"]           as? String   ?? "",
+            lengthSeconds:    raw["lengthSeconds"]    as? Int      ?? 0,
+            keywords:         raw["keywords"]         as? [String] ?? [],
+            shortDescription: raw["shortDescription"] as? String   ?? "",
+            youtubeSummary:   raw["youtubeSummary"]   as? String   ?? ""
+        )
+    }
+
+    /// Completes the pending fetch with an on-device transcript of the audio.
+    private func transcribeAudio(details: VideoDetails) {
+        fetchGen += 1   // the page's watchdog no longer applies; transcription takes longer
+        let gen = fetchGen
+        let locale = SettingsStore.transcriptionLocale(hint: "\(details.title)\n\(details.shortDescription)")
+        Task {
+            do {
+                let segments = try await YouTubeAudioTranscript.transcribe(videoID: details.videoID, locale: locale)
+                // A newer fetch replaced this one while transcribing: never answer it with this video.
+                guard fetchGen == gen else { return }
+                guard !segments.isEmpty else { throw FetchError.noTranscript }
+                finish(returning: FetchResult(
+                    videoID: details.videoID,
+                    title: details.title,
+                    markdown: TranscriptFetcher.formatMarkdown(title: details.title, segments: segments.map(\.text)),
+                    segments: segments,
+                    videoDetails: details,
+                    transcriptSource: .onDeviceSpeech))
+            } catch {
+                NSLog("[youty] on-device transcription failed: %@", error.localizedDescription)
+                guard fetchGen == gen else { return }
+                finish(throwing: FetchError.noTranscript)
+            }
+        }
+    }
 
     private func finish(returning value: FetchResult) {
         continuation?.resume(returning: value); continuation = nil
@@ -440,7 +489,7 @@ enum FetchError: LocalizedError {
         case .parseError:
             return "Youty couldn't read this YouTube page. The video may be private, deleted, or YouTube may have changed something. Try a different video."
         case .noTranscript:
-            return "This YouTube video doesn't have captions, so there's no transcript to save."
+            return "This YouTube video has no captions, and on-device transcription of its audio didn't work. Try again later, or pick a different transcription language in Settings."
         case .restrictedVideo:
             return "YouTube requires sign-in or age verification for this video. Youty can't fetch its transcript from the current session."
         case .unavailableVideo:

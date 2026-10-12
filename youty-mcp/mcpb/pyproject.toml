@@ -1,0 +1,12 @@
+# Claude Desktop installs this extension with its own bundled uv: it runs
+# `uv sync` here once (fetching youty-mcp into uv's cache), then launches the
+# server with the arguments in manifest.json.
+[project]
+name = "youty-claude-desktop"
+version = "2.0.0"
+description = "Claude Desktop extension that runs the Youty MCP server."
+requires-python = ">=3.11"
+dependencies = ["youty-mcp>=2.0.0,<3"]
+
+[tool.uv]
+package = false

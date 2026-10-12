@@ -5,7 +5,7 @@
 # dependencies = ["transformers>=4.56", "sentencepiece>=0.2", "protobuf>=4"]
 # ///
 
-"""Phase S.1 — dump canonical HF token ids for the Swift tokenizer's bit-exact gate.
+"""Dump canonical HF token ids for the Swift tokenizer's bit-exact gate.
 
 Writes branding/tok_reference.json = { text: [ids] } using the real HF tokenizer
 (add_special_tokens=True -> <bos> ... <eos>). The Swift tokenizer must reproduce
@@ -46,7 +46,7 @@ CORPUS = [
 
 
 def main() -> int:
-    tok = AutoTokenizer.from_pretrained("google/embeddinggemma-300m")
+    tok = AutoTokenizer.from_pretrained("google/embeddinggemma-2")
     ref = {t: tok(t, add_special_tokens=True)["input_ids"] for t in CORPUS}
     out = Path(__file__).resolve().parent.parent / "branding/tok_reference.json"
     out.write_text(json.dumps(ref, ensure_ascii=False, indent=0))

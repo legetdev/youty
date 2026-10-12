@@ -1,185 +1,92 @@
 # youty-mcp
 
-Local MCP server that exposes the Youty vault's vector index to any
-MCP-compatible AI (Claude Desktop, Claude Code, Cursor).
+Local MCP server that lets AI assistants use the videos you saved with
+[Youty](https://youtyapp.vercel.app): Claude Desktop, Claude Code, Cursor,
+VS Code, Codex, Gemini CLI, Windsurf, Cline, and any other MCP client.
 
-## What it does
+## What your AI can do
 
-Seven tools, hybrid dense + BM25 retrieval over your captured YouTube /
-Instagram / TikTok videos, plus joint text → frame retrieval via
-Google's SigLIP-Base-Patch16-224 (Apache-2.0). Search runs locally on macOS;
-latency depends on model warm-up, hardware, and vault size.
-
-| Tool | Returns |
+| Tool | What it does |
 |---|---|
-| `search(query, k=15, platform?, since_iso?)` | hybrid dense + BM25 + RRF over transcript chunks; top-k results with `frame` paths + `video_md_path` |
-| `search_frames(query, k=10, platform?)` | SigLIP-Base joint text→image; top-k frame matches with parent video metadata |
-| `get_transcript(video_id)` | full `video.md` + parsed frontmatter — the whole video into context |
-| `get_video(video_id)` | frontmatter + folder listing + frame paths |
-| `view_frames(video_id, frame_ms?, max_frames=6)` | the frame JPEGs themselves, as MCP image content — viewable in **any** client |
-| `list_videos(platform?, channel?, limit=100)` | newest-first listing |
-| `find_similar(video_id, k=10)` | nearest videos by averaged body-chunk vectors |
+| `search(query, videos=8, platform?, since?, kind?)` | One ranking over what videos **said**, what they **showed on screen** (slides, code, URLs), and what was **visible** in frames — grouped by video, up to three moments each, every moment with a link that opens the video at that time. Any language. |
+| `get_transcript(video_id, start_ms?, end_ms?, include_on_screen_text?)` | The transcript as timestamped paragraphs, about 6K tokens per page, with the start of the next page. |
+| `get_video(video_id)` | Overview: details, description, and chapters (the creator's own, or evenly spaced sections). |
+| `view_frames(video_id, frame_ms?, max_frames=6)` | The frames themselves, as images any client can see. |
+| `list_videos(platform?, channel?, limit=50)` | What's saved, newest first. |
+| `find_similar(video_id, k=8)` | Saved videos closest in content to one you have. |
+| `save_video(url)` | Saves a YouTube, Instagram, or TikTok link through the Youty app and returns once it's searchable. |
 
-**The loop:** `search` finds the relevant moments → `get_transcript` pulls the
-words into context → `view_frames` loads the matching frames into the model's
-vision. `search` / `search_frames` also return raw frame *paths*, which require
-a client with local-file access; `view_frames` returns the images inline, so
-the visual half of the loop works in Claude Desktop, Cursor, and Claude Code
-alike.
-
-**On-screen text.** `search` covers both what a video *said* and what it
-*showed*: each result's `chunk.type` is `body`/`description`/`header` (spoken +
-metadata) or **`frame_text`** — text recognized on-screen via on-device OCR
-(slides, code, terminal output, labels). A `frame_text` hit means the answer was
-visible in the video; pair it with `view_frames` to see that moment.
+The server also tells clients when to use Youty (MCP `instructions`), so an
+assistant reaches for your vault before the web when a question concerns
+videos you saved. Responses are compact Markdown sized to stay well inside
+client limits.
 
 ## Install
 
-```bash
-cd youty-mcp
-uv sync --locked              # creates .venv with the checked-in dependency set
-```
+**Claude Desktop:** in the Youty app, *Settings → Onboarding → Add to Claude
+Desktop* — or open [`Youty.mcpb`](https://github.com/legetdev/youty/releases/latest/download/Youty.mcpb).
+Claude Desktop brings its own runtime; nothing else to install.
 
-Dependencies: `mcp`, `cryptography`, `sqlite-vec`, `httpx`, `numpy`, `tokenizers`,
-`huggingface-hub`, `sentencepiece`, `protobuf`, and `coremltools` (macOS only).
-Python ≥ 3.11; macOS is required for Core ML query inference. Linux supports the
-fixture test suite, not production semantic search. No PyTorch or Transformers:
-existing tokenizer engines prepare queries directly, and all inference runs
-through Core ML. Tokenizer assets use
-fixed revisions to preserve compatibility with the existing vault index.
-
-## Text + frame search: 100% on-device — no key, zero config
-
-The server embeds each query on-device with **the same Core ML models the index
-was built with** — Google's EmbeddingGemma (text) and the SigLIP-Base text tower
-(frames) — so query and document vectors share one space. Inference is CPU-only
-via `coremltools` to match the int8-quantized indexer. No key, no provider
-option, or remote embedding call. Requested evidence is returned to your MCP
-client, which may send it to its AI provider according to its own settings.
-
-The models are **not** a ~1.6 GB HuggingFace download. They come from Youty's own
-release asset (`youty-models-<ver>.tar.gz`, a few hundred MB of Core ML),
-fetched once and verified by SHA-256, then cached under:
-
-```
-~/.cache/youty/coreml-models/<version>/
-```
-
-Tokenizer assets are downloaded separately from fixed Hugging Face revisions
-and cached by `huggingface-hub`. Once model and tokenizer assets are cached,
-query embedding can run offline. (Set
-`YOUTY_COREML_MODELS_DIR` to point at a local `.mlpackage` tree in dev/CI.)
-
-## Wiring it into your AI client
-
-**One command wires every MCP client on this Mac:**
+**Claude Code:** install the plugin (adds the server plus a short research skill):
 
 ```bash
-uvx youty-mcp@latest install
+claude plugin marketplace add legetdev/youty && claude plugin install youty@youty
 ```
 
-It detects Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Windsurf,
-Continue, Cline, Antigravity, and Grok CLI, then merges a `youty` entry into each client's
-config — preserving your other settings, idempotent (safe to re-run), and
-reversible with `uvx youty-mcp@latest uninstall`. The entry points at the
-**absolute path** of `uvx` so GUI apps (which launch with a stripped-down PATH)
-reliably find it. Useful variants:
+**Everything else** (needs [uv](https://docs.astral.sh/uv/): `brew install uv`):
 
 ```bash
-uvx youty-mcp@latest install --list      # every supported client + its config path
-uvx youty-mcp@latest install cursor      # wire just one client
-uvx youty-mcp@latest uninstall           # remove Youty from all detected clients
+uvx youty-mcp@latest install           # wires every MCP client it finds
+uvx youty-mcp@latest install --list    # supported clients + config paths
+uvx youty-mcp@latest install cursor    # just one
+uvx youty-mcp@latest uninstall         # remove Youty again
 ```
 
-> Why a command and not a button in the Youty app? The Mac app is sandboxed, so
-> it can't edit other apps' config files or run their CLIs. This installer ships
-> in the (non-sandboxed) `youty-mcp` package, which can. Bare `uvx youty-mcp@latest`
-> still runs the MCP server itself — that's what the clients launch.
+The installer merges a `youty` entry into each client's config, preserves your
+other settings, is safe to re-run, and skips clients that already have Youty
+through the plugin or extension. Clients launch `uvx youty-mcp@latest`, so a
+restart always loads the newest server. To wire a client by hand, use
+`{"command": "uvx", "args": ["youty-mcp@latest"]}`.
 
-Editors whose config allows comments (Zed → a `context_servers` entry in
-`~/.config/zed/settings.json`, VS Code → an `mcp.servers` entry) aren't auto-wired —
-rewriting them could strip your comments — so add Youty there by hand using the
-`command`/`args` shown below.
+## On-device search
 
-Prefer to wire a client by hand? The exact per-client config follows.
+Queries are embedded on your Mac with Google's **EmbeddingGemma 2** (Apache-2.0)
+— the same model the Youty app used to index transcripts, on-screen text, and
+frames, so one query vector compares against all three. It runs on the CPU
+(about 25–50 ms per query, ready about two seconds after a session starts) and
+is released after ten idle minutes. Keyword matching (SQLite FTS5) runs
+alongside it for exact names and terms. No key, no account, no remote
+embedding call.
 
-## Claude Desktop wiring
+The server reuses the model files of an installed Youty app or Homebrew CLI.
+Only if neither is present does it download Youty's checksummed models asset
+once into `~/.cache/youty/models/`. Set `YOUTY_MODELS_DIR` to use a local copy.
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```jsonc
-{
-  "mcpServers": {
-    "youty": {
-      "command": "uvx",
-      "args": ["youty-mcp@latest"]
-    }
-  }
-}
-```
-
-The `@latest` pin means `uvx` fetches the newest published `youty-mcp` on each
-launch — so a normal restart always loads the current server with no manual
-`uv tool upgrade`. (The Mac app auto-updates via Sparkle and the CLI via
-Homebrew with `brew upgrade legetdev/youty/youty`; those updates are separate.)
-
-Restart Claude Desktop. Then ask: _"What are best practices on creating
-AI influencers, and what tools should I use? Use my Youty vault."_
-
-## Claude Code wiring
-
-```bash
-claude mcp add youty -- uvx youty-mcp@latest
-```
-
-## Tests
-
-```bash
-uv run pytest -q
-YOUTY_TOKENIZER_PARITY=1 uv run pytest -q tests/test_query_tokenizers.py
-YOUTY_COREML_SMOKE=1 uv run pytest -q tests/test_coreml_inputs.py
-uv run python tests/smoke_live.py    # one-shot live on-device search smoke
-```
-
-The Core ML smoke check requires macOS and the model assets. It exercises both
-query encoders repeatedly and waits for deferred native cleanup, catching crashes
-that token-only tests cannot detect. Set `YOUTY_COREML_MODELS_DIR` to a local
-model directory when testing without the normal download cache.
+Your AI client receives the results it requests and may send them to its own
+provider under its own privacy settings.
 
 ## Index location
 
-Default: the Mac app's sandboxed index at
-`~/Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db`,
-falling back to `~/Library/Application Support/Youty/index.db` if that isn't
-present. Override either with `YOUTY_INDEX_DB=/abs/path`.
+The Mac app's index:
+`~/Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db`
+(falls back to `~/Library/Application Support/Youty/index.db`). Override with
+`YOUTY_INDEX_DB=/abs/path`. The index is rebuildable from the vault's
+`video.md` files and frames: *Settings → Re-index entire vault* in the app.
 
-The Mac app writes here when it saves a video (background, non-blocking).
-The MCP server reads here and promotes data to `sqlite-vec` and FTS5
-virtual tables at startup.
-
-The index is **rebuildable** from the vault's `video.md` files and frame JPEGs —
-losing it is recoverable, never catastrophic. Use the Mac app's Settings
-window → "Re-index entire vault", or run headless:
+## Develop
 
 ```bash
-"/path/to/youty.app/Contents/MacOS/youty" --reindex "/path/to/vault"
-"/path/to/youty.app/Contents/MacOS/youty" --index-frames "/path/to/vault"
+cd youty-mcp
+uv sync --locked
+uv run pytest -q
 ```
 
 ## Troubleshooting
 
-- **`search` returns 0 results** — check whether the index is empty or your
-  filters exclude the available videos. Save a video from
-  the Mac app (indexer enabled in Settings) or run `--reindex` on an
-  existing vault. No key needed — text indexing is on-device by default.
-- **First `search` / `search_frames` is slow** — the Core ML models asset
-  downloads once (`youty-models-<ver>.tar.gz`, a few hundred MB, SHA-verified)
-  into `~/.cache/youty/coreml-models/` and the encoders load lazily. Subsequent
-  queries reuse cached assets and loaded models.
-- **Legacy bundles with 4-digit-second JPEG names** (`0717.jpg`) are
-  silently skipped by frame indexing. The current contract is 8-digit
-  milliseconds (`00718000.jpg`). Re-saving the video regenerates frames
-  in the new format.
-- **Vault location unknown** error from `get_transcript` — the indexer
-  records the vault path; if you've changed it, run `--reindex` once
-  against the new path so `index_meta.vault_root` updates.
+- **No results** — check that the vault has videos (`list_videos`) and that
+  indexing is on in the app (*Settings → AI search index*).
+- **"keyword matching only"** — the on-device model couldn't load. Install or
+  update the Youty app, or let the one-time model download finish.
+- **Just updated Youty** — the app upgrades existing saves to the new search
+  model in the background on first launch; keyword search works meanwhile.
+- Logs: `~/Library/Logs/Youty/youty-mcp.log`.

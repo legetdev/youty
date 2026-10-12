@@ -34,9 +34,10 @@ struct ContentView: View {
     @State private var ingestionBannerTimer: DispatchWorkItem?
     @State private var lastIndexedFolder: URL?
     @State private var showOnboarding = false
-    @State private var migrationOffer: MigrationOffer?
-    @State private var migrationRunning = false
-    @State private var migrationDoneNote: String?
+    @State private var upgradeDoneNote: String?
+    @State private var savePending = false
+    @State private var saveAfterLogin = false
+    @State private var recents: [VaultLocalSearch.Match] = []
     @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
 
@@ -45,10 +46,6 @@ struct ContentView: View {
         let videoID: String
         let folderURL: URL
     }
-
-    /// Pending one-time S.4 migration offer (existing index built with a
-    /// different text model than the active provider).
-    private struct MigrationOffer: Equatable { let videos: Int; let chunks: Int }
 
     private var isValidURL: Bool {
         if TranscriptFetcher.extractVideoID(from: urlInput) != nil { return true }
@@ -81,8 +78,13 @@ struct ContentView: View {
         }
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: vault.vaultURL) {
+            refreshRecents()
+            maintainIndexOnLaunch()   // a vault picked during onboarding gets indexed now
+        }
         .onAppear {
             checkClipboard()
+            refreshRecents()
             DispatchQueue.main.async {
                 if let window = NSApp.windows.first(where: { $0.isVisible }) {
                     window.isOpaque = false
@@ -104,17 +106,14 @@ struct ContentView: View {
             if !settings.onboardingComplete {
                 showOnboarding = true
             }
-            // One-time on-device migration offer (S.4) for existing indexes
-            // built with a different text model than the active provider.
-            Task { await checkMigrationOffer() }
             // One-time, fully-automatic OCR backfill (V.1): quietly add on-screen
             // text to videos saved before the feature shipped. Background + silent
             // + resumable; no user action, no card.
             Task { await maybeBackfillOnScreenText() }
-            // Self-healing: index any saved-but-unindexed bundle (e.g. a save
-            // whose background index was killed when the app quit too soon).
-            // Near-free when the vault is already current; runs once per launch.
-            reconcileIndexOnLaunch()
+            // Upgrade an index built with an older model, otherwise heal any
+            // saved-but-unindexed bundle (e.g. a save whose background index was
+            // killed when the app quit too soon). Runs once per launch.
+            maintainIndexOnLaunch()
         }
         .onChange(of: funnel.dispatchID) { _, _ in
             guard let url = funnel.inboxURL else { return }
@@ -128,14 +127,18 @@ struct ContentView: View {
                     Task {
                         if autoSavePending {
                             await runAutoIngest()
+                        } else if saveAfterLogin {
+                            saveAfterLogin = false
+                            await primaryAction()
                         } else {
                             await fetch()
                         }
                     }
-                } else if autoSavePending {
+                } else {
+                    saveAfterLogin = false
                     // User canceled login during an auto-ingest. Let the funnel
                     // move on to the next queued URL.
-                    finishExternalIngest()
+                    if autoSavePending { finishExternalIngest() }
                 }
                 pendingInstagramURL = nil
             }
@@ -159,85 +162,37 @@ struct ContentView: View {
             .accessibilityLabel("youty")
     }
 
-    // MARK: - On-device migration (S.4)
+    // MARK: - Search upgrade
 
-    /// The one-time offer / progress / done banner for migrating an existing
-    /// index to the active provider's model. Non-blocking; sits above the URL
-    /// field. Search keeps working throughout (the MCP covers un-migrated
-    /// chunks with BM25), so the user only ever sees this as an improvement.
+    /// Shown while the one-time search upgrade re-embeds saved videos, then
+    /// briefly confirms the result. Non-blocking: saving and keyword search
+    /// keep working throughout.
     @ViewBuilder
-    private var migrationBanner: some View {
-        if migrationRunning {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Re-embedding for on-device search…")
+    private var upgradeBanner: some View {
+        if let upgrade = indexStatus.upgrade {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Upgrading search for your saved videos…")
                     .font(.system(size: 12, weight: .medium))
+                ProgressView(value: Double(upgrade.done), total: Double(max(upgrade.total, 1)))
+                    .tint(.accentColor)
+                    .accessibilityLabel("Search upgrade progress")
+                Text("Your AI can already search everything by keyword while this runs.")
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12), lineWidth: 1))
-            .transition(.opacity)
-        } else if let note = migrationDoneNote {
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.seal.fill")
-                    .foregroundStyle(.green).font(.system(size: 12))
-                Text(note).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .transition(.opacity)
-        } else if let offer = migrationOffer {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "wand.and.stars")
-                        .foregroundStyle(Color.accentColor).font(.system(size: 14))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Search now runs on-device — no API key needed")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("Re-embed your \(offer.videos) saved video\(offer.videos == 1 ? "" : "s") for on-device search. Keyword search keeps working while it runs.")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                HStack(spacing: 8) {
-                    Button("Re-embed now") { acceptMigration() }
-                        .buttonStyle(.borderedProminent).controlSize(.regular)
-                        .accessibilityHint("Re-embeds your saved videos on-device in the background; search keeps working while it runs")
-                    Button("Later") { dismissMigration() }
-                        .controlSize(.regular)
-                        .accessibilityHint("Dismisses this offer; you can re-embed any time from Settings, AI search index")
-                    Spacer()
-                }
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(0.3), lineWidth: 1))
-            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            .glassEffect(.regular, in: .rect(cornerRadius: 12))
+            .transition(.opacity)
+        } else if let note = upgradeDoneNote {
+            Label(note, systemImage: "checkmark.seal.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                .transition(.opacity)
         }
-    }
-
-    /// Decide whether to surface the one-time migration offer. Only for an
-    /// existing index (post-onboarding) whose text chunks aren't on the active
-    /// provider's model, and only once per target model.
-    @MainActor
-    private func checkMigrationOffer() async {
-        guard settings.onboardingComplete, !showOnboarding, vault.vaultURL != nil else { return }
-        let active = EmbeddingGemmaEmbedder.modelIdentifier
-        guard settings.textMigrationOfferedFor != active else { return }
-        let scope = (try? await IndexStore.shared.textMigrationScope(activeModel: active))
-            ?? (videos: 0, chunks: 0)
-        guard scope.videos > 0 else {
-            // Nothing to migrate — remember so we don't recompute each launch.
-            settings.textMigrationOfferedFor = active
-            return
-        }
-        withAnimation { migrationOffer = MigrationOffer(videos: scope.videos, chunks: scope.chunks) }
     }
 
     /// The OCR-backfill feature version. Bump when a future change should
@@ -245,7 +200,7 @@ struct ContentView: View {
     private static let ocrBackfillTargetVersion = 1
 
     /// Guards the once-per-launch index reconcile (onAppear can fire repeatedly).
-    private static var didReconcileThisLaunch = false
+    private static var didMaintainThisLaunch = false
 
     /// Fully-automatic, one-time background backfill of on-screen text for
     /// videos saved before V.1. Reuses `Indexer.backfillOnScreenText`, which
@@ -270,71 +225,49 @@ struct ContentView: View {
         }
     }
 
-    /// Runs once per launch: heal any saved-but-unindexed bundles — a save whose
-    /// detached background index was killed when the app quit too soon, or that
-    /// failed. Cheap when the vault is already current (no model load); see
-    /// `Indexer.reconcileMissing`. Independent of the OCR backfill (which is
-    /// version-gated + one-time) — this is the durability net on every launch.
+    /// Runs once per launch. An index built with an older embedding model is
+    /// upgraded automatically (resumable, text first, then frames); otherwise
+    /// any saved-but-unindexed bundle is healed. The text model is prepared
+    /// first so its one-time Neural Engine compilation never delays a save.
     @MainActor
-    private func reconcileIndexOnLaunch() {
+    private func maintainIndexOnLaunch() {
         guard settings.indexerEnabled, let vaultURL = vault.vaultURL,
-              !Self.didReconcileThisLaunch else { return }
-        Self.didReconcileThisLaunch = true
+              !Self.didMaintainThisLaunch else { return }
+        Self.didMaintainThisLaunch = true
         Task.detached(priority: .utility) {
             let acquired = vaultURL.startAccessingSecurityScopedResource()
             defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
-            _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)
-        }
-    }
-
-    /// User accepted: run the text-only re-embed in the background.
-    @MainActor
-    private func acceptMigration() {
-        withAnimation { migrationOffer = nil; migrationRunning = true }
-        guard let vaultURL = vault.vaultURL else { migrationRunning = false; return }
-        let target = EmbeddingGemmaEmbedder.modelIdentifier
-        Task.detached {
-            let acquired = vaultURL.startAccessingSecurityScopedResource()
-            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
-            do {
-                let s = try await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL)
-                await MainActor.run {
-                    // Only suppress the offer AFTER a successful re-embed, so a
-                    // failure (e.g. the on-device model not yet installed) leaves
-                    // it to retry next launch instead of silently burning the prompt.
-                    settings.textMigrationOfferedFor = target
-                    withAnimation {
-                        migrationRunning = false
-                        migrationDoneNote = "Now searching on-device — \(s.videosIndexed) video\(s.videosIndexed == 1 ? "" : "s") re-embedded."
-                    }
-                    scheduleMigrationNoteDismiss()
-                }
-            } catch {
-                await MainActor.run {
-                    // Surface the real cause directly — the IndexerError message
-                    // is already plain language and names the fix.
-                    withAnimation {
-                        migrationRunning = false
-                        migrationDoneNote = error.localizedDescription
-                    }
-                    scheduleMigrationNoteDismiss()
+            // Refresh manifest.json so it reflects the notes as this version reads them.
+            VaultManager.writeManifest(in: vaultURL)
+            await MainActor.run { refreshRecents() }
+            try? EmbeddingGemma2.shared().warmUp()
+            let model = EmbeddingGemma2.modelIdentifier
+            guard (try? await IndexStore.shared.needsModelMigration(activeModel: model)) == true else {
+                _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)
+                return
+            }
+            await MainActor.run {
+                withAnimation { IndexStatusStore.shared.upgrade = .init(done: 0, total: 1) }
+            }
+            let summary = try? await Indexer.migrateToCurrentModel(vaultRoot: vaultURL) { done, total in
+                Task { @MainActor in
+                    guard IndexStatusStore.shared.upgrade != nil else { return }
+                    IndexStatusStore.shared.upgrade = .init(done: done, total: total)
                 }
             }
+            await MainActor.run {
+                withAnimation {
+                    IndexStatusStore.shared.upgrade = nil
+                    if let summary, summary.failures.isEmpty {
+                        upgradeDoneNote = "Search upgraded for \(summary.videosIndexed) saved video\(summary.videosIndexed == 1 ? "" : "s")."
+                    } else {
+                        upgradeDoneNote = "Search upgrade will finish next time Youty opens."
+                    }
+                }
+                let work = DispatchWorkItem { withAnimation { upgradeDoneNote = nil } }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+            }
         }
-    }
-
-    /// Auto-clear the migration result note after a few seconds.
-    @MainActor
-    private func scheduleMigrationNoteDismiss() {
-        let work = DispatchWorkItem { withAnimation { migrationDoneNote = nil } }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
-    }
-
-    /// User chose Later: stay quiet for this target model until it changes.
-    @MainActor
-    private func dismissMigration() {
-        settings.textMigrationOfferedFor = EmbeddingGemmaEmbedder.modelIdentifier
-        withAnimation { migrationOffer = nil }
     }
 
     // MARK: - Input
@@ -342,29 +275,24 @@ struct ContentView: View {
     private var inputSection: some View {
         VStack(spacing: 12) {
             if let banner = ingestionBanner {
-                HStack(spacing: 6) {
-                    Image(systemName: "tray.and.arrow.down.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text(banner)
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.thinMaterial, in: Capsule())
-                .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
-                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+                Label(banner, systemImage: "tray.and.arrow.down.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
             }
-            migrationBanner
+            upgradeBanner
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
-                    TextField("Paste a YouTube, Instagram, or TikTok URL…", text: $urlInput)
+                    TextField("Paste a YouTube, Instagram, or TikTok link…", text: $urlInput)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 14))
+                        .font(.system(size: 13))
                         .focused($inputFocused)
-                        .onSubmit { if isValidURL { Task { await fetch() } } }
-                        .accessibilityLabel("Video URL")
-                        .accessibilityHint("Paste a YouTube, Instagram, or TikTok post URL")
+                        .onSubmit { if isValidURL && !isBusy { Task { await primaryAction() } } }
+                        .accessibilityLabel("Video link")
+                        .accessibilityHint("Paste a YouTube, Instagram, or TikTok link, then press Return")
 
                     if !urlInput.isEmpty {
                         Button {
@@ -376,88 +304,85 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                         .transition(.opacity)
-                        .accessibilityLabel("Clear URL")
+                        .accessibilityLabel("Clear link")
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                )
+                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
 
-                settingsPill
+                Button {
+                    openWindow(id: "settings")
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+                .help("Settings")
+                .accessibilityLabel("Settings")
+                .accessibilityHint("Pick a vault, connect your AI, and adjust capture options")
             }
 
-            fetchButton
+            primaryButton
         }
     }
 
-    /// Small liquid-glass pill that opens the Settings sheet. Uses the same
-    /// vertical-padding scheme as the URL bar so both align perfectly in the
-    /// HStack (the URL bar's intrinsic height drives the row height; the
-    /// pill matches by sharing identical padding + line-height).
-    private var settingsPill: some View {
-        Button {
-            openWindow(id: "settings")
-        } label: {
-            Image(systemName: "gearshape.fill")
-                .symbolRenderingMode(.hierarchical)
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-                .frame(width: 18, height: 18)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 11)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(.white.opacity(0.15), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .help("Settings")
-        .accessibilityLabel("Settings")
-        .accessibilityHint("Open the Settings window to pick a vault or adjust frame density")
+    private var isBusy: Bool {
+        if case .loading = state { return true }
+        return savePending
     }
 
-    private var fetchButton: some View {
+    /// Saving is the main job: with a vault, one click fetches the transcript,
+    /// writes the bundle, captures frames, and indexes it for search. Without
+    /// one, the button falls back to showing the transcript.
+    private var primaryButton: some View {
         Button {
-            Task { await fetch() }
+            Task { await primaryAction() }
         } label: {
             HStack(spacing: 8) {
-                if case .loading = state {
-                    ProgressView().controlSize(.small).tint(.white)
+                if isBusy {
+                    ProgressView().controlSize(.small)
                 } else {
-                    Image(systemName: "waveform.and.magnifyingglass")
+                    Image(systemName: vault.vaultURL == nil ? "waveform.and.magnifyingglass" : "square.and.arrow.down.on.square")
                 }
-                Text(buttonLabel)
-                    .font(.system(size: 14, weight: .medium))
+                Text(primaryLabel)
+                    .font(.system(size: 13, weight: .medium))
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 11)
-            .background(
-                isValidURL ? Color.accentColor : Color.secondary.opacity(0.25),
-                in: RoundedRectangle(cornerRadius: 12)
-            )
-            .foregroundStyle(isValidURL ? .white : .secondary)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(.white.opacity(isValidURL ? 0.2 : 0.08), lineWidth: 1)
-            )
+            .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
-        .disabled(!isValidURL || { if case .loading = state { return true }; return false }())
+        .buttonStyle(.glassProminent)
+        .controlSize(.large)
+        .disabled(!isValidURL || isBusy)
         .animation(.easeInOut(duration: 0.15), value: isValidURL)
+        .accessibilityLabel(primaryLabel)
+        .accessibilityHint(vault.vaultURL == nil
+                           ? "Shows the transcript. Pick a vault in Settings to save videos."
+                           : "Saves the transcript and frames to your vault and makes them searchable by your AI")
     }
 
-    private var buttonLabel: String {
-        if case .loading = state { return "Fetching…" }
-        switch detectedPlatform {
-        case .tiktok:    return "Load TikTok"
-        case .instagram: return "Load Reel"
-        case .youtube:   return "Get Transcript"
-        }
+    private var primaryLabel: String {
+        if isBusy { return vault.vaultURL == nil ? "Fetching…" : "Saving…" }
+        return vault.vaultURL == nil ? "Get Transcript" : "Save to Vault"
+    }
+
+    /// Fetch, then save straight away when a vault is set.
+    private func primaryAction() async {
+        guard vault.vaultURL != nil else { await fetch(); return }
+        savePending = true
+        defer { savePending = false }
+        let requested = urlInput
+        await fetch()
+        // Another link (Share Sheet, menu bar, AI) replaced this one meanwhile.
+        guard urlInput == requested else { return }
+        // Instagram sign-in in progress: the login sheet continues the save.
+        if showInstagramLogin { saveAfterLogin = true; return }
+        guard lastResult != nil || shortFormPreview != nil else { return }
+        // Keep the button busy until frames are captured and indexing starts, so
+        // a second click can't run a competing save into the same bundle.
+        await saveToVault(allowVaultPrompt: false)?.value
     }
 
     // MARK: - Result
@@ -465,109 +390,118 @@ struct ContentView: View {
     @ViewBuilder
     private var resultSection: some View {
         switch state {
-        case .idle, .loading:
+        case .idle:
+            recentSection
+        case .loading:
             EmptyView()
 
         case .error(let msg):
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
                 Text(msg).font(.system(size: 13)).foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button {
                     withAnimation { state = .idle }
                 } label: {
-                    Image(systemName: "xmark").foregroundStyle(.tertiary).font(.system(size: 11))
+                    Image(systemName: "xmark").foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Dismiss error")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.3), lineWidth: 1))
+            .glassEffect(.regular.tint(.red.opacity(0.15)), in: .rect(cornerRadius: 12))
             .padding(.horizontal, 24)
             .padding(.top, 20)
             .transition(.move(edge: .bottom).combined(with: .opacity))
 
         case .success(let title, let markdown):
-            VStack(spacing: 12) {
-                ScrollView {
-                    Text(markdown)
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(14)
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .lineLimit(2)
+                    ScrollView {
+                        Text(markdown)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 150)
                 }
-                .frame(height: 280)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .padding(14)
+                .glassEffect(.regular, in: .rect(cornerRadius: 12))
 
                 HStack(spacing: 10) {
-                    actionButton(icon: showCopied ? "checkmark" : "doc.on.doc",
-                                 label: showCopied ? "Copied" : "Copy",
-                                 color: .secondary) {
+                    Button {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(markdown, forType: .string)
                         withAnimation { showCopied = true }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             withAnimation { showCopied = false }
                         }
+                    } label: {
+                        Label(showCopied ? "Copied" : "Copy", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+                            .frame(maxWidth: .infinity)
                     }
-                    actionButton(icon: "arrow.down.circle", label: "Save Markdown", color: .secondary) {
+                    Button {
                         saveMarkdown(markdown, title: title)
+                    } label: {
+                        Label("Save Markdown", systemImage: "arrow.down.doc").frame(maxWidth: .infinity)
                     }
-                    actionButton(icon: vaultSaved ? "checkmark" : "square.and.arrow.down.on.square",
-                                 label: vaultSaved ? "Saved ✓" : "Save to Vault",
-                                 color: .accentColor) {
-                        saveToVault()
+                    if let folder = lastIndexedFolder {
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting([folder])
+                        } label: {
+                            Label("Show in Finder", systemImage: "folder").frame(maxWidth: .infinity)
+                        }
+                    } else if vault.vaultURL != nil, !savePending {
+                        Button {
+                            saveToVault()
+                        } label: {
+                            Label(vaultSaved ? "Saved" : "Save to Vault",
+                                  systemImage: vaultSaved ? "checkmark" : "square.and.arrow.down.on.square")
+                                .frame(maxWidth: .infinity)
+                        }
                     }
                 }
+                .buttonStyle(.glass)
+                .font(.system(size: 13))
 
-                // Vault setup prompt
                 if vault.vaultURL == nil {
                     HStack(spacing: 5) {
-                        Text("No vault set —")
-                            .font(.system(size: 12))
+                        Text("To save videos and search them with your AI,")
                             .foregroundStyle(.secondary)
-                        Button("Choose folder") { vault.chooseVault() }
-                            .font(.system(size: 12))
+                        Button("choose a vault folder") { vault.chooseVault() }
                             .buttonStyle(.plain)
                             .foregroundStyle(Color.accentColor)
                     }
+                    .font(.system(size: 11))
                 }
 
-                // Vault error banner
                 if let err = vaultError {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
-                        Text(err).font(.system(size: 12)).foregroundStyle(.primary)
+                        Text(err).font(.system(size: 11)).foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer()
                         Button { vaultError = nil } label: {
-                            Image(systemName: "xmark").font(.system(size: 10)).foregroundStyle(.tertiary)
+                            Image(systemName: "xmark").foregroundStyle(.tertiary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Dismiss error")
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.red.opacity(0.3), lineWidth: 1))
+                    .glassEffect(.regular.tint(.red.opacity(0.15)), in: .rect(cornerRadius: 10))
                 }
 
-                // Fast-path failure banner + fallback button
                 if let failure = fastFailure {
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red)
-                                .font(.system(size: 11))
-                            Text("Couldn't capture frames automatically.")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.primary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer()
-                        }
+                        Label("Couldn't capture frames automatically.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11))
                         Button {
                             fastFailure = nil
                             Task {
@@ -575,59 +509,17 @@ struct ContentView: View {
                                                         folderURL: failure.folderURL)
                             }
                         } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "tortoise.fill").font(.system(size: 11))
-                                Text("Capture frames anyway")
-                                    .font(.system(size: 12, weight: .medium))
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 7)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            .foregroundStyle(Color.accentColor)
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                            Label("Capture frames anyway", systemImage: "tortoise.fill")
+                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.glass)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 9)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.red.opacity(0.35), lineWidth: 1))
+                    .padding(10)
+                    .glassEffect(.regular.tint(.red.opacity(0.12)), in: .rect(cornerRadius: 10))
                     .transition(.opacity)
                 }
 
-                // Background frame progress
-                switch vault.frameState {
-                case .capturingStream:
-                    frameStatusRow(text: "Reaching YouTube…", showSpinner: true)
-                case .downloading(let p):
-                    VStack(alignment: .leading, spacing: 3) {
-                        ProgressView(value: p).tint(.accentColor)
-                        Text("Downloading video \(Int(p * 100))%")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                case .extracting:
-                    VStack(alignment: .leading, spacing: 3) {
-                        ProgressView(value: frameProgress).tint(.accentColor)
-                        Text("Extracting frames \(Int(frameProgress * 100))%")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                case .done(let count):
-                    VStack(alignment: .leading, spacing: 4) {
-                        frameStatusRow(text: "\(count) frames saved ✓", showSpinner: false)
-                        if let folder = lastIndexedFolder,
-                           let state = indexStatus.state(for: folder) {
-                            IndexBadgeView(state: state)
-                                .transition(.opacity.combined(with: .move(edge: .leading)))
-                        }
-                    }
-                    .animation(.easeInOut(duration: 0.2), value: lastIndexedFolder)
-                    .animation(.easeInOut(duration: 0.2),
-                               value: lastIndexedFolder.flatMap { indexStatus.state(for: $0) })
-                case .failed:
-                    Text("Couldn't capture frames — the video is still saved.").font(.system(size: 11)).foregroundStyle(.secondary)
-                default:
-                    EmptyView()
-                }
+                frameStatus
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
@@ -635,19 +527,114 @@ struct ContentView: View {
         }
     }
 
-    private func actionButton(icon: String, label: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                Text(label).font(.system(size: 13, weight: .medium))
+    /// Frame capture and indexing progress for the video just saved.
+    @ViewBuilder
+    private var frameStatus: some View {
+        switch vault.frameState {
+        case .capturingStream:
+            frameStatusRow(text: "Reaching YouTube…", showSpinner: true)
+        case .downloading(let p):
+            VStack(alignment: .leading, spacing: 3) {
+                ProgressView(value: p).tint(.accentColor)
+                Text("Downloading video \(Int(p * 100))%")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .foregroundStyle(color)
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(0.12), lineWidth: 1))
+        case .extracting:
+            VStack(alignment: .leading, spacing: 3) {
+                ProgressView(value: frameProgress).tint(.accentColor)
+                Text("Capturing frames \(Int(frameProgress * 100))%")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        case .done(let count):
+            HStack(spacing: 8) {
+                frameStatusRow(text: "Saved with \(count) frames", showSpinner: false)
+                if let folder = lastIndexedFolder, let state = indexStatus.state(for: folder) {
+                    IndexBadgeView(state: state)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: lastIndexedFolder.flatMap { indexStatus.state(for: $0) })
+        case .failed:
+            Text("Couldn't capture frames — the transcript is still saved.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        default:
+            EmptyView()
         }
-        .buttonStyle(.plain)
+    }
+
+    // MARK: - Recently saved
+
+    /// The last few saves, so it's always visible what the AI can search.
+    @ViewBuilder
+    private var recentSection: some View {
+        if !recents.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Recently saved")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+                VStack(spacing: 0) {
+                    ForEach(recents, id: \.folder) { item in
+                        Button {
+                            NSWorkspace.shared.activateFileViewerSelecting([item.folder])
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: Self.platformSymbol(item.platform))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 16)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(item.title).font(.system(size: 13)).lineLimit(1)
+                                    Text(item.channel).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 8)
+                                if let state = indexStatus.state(for: item.folder) {
+                                    IndexBadgeView(state: state)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(item.title), \(item.channel)")
+                        .accessibilityHint("Shows the saved video in Finder")
+                        .contextMenu {
+                            if let url = URL(string: item.url) {
+                                Button("Open Original") { NSWorkspace.shared.open(url) }
+                                Button("Copy Link") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(item.url, forType: .string)
+                                }
+                            }
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.folder]) }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+                .glassEffect(.regular, in: .rect(cornerRadius: 12))
+                Text(settings.onboardingMCPDone
+                     ? "Ask your AI about anything here — “what did they say about …?”"
+                     : "Connect your AI in Settings to ask it about anything you save.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 4)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 18)
+            .transition(.opacity)
+        }
+    }
+
+    private static func platformSymbol(_ platform: String) -> String {
+        switch platform {
+        case "instagram": return "camera"
+        case "tiktok":    return "music.note"
+        default:          return "play.rectangle"
+        }
+    }
+
+    private func refreshRecents() {
+        recents = VaultLocalSearch.recents(limit: 5)
     }
 
     // MARK: - Actions
@@ -672,6 +659,8 @@ struct ContentView: View {
                 withAnimation(.spring(duration: 0.4)) {
                     state = .success(title: result.title, markdown: result.markdown)
                 }
+            } catch is CancellationError {
+                // Superseded by a newer link; that fetch owns the screen now.
             } catch {
                 withAnimation(.spring(duration: 0.3)) {
                     state = .error(error.localizedDescription)
@@ -763,7 +752,9 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: work)
     }
 
-    private func saveToVault(allowVaultPrompt: Bool = true) {
+    /// Returns the background save (frames + indexing) for callers that wait on it.
+    @discardableResult
+    private func saveToVault(allowVaultPrompt: Bool = true) -> Task<Void, Never>? {
         vaultError = nil
 
         // No vault configured. For a user-initiated save, prompt them to pick a
@@ -774,11 +765,11 @@ struct ContentView: View {
         if vault.vaultURL == nil {
             if allowVaultPrompt {
                 vault.chooseVault()
-                guard vault.vaultURL != nil else { return }
+                guard vault.vaultURL != nil else { return nil }
             } else {
                 vaultError = VaultError.noVault.localizedDescription
                 finishExternalIngest()
-                return
+                return nil
             }
         }
 
@@ -788,7 +779,7 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 withAnimation { self.vaultSaved = false }
             }
-            Task { @MainActor in
+            return Task { @MainActor in
                 let pipeline = shortForm.pipeline(vault: vault, settings: settings)
                 do {
                     let stageHandler: @Sendable (FrameStage) -> Void = { stage in
@@ -808,29 +799,30 @@ struct ContentView: View {
                     finishExternalIngest()
                 }
             }
-            return
         }
 
-        // YouTube path (unchanged).
+        // YouTube path.
         guard let result = lastResult else {
             vaultError = "Nothing to save yet. Load a video first."
             finishExternalIngest()
-            return
+            return nil
         }
         let metadata = MetadataEnricher.enrich(from: result)
         do {
             let folderURL = try vault.saveNote(result: result, metadata: metadata)
+            lastIndexedFolder = folderURL
             withAnimation { vaultSaved = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 withAnimation { self.vaultSaved = false }
             }
             let videoID = result.videoID
-            Task {
+            return Task {
                 await runFramePipeline(videoID: videoID, folderURL: folderURL)
             }
         } catch {
             vaultError = error.localizedDescription
             finishExternalIngest()
+            return nil
         }
     }
 
@@ -900,7 +892,7 @@ struct ContentView: View {
                 NSLog("[youty] frame indexer skipped/failed: \(error.localizedDescription)")
                 lastError = error.localizedDescription
             }
-            // Frame indexing is local + offline (SigLIP CoreML) — if it
+            // Frame indexing is local + offline (EmbeddingGemma 2) — if it
             // succeeds, the bundle is searchable. Transcript indexing failing
             // alone usually means the on-device text model wasn't available;
             // frames are independently useful, so it's not a hard failure.
@@ -963,6 +955,7 @@ struct ContentView: View {
                 withAnimation { vault.frameState = .failed(reason) }
             }
         }
+        refreshRecents()
         // External-ingestion completion: settle the funnel so the next
         // queued URL (if any) gets picked up.
         finishExternalIngest()

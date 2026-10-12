@@ -83,7 +83,7 @@ python3 "$ROOT/Scripts/verify-updater.py"
 "$ROOT/Scripts/fetch-models.sh"
 
 echo "==> Building Release youty.app (arm64)..."
-# arm64-only: Youty's SigLIP frame embedder uses Float16 (which has no
+# arm64-only: Youty's EmbeddingGemma 2 pipeline uses Float16 (which has no
 # x86_64 initializer). A plain Release build would
 # default to a universal slice and fail to compile the Intel half.
 xcodebuild \

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Fetch the on-device Core ML models (EmbeddingGemma text encoder + SigLIP
-# image encoder) that building Youty from source requires.
+# Fetch the on-device EmbeddingGemma 2 models (text + vision Core ML packages,
+# token and position tables, tokenizer) that building Youty from source requires.
 #
-# These weights live OUTSIDE git — they're ~415 MB and would bloat a lean,
+# These weights live OUTSIDE git — they're ~880 MB and would bloat a lean,
 # public repo and burn its Git-LFS bandwidth quota. Instead they're published
 # as a single checksummed asset on the matching GitHub Release and fetched on
 # demand into Vendor/.
@@ -18,9 +18,9 @@ set -euo pipefail
 
 # Pinned to the release whose asset carries these exact weights. Bump all three
 # together if the models ever change. SHA-256 is enforced before extraction.
-MODELS_VERSION="1.1.0"
-MODELS_SHA256="56e9da609720b5a598bb74d678bc33a41ba563b6742c6dee120e8e5236ab6a96"
-MODELS_URL="https://github.com/legetdev/youty/releases/download/v${MODELS_VERSION}/youty-models-${MODELS_VERSION}.tar.gz"
+MODELS_VERSION="2.0.0"
+MODELS_SHA256="d0fb8541138a0460a59eb869cdc4cb13563d31fb8bc30bbd1a69793c5b3340f4"
+MODELS_URL="https://github.com/legetdev/youty/releases/download/models-${MODELS_VERSION}/youty-models-${MODELS_VERSION}.tar.gz"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -28,13 +28,16 @@ cd "$ROOT"
 # The large files the asset provides (relative to repo root). The tiny
 # Manifest.json companions stay in git, so the .mlpackages reassemble correctly.
 REQUIRED=(
-  "Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage/Data/com.apple.CoreML/model.mlmodel"
-  "Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage/Data/com.apple.CoreML/weights/weight.bin"
-  "Vendor/embeddinggemma/tokenizer/added_tokens.bin"
-  "Vendor/embeddinggemma/tokenizer/merges.bin"
-  "Vendor/embeddinggemma/tokenizer/vocab.bin"
-  "Vendor/siglip/models/SigLIP-Base-224_image.mlpackage/Data/com.apple.CoreML/model.mlmodel"
-  "Vendor/siglip/models/SigLIP-Base-224_image.mlpackage/Data/com.apple.CoreML/weights/weight.bin"
+  "Vendor/embeddinggemma2/models/EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/model.mlmodel"
+  "Vendor/embeddinggemma2/models/EmbeddingGemma2Text.mlpackage/Data/com.apple.CoreML/weights/weight.bin"
+  "Vendor/embeddinggemma2/models/EmbeddingGemma2Vision.mlpackage/Data/com.apple.CoreML/model.mlmodel"
+  "Vendor/embeddinggemma2/models/EmbeddingGemma2Vision.mlpackage/Data/com.apple.CoreML/weights/weight.bin"
+  "Vendor/embeddinggemma2/resources/EmbeddingGemma2Tokens.bf16"
+  "Vendor/embeddinggemma2/resources/EmbeddingGemma2Positions.f16"
+  "Vendor/embeddinggemma2/tokenizer/added_tokens.bin"
+  "Vendor/embeddinggemma2/tokenizer/merges.bin"
+  "Vendor/embeddinggemma2/tokenizer/vocab.bin"
+  "Vendor/embeddinggemma2/tokenizer/tokenizer.json"
 )
 
 all_present() {
@@ -48,7 +51,7 @@ if all_present; then
   exit 0
 fi
 
-echo "==> Fetching Youty models (v${MODELS_VERSION}, ~415 MB)…"
+echo "==> Fetching Youty models (v${MODELS_VERSION}, ~880 MB)…"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 TARBALL="$TMP/models.tar.gz"

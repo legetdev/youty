@@ -1,0 +1,15 @@
+{
+  "name": "youty",
+  "description": "Youty for Claude Code: search, read, watch, and save the videos in your local Youty vault.",
+  "owner": {
+    "name": "Bent Eisheuer",
+    "url": "https://github.com/legetdev"
+  },
+  "plugins": [
+    {
+      "name": "youty",
+      "source": "./plugins/youty",
+      "description": "Ask Claude about the YouTube, Instagram, and TikTok videos you saved with Youty — on-device search with timestamped links."
+    }
+  ]
+}

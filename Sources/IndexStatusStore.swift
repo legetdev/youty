@@ -4,8 +4,8 @@ import Combine
 // Process-wide, observable index-state store.
 //
 // Tracks which saved bundles are currently being indexed in the background
-// (transcript embed on-device + frame embed via SigLIP) and which have
-// finished. The in-app saved-video row and the menu bar item both observe
+// (transcript and frames embedded on-device) and which have finished, plus
+// the one-time search upgrade that re-embeds an older index. The in-app saved-video row and the menu bar item both observe
 // this store so the user always knows whether a freshly-saved video is
 // fully searchable yet.
 //
@@ -33,10 +33,14 @@ final class IndexStatusStore: ObservableObject {
 
     @Published private(set) var entries: [String: Entry] = [:]
 
+    /// Progress of the one-time search upgrade, while it runs.
+    struct Upgrade: Equatable { var done: Int; var total: Int }
+    @Published var upgrade: Upgrade?
+
     // True while any bundle is currently mid-index. The menu bar button
     // reads this to decide whether to overlay its progress dot.
     var isAnyIndexing: Bool {
-        entries.values.contains { $0.state == .indexing }
+        upgrade != nil || entries.values.contains { $0.state == .indexing }
     }
 
     // Begin tracking a bundle. Called from triggerIndexer right before the

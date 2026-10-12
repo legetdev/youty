@@ -1,10 +1,9 @@
 import Foundation
 
-// Parses a video.md bundle file and yields the three Phase B chunk types
-// (header / description / body). The chunk's `embeddingInput` carries the
-// metadata prefix that anchors the vector in the right semantic
-// neighbourhood (Anthropic contextual retrieval); `text` is the raw,
-// prefix-free slice used for storage, FTS, and rerank.
+// Parses a video.md bundle file and yields its chunks (header, description,
+// spoken transcript, on-screen text). A chunk's `embeddingInput` is the text in
+// EmbeddingGemma 2's document format, anchored by the video title; `text` is
+// the plain content used for storage, keyword search, and agent responses.
 
 struct Chunk {
     // `frameText` = text recognized on-screen via OCR (slides, code, captions
@@ -13,8 +12,8 @@ struct Chunk {
     enum Kind: String { case header, description, body, frameText = "frame_text" }
 
     let type: Kind
-    let index: Int          // 0 for header / description; 0..N for body
-    let text: String        // raw text (no metadata prefix)
+    let index: Int          // position within its kind, from 0
+    let text: String        // plain content (no prompt or title)
     let embeddingInput: String
     let startMs: Int?       // nil for header / description
     let endMs: Int?
@@ -76,33 +75,55 @@ struct ParsedVideoMd {
 
 enum Chunker {
 
-    private static let bodyTargetTokens = 400
-    private static let bodyOverlapTokens = 60
+    /// Counts model tokens in `text`, excluding `<bos>`/`<eos>`.
+    typealias TokenCounter = (String) -> Int
+
+    /// Content tokens per chunk (≈1–2 minutes of speech). With the document
+    /// prompt, the video title, and the carried overlap, every embedding input
+    /// stays well inside EmbeddingGemma 2's 512-token window.
+    static let targetTokens = 360
+    static let overlapTokens = 48
+    static let maxInputTokens = 500
     private static let descriptionMinTokens = 50
-    // Conservative chars/token estimate. English averages ~4.0, but German (a
-    // first-class language here — the embedder is multilingual and Bent's vault
-    // is partly German) runs shorter, ~3.3. Using 3.5 slightly *over*-counts
-    // tokens so target-sized chunks stay safely under the embedder's context in
-    // real tokens rather than overflowing. Exact tokenization happens downstream
-    // in EmbeddingGemma; this is only for chunk sizing.
+    /// Rough characters-per-token for callers without the model tokenizer
+    /// (tests, parse-only paths). German runs shorter than English, so 3.5
+    /// slightly over-counts and keeps estimates on the safe side.
     private static let charsPerToken: Double = 3.5
-    // Hard ceiling on any chunk's embedding input. EmbeddingGemma's context is
-    // 2048 tokens; staying well under it (room for the metadata prefix) means a
-    // chunk can never be silently truncated at embed time, losing its tail from
-    // search. Splitting enforces this for descriptions and oversized segments.
-    private static let maxChunkTokens = 1800
 
     /// Loads `video.md` and returns a parsed view + the chunks for it.
-    static func parseAndChunk(videoMdURL: URL) throws -> (parsed: ParsedVideoMd, chunks: [Chunk]) {
+    static func parseAndChunk(videoMdURL: URL,
+                              tokens: TokenCounter = approxTokens) throws -> (parsed: ParsedVideoMd, chunks: [Chunk]) {
         let text: String
         do { text = try String(contentsOf: videoMdURL, encoding: .utf8) }
         catch { throw ChunkerError.readFailed(error) }
         let parsed = try parse(text: text)
-        let chunks = chunk(parsed: parsed)
+        let chunks = chunk(parsed: parsed, tokens: tokens)
         return (parsed, chunks)
     }
 
     // MARK: - Parsing
+
+    /// Value of a frontmatter scalar. Double-quoted values use the JSON-compatible
+    /// escapes `VaultManager` writes (`\"`, `\\`), so decode them as JSON strings.
+    nonisolated static func frontmatterScalar(_ raw: String) -> String {
+        if raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\""),
+           let value = try? JSONDecoder().decode(String.self, from: Data(raw.utf8)) {
+            return value
+        }
+        return raw.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    /// Items of an inline frontmatter list such as `["a", "b, c"]`.
+    nonisolated static func frontmatterList(_ raw: String) -> [String] {
+        if let items = try? JSONDecoder().decode([String].self, from: Data(raw.utf8)) {
+            return items.filter { !$0.isEmpty }
+        }
+        return raw
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .components(separatedBy: ",")
+            .map { frontmatterScalar($0.trimmingCharacters(in: .whitespaces)) }
+            .filter { !$0.isEmpty }
+    }
 
     static func parse(text: String) throws -> ParsedVideoMd {
         let lines = text.components(separatedBy: "\n")
@@ -116,7 +137,7 @@ enum Chunker {
             let line = lines[i]
             let parts = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard parts.count == 2 else { continue }
-            kv[parts[0]] = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            kv[parts[0]] = frontmatterScalar(parts[1])
         }
 
         let platform = kv["platform"] ?? "youtube"
@@ -127,11 +148,7 @@ enum Chunker {
         let durationMs = parseDurationLabelToMs(kv["duration"] ?? "")
 
         let tagsRaw = kv["tags"] ?? kv["hashtags"] ?? "[]"
-        let tags = tagsRaw
-            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            .components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
-            .filter { !$0.isEmpty }
+        let tags = frontmatterList(tagsRaw)
 
         let dateSavedMs = parseDateSavedToUnixMs(kv["date_saved"] ?? "")
 
@@ -163,136 +180,98 @@ enum Chunker {
 
     // MARK: - Chunking
 
-    static func chunk(parsed p: ParsedVideoMd) -> [Chunk] {
-        var chunks: [Chunk] = []
-        chunks.append(makeHeader(parsed: p))
-        chunks.append(contentsOf: makeDescriptionChunks(parsed: p))
-        chunks.append(contentsOf: makeBodyChunks(parsed: p))
-        chunks.append(contentsOf: makeFrameTextChunks(parsed: p))
+    /// Header, description, spoken transcript, and on-screen text chunks. Each
+    /// chunk's embedding input uses EmbeddingGemma 2's native document format
+    /// with the video title in the title slot; the stored `text` is the plain
+    /// content agents read back.
+    static func chunk(parsed p: ParsedVideoMd, tokens: TokenCounter = approxTokens) -> [Chunk] {
+        var chunks = [makeHeader(parsed: p)]
+        chunks += makeDescriptionChunks(parsed: p, tokens: tokens)
+        chunks += timestampedChunks(parsed: p, segments: p.segments, kind: .body, tokens: tokens)
+        chunks += timestampedChunks(parsed: p, segments: p.frameTextSegments, kind: .frameText, tokens: tokens)
         return chunks
     }
 
     private static func makeHeader(parsed p: ParsedVideoMd) -> Chunk {
-        let tags = p.tags.joined(separator: ", ")
-        var lines: [String] = []
-        lines.append("Title: \(p.title)")
-        lines.append("Channel: \(p.channel)")
-        lines.append("Platform: \(p.platform)")
-        lines.append("Tags: \(tags)")
-        lines.append("Duration: \(p.durationLabel)")
+        var lines = [p.title]
+        if !p.channel.isEmpty { lines.append("By \(p.channel) on \(p.platform.capitalized)") }
+        let topics = Tags.clean(p.tags).prefix(15)
+        if !topics.isEmpty { lines.append("Topics: \(topics.joined(separator: ", "))") }
+        if !p.durationLabel.isEmpty { lines.append("Length: \(p.durationLabel)") }
         let text = lines.joined(separator: "\n")
-        // Header's embedding input *is* the metadata literal — no prefix.
-        return Chunk(type: .header,
-                     index: 0,
-                     text: text,
-                     embeddingInput: text,
-                     startMs: nil,
-                     endMs: nil)
+        return Chunk(type: .header, index: 0, text: text,
+                     embeddingInput: EmbeddingGemma2.documentInput(title: p.title, text: text),
+                     startMs: nil, endMs: nil)
     }
 
-    private static func makeDescriptionChunks(parsed p: ParsedVideoMd) -> [Chunk] {
+    /// Content budget for one chunk of this video: the target, minus whatever
+    /// the prompt, title, and overlap take from the model window.
+    private static func contentBudget(title: String, tokens: TokenCounter) -> Int {
+        let reserve = tokens(EmbeddingGemma2.documentInput(title: title, text: "")) + 2
+        return max(64, min(targetTokens, maxInputTokens - reserve - overlapTokens))
+    }
+
+    private static func makeDescriptionChunks(parsed p: ParsedVideoMd, tokens: TokenCounter) -> [Chunk] {
         let body = p.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return [] }
-        let combinedRough = "\(p.title)\n\(p.channel)\n\n\(body)"
-        if approxTokens(combinedRough) < descriptionMinTokens { return [] }
-        // Long descriptions (some YouTube descriptions run thousands of tokens)
-        // are split so no single chunk overflows the embedder and loses its tail.
-        let pieces = splitText(body, target: bodyTargetTokens, overlap: bodyOverlapTokens)
-        return pieces.enumerated().map { i, piece in
-            let embeddingInput = "Title: \(p.title)\nChannel: \(p.channel)\n\n\(piece)"
-            return Chunk(type: .description,
-                         index: i,
-                         text: piece,
-                         embeddingInput: embeddingInput,
-                         startMs: nil,
-                         endMs: nil)
-        }
+        guard !body.isEmpty, tokens(body) >= descriptionMinTokens else { return [] }
+        let budget = contentBudget(title: p.title, tokens: tokens)
+        return splitText(body, target: budget, overlap: overlapTokens, tokens: tokens)
+            .enumerated().map { i, piece in
+                Chunk(type: .description, index: i, text: piece,
+                      embeddingInput: EmbeddingGemma2.documentInput(title: p.title, text: piece),
+                      startMs: nil, endMs: nil)
+            }
     }
 
-    private static func makeBodyChunks(parsed p: ParsedVideoMd) -> [Chunk] {
-        timestampedChunks(parsed: p, segments: p.segments, kind: .body)
-    }
-
-    /// OCR'd on-screen text → searchable chunks, bucketed exactly like the
-    /// transcript but tagged `.frameText` and prefixed so both the vector and
-    /// the reading AI know this is what was *shown*, not *said*.
-    private static func makeFrameTextChunks(parsed p: ParsedVideoMd) -> [Chunk] {
-        timestampedChunks(parsed: p, segments: p.frameTextSegments, kind: .frameText)
-    }
-
-    /// Shared bucketer for timestamped segment streams (transcript + on-screen
-    /// text). Accumulates whole segments to ~400 tokens with a 60-token overlap
-    /// carried between chunks; oversized single segments are pre-split so no
-    /// chunk overflows the embedder.
+    /// Accumulates whole timestamped segments (transcript lines or on-screen
+    /// text entries) up to the content budget, carrying a short overlap between
+    /// chunks. Spoken text is stored as prose; on-screen text keeps one
+    /// timestamped line per changed screen so readers can tell when it appeared.
     private static func timestampedChunks(parsed p: ParsedVideoMd,
                                           segments rawSegments: [ParsedVideoMd.Segment],
-                                          kind: Chunk.Kind) -> [Chunk] {
+                                          kind: Chunk.Kind,
+                                          tokens: TokenCounter) -> [Chunk] {
         guard !rawSegments.isEmpty else { return [] }
-        let segments = explodeOversizedSegments(rawSegments)
+        let budget = contentBudget(title: p.title, tokens: tokens)
+        let segments = explodeOversizedSegments(rawSegments, target: budget, tokens: tokens)
 
-        struct Bucket { var segments: [ParsedVideoMd.Segment] = []; var tokens: Int = 0 }
         var out: [Chunk] = []
-        var bucket = Bucket()
-        var idx = 0
+        var bucket: [(segment: ParsedVideoMd.Segment, tokens: Int)] = []
+        var total = 0
+        var hasNew = false
 
         func flush() {
-            guard !bucket.segments.isEmpty else { return }
-            let start = bucket.segments.first!.startMs
-            let end = bucket.segments.last!.endMs ?? bucket.segments.last!.startMs
-            let raw = bucket.segments.map { "[\(formatTimestamp($0.startMs))] \($0.text)" }.joined(separator: "\n")
-            let embedInput = timestampedEmbeddingInput(parsed: p, kind: kind, startMs: start, endMs: end, text: raw)
-            out.append(Chunk(type: kind, index: idx, text: raw, embeddingInput: embedInput, startMs: start, endMs: end))
-            idx += 1
-            // Carry tail segments for overlap.
-            var tail: [ParsedVideoMd.Segment] = []
+            guard hasNew, let first = bucket.first, let last = bucket.last else { return }
+            let plain = bucket.map(\.segment.text).joined(separator: " ")
+            let text = kind == .frameText
+                ? bucket.map { "[\(formatTimestamp($0.segment.startMs))] \($0.segment.text)" }.joined(separator: "\n")
+                : plain
+            out.append(Chunk(type: kind, index: out.count, text: text,
+                             embeddingInput: EmbeddingGemma2.documentInput(title: p.title, text: plain),
+                             startMs: first.segment.startMs,
+                             endMs: last.segment.endMs ?? last.segment.startMs))
+            var tail: [(segment: ParsedVideoMd.Segment, tokens: Int)] = []
             var tailTokens = 0
-            for seg in bucket.segments.reversed() {
-                let t = approxTokens(seg.text)
-                if tailTokens + t > bodyOverlapTokens { break }
-                tail.insert(seg, at: 0)
-                tailTokens += t
+            for item in bucket.reversed() {
+                if tailTokens + item.tokens > overlapTokens { break }
+                tail.insert(item, at: 0)
+                tailTokens += item.tokens
             }
-            bucket = Bucket()
-            bucket.segments = tail
-            bucket.tokens = tailTokens
+            bucket = tail
+            total = tailTokens
+            hasNew = false
         }
 
-        for seg in segments {
-            bucket.segments.append(seg)
-            bucket.tokens += approxTokens(seg.text)
-            if bucket.tokens >= bodyTargetTokens { flush() }
+        for segment in segments {
+            let count = tokens(segment.text) + 1
+            if hasNew, total + count > budget { flush() }
+            bucket.append((segment, count))
+            total += count
+            hasNew = true
+            if total >= budget { flush() }
         }
-        // Final flush — skip if the trailing bucket is only the overlap tail
-        // re-prepended after the previous flush (no genuinely new segments).
-        if !bucket.segments.isEmpty {
-            let overlapOnly: Bool = {
-                guard let lastChunk = out.last else { return false }
-                let lastEndMs = lastChunk.endMs ?? -1
-                let firstStart = bucket.segments.first?.startMs ?? -2
-                return bucket.segments.allSatisfy { $0.startMs <= lastEndMs } && firstStart <= lastEndMs
-            }()
-            if !overlapOnly { flush() }
-        }
+        flush()
         return out
-    }
-
-    private static func timestampedEmbeddingInput(parsed p: ParsedVideoMd,
-                                                  kind: Chunk.Kind,
-                                                  startMs: Int,
-                                                  endMs: Int,
-                                                  text: String) -> String {
-        let tags = p.tags.joined(separator: ", ")
-        let ts = "[\(formatTimestamp(startMs)) – \(formatTimestamp(endMs))]"
-        let sourceLine = kind == .frameText ? "\nSource: on-screen text (OCR)" : ""
-        return """
-        Title: \(p.title)
-        Channel: \(p.channel)
-        Platform: \(p.platform)
-        Tags: \(tags)
-        Timestamp: \(ts)\(sourceLine)
-
-        \(text)
-        """
     }
 
     // MARK: - Description section extraction
@@ -372,23 +351,25 @@ enum Chunker {
 
     // MARK: - Token / timestamp utilities
 
-    private static func approxTokens(_ s: String) -> Int {
+    /// Character-based token estimate for callers without the model tokenizer.
+    static func approxTokens(_ s: String) -> Int {
         let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return 0 }
         return max(1, Int(ceil(Double(trimmed.count) / charsPerToken)))
     }
 
-    // MARK: - Splitting (keep every chunk under the embedder's context)
+    // MARK: - Splitting (keep every chunk inside the model window)
 
-    /// Split any segment whose text already exceeds the chunk target into
-    /// sentence-grouped sub-segments, interpolating timestamps across the
-    /// segment's span so each piece still maps to the right frame. Segments at
-    /// or under target pass through untouched.
-    private static func explodeOversizedSegments(_ segs: [ParsedVideoMd.Segment]) -> [ParsedVideoMd.Segment] {
+    /// Split any segment longer than `target` tokens into sentence-grouped
+    /// pieces, interpolating timestamps across the segment's span so each piece
+    /// still maps to the right frame. Shorter segments pass through untouched.
+    private static func explodeOversizedSegments(_ segs: [ParsedVideoMd.Segment],
+                                                 target: Int,
+                                                 tokens: TokenCounter) -> [ParsedVideoMd.Segment] {
         var out: [ParsedVideoMd.Segment] = []
         for seg in segs {
-            if approxTokens(seg.text) <= bodyTargetTokens { out.append(seg); continue }
-            let pieces = splitText(seg.text, target: bodyTargetTokens, overlap: 0)
+            if tokens(seg.text) <= target { out.append(seg); continue }
+            let pieces = splitText(seg.text, target: target, overlap: 0, tokens: tokens)
             let span = (seg.endMs ?? seg.startMs) - seg.startMs
             let n = max(pieces.count, 1)
             for (i, piece) in pieces.enumerated() {
@@ -404,39 +385,40 @@ enum Chunker {
     /// `overlap` tokens between pieces. Sentence segmentation is locale-aware
     /// (`.bySentences`), so it handles German and other languages correctly. A
     /// single sentence longer than `target` (e.g. unpunctuated ASR) falls back
-    /// to word-splitting, guaranteeing no piece exceeds `maxChunkTokens`.
-    static func splitText(_ text: String, target: Int, overlap: Int) -> [String] {
+    /// to word-splitting, so no piece exceeds `target`.
+    static func splitText(_ text: String, target: Int, overlap: Int,
+                          tokens: TokenCounter = approxTokens) -> [String] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return [] }
-        if approxTokens(trimmed) <= target { return [trimmed] }
+        if tokens(trimmed) <= target { return [trimmed] }
 
         let sentences = splitIntoSentences(trimmed)
         var pieces: [String] = []
-        var cur: [String] = []
+        var cur: [(text: String, tokens: Int)] = []
         var curTok = 0
 
         func flush(carryOverlap: Bool) {
             guard !cur.isEmpty else { return }
-            pieces.append(cur.joined(separator: " ").trimmingCharacters(in: .whitespaces))
+            pieces.append(cur.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespaces))
             guard carryOverlap, overlap > 0 else { cur = []; curTok = 0; return }
-            var tail: [String] = []; var t = 0
+            var tail: [(text: String, tokens: Int)] = []
+            var t = 0
             for u in cur.reversed() {
-                let k = approxTokens(u)
-                if t + k > overlap { break }
-                tail.insert(u, at: 0); t += k
+                if t + u.tokens > overlap { break }
+                tail.insert(u, at: 0); t += u.tokens
             }
             cur = tail; curTok = t
         }
 
         for unit in sentences {
-            if approxTokens(unit) > target {
-                // A single oversized sentence: flush, then hard word-split it.
+            let count = tokens(unit) + 1
+            if count > target {
                 flush(carryOverlap: false)
-                pieces.append(contentsOf: wordSplit(unit, target: target))
+                pieces.append(contentsOf: wordSplit(unit, target: target, tokens: tokens))
                 continue
             }
-            cur.append(unit); curTok += approxTokens(unit)
-            if curTok >= target { flush(carryOverlap: true) }
+            if !cur.isEmpty, curTok + count > target { flush(carryOverlap: true) }
+            cur.append((unit, count)); curTok += count
         }
         flush(carryOverlap: false)
         return pieces.filter { !$0.isEmpty }
@@ -461,16 +443,17 @@ enum Chunker {
     }
 
     /// Last-resort splitter for a single unit with no usable sentence breaks:
-    /// group words up to `target` tokens (hard-capped at `maxChunkTokens`).
-    private static func wordSplit(_ text: String, target: Int) -> [String] {
-        let cap = min(max(target, 1), maxChunkTokens)
+    /// group words up to `target` tokens.
+    private static func wordSplit(_ text: String, target: Int, tokens: TokenCounter) -> [String] {
+        let cap = max(target, 1)
         let words = text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
         var out: [String] = []
         var cur: [Substring] = []
         var tok = 0
         for w in words {
-            cur.append(w); tok += approxTokens(String(w))
-            if tok >= cap { out.append(cur.joined(separator: " ")); cur = []; tok = 0 }
+            let count = tokens(String(w)) + 1
+            if !cur.isEmpty, tok + count > cap { out.append(cur.joined(separator: " ")); cur = []; tok = 0 }
+            cur.append(w); tok += count
         }
         if !cur.isEmpty { out.append(cur.joined(separator: " ")) }
         return out.isEmpty ? [text] : out
@@ -483,18 +466,19 @@ enum Chunker {
                      : String(format: "%d:%02d", m, sec)
     }
 
-    /// "1:23" or "1:02:03" → ms; nil on parse failure.
+    /// "1:23", "1:02:03", or with milliseconds ("0:04.560", the on-device
+    /// transcription format) → ms; nil on parse failure.
     static func parseTimestampLabelToMs(_ s: String) -> Int? {
-        let parts = s.split(separator: ":").map(String.init)
-        guard !parts.isEmpty else { return nil }
-        var h = 0, m = 0, sec = 0
-        switch parts.count {
-        case 1: guard let v = Int(parts[0]) else { return nil }; sec = v
-        case 2: guard let a = Int(parts[0]), let b = Int(parts[1]) else { return nil }; m = a; sec = b
-        case 3: guard let a = Int(parts[0]), let b = Int(parts[1]), let c = Int(parts[2]) else { return nil }; h = a; m = b; sec = c
-        default: return nil
+        let parts = s.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard (1...3).contains(parts.count), let last = parts.last,
+              last.allSatisfy({ $0.isNumber || $0 == "." }),
+              let seconds = Double(last), seconds.isFinite else { return nil }
+        var minutes = 0
+        for part in parts.dropLast() {
+            guard !part.isEmpty, part.allSatisfy(\.isNumber), let value = Int(part) else { return nil }
+            minutes = minutes * 60 + value
         }
-        return ((h * 3600) + (m * 60) + sec) * 1000
+        return minutes * 60_000 + Int((seconds * 1000).rounded())
     }
 
     private static func parseDurationLabelToMs(_ s: String) -> Int? {

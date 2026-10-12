@@ -28,6 +28,7 @@ struct SettingsView: View {
     let onDismiss: () -> Void
 
     @StateObject private var indexerProgress = IndexerProgress()
+    @ObservedObject private var indexStatus = IndexStatusStore.shared
     @State private var showOnboarding: Bool = false
 
     var body: some View {
@@ -216,9 +217,9 @@ struct SettingsView: View {
             .labelsHidden()
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityLabel("Transcription language")
-            .accessibilityHint("Language Apple's on-device speech model uses for Instagram and TikTok transcripts")
+            .accessibilityHint("Language Apple's on-device speech model uses when a video has no captions")
 
-            Text("Used by Instagram and TikTok. YouTube transcripts are scraped directly from the platform.")
+            Text("Used when a video has no captions — most Instagram and TikTok posts, and YouTube videos without them. Automatic picks the language of the post's title and caption.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -264,14 +265,14 @@ struct SettingsView: View {
                 Spacer()
             }
 
-            // Migration card (S.4) — appears only when the index was built with
-            // an older model than the on-device embedder (e.g. a legacy index).
-            // A text-only re-embed (frames untouched), so it's the fast path.
-            if let s = indexerProgress.stats,
-               let model = s.textModelID,
-               model != EmbeddingGemmaEmbedder.modelIdentifier,
-               s.chunkCount > 0 {
-                migrationCard()
+            if let upgrade = indexStatus.upgrade {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Upgrading search for your saved videos (\(upgrade.done / 2) of \(max(upgrade.total / 2, 1)))…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    ProgressView(value: Double(upgrade.done), total: Double(max(upgrade.total, 1)))
+                        .accessibilityLabel("Search upgrade progress")
+                }
             }
 
             // Re-index action.
@@ -290,7 +291,7 @@ struct SettingsView: View {
                     }
                 }
                 .controlSize(.regular)
-                .disabled(indexerProgress.isRunning || vault.vaultURL == nil)
+                .disabled(indexerProgress.isRunning || indexStatus.upgrade != nil || vault.vaultURL == nil)
                 .accessibilityLabel(indexerProgress.isRunning ? "Indexing in progress" : "Re-index entire vault")
                 .accessibilityHint("Re-embeds every saved video into the local search index")
 
@@ -363,76 +364,6 @@ struct SettingsView: View {
                 let line = "Indexed \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
                            (summary.framesKept > 0 ? " · \(summary.framesKept) frames" : "") +
                            (summary.videosDeleted > 0 ? " · \(summary.videosDeleted) removed" : "") +
-                           (summary.failures.isEmpty ? "" : " — \(summary.failures.count) failed")
-                await MainActor.run {
-                    self.indexerProgress.lastStatus = line
-                    self.indexerProgress.isRunning = false
-                    self.indexerProgress.refreshStats()
-                }
-            } catch {
-                await MainActor.run {
-                    self.indexerProgress.lastStatus = "Couldn't finish — \(error.localizedDescription)"
-                    self.indexerProgress.isRunning = false
-                }
-            }
-        }
-    }
-
-    /// Contextual migration card shown when the index's text model is older
-    /// than the on-device embedder (e.g. a legacy index). Offers a text-only
-    /// re-embed to the on-device model.
-    @ViewBuilder
-    private func migrationCard() -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.accentColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Update this vault for on-device search")
-                        .font(.system(size: 12, weight: .medium))
-                    Text("Your index was built with an older model. Re-embed it on-device — keyword search keeps working while it runs.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Button {
-                runTextReembed()
-            } label: {
-                HStack(spacing: 6) {
-                    if indexerProgress.isRunning {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                    }
-                    Text(indexerProgress.isRunning ? "Re-embedding…" : "Re-embed on-device")
-                        .font(.system(size: 12, weight: .medium))
-                }
-            }
-            .controlSize(.regular)
-            .disabled(indexerProgress.isRunning || vault.vaultURL == nil)
-            .accessibilityHint("Re-embeds only transcript text on-device; frame search is untouched")
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1))
-    }
-
-    /// Text-only re-embed (frames untouched) — the S.4 migration path.
-    private func runTextReembed() {
-        guard let vaultURL = vault.vaultURL else { return }
-        indexerProgress.isRunning = true
-        indexerProgress.lastStatus = "Re-embedding transcript text…"
-        Task.detached {
-            let acquired = vaultURL.startAccessingSecurityScopedResource()
-            defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
-            do {
-                let summary = try await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL) { line in
-                    Task { @MainActor in self.indexerProgress.lastStatus = line }
-                }
-                let line = "Re-embedded \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
                            (summary.failures.isEmpty ? "" : " — \(summary.failures.count) failed")
                 await MainActor.run {
                     self.indexerProgress.lastStatus = line
@@ -541,10 +472,9 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
 
                 Group {
-                    aboutRow("FFmpeg 7.1.1", license: "LGPL-2.1+", note: "statically linked")
-                    aboutRow("Sparkle 2.9.6", license: "MIT", note: "auto-update framework")
-                    aboutRow("SigLIP-Base-Patch16-224 (CoreML)", license: "Apache-2.0", note: "bundled, on-device frame search")
-                    aboutRow("EmbeddingGemma-300m (CoreML)", license: "Gemma Terms", note: "bundled, on-device text search")
+                    aboutRow("FFmpeg 9.0.2", license: "LGPL-2.1+", note: "statically linked")
+                    aboutRow("Sparkle 2.10.0", license: "MIT", note: "auto-update framework")
+                    aboutRow("EmbeddingGemma 2 (Core ML)", license: "Apache-2.0", note: "bundled, on-device text and frame search")
                     aboutRow("SQLite", license: "public domain", note: "system library")
                     aboutRow("Apple system frameworks", license: "Apple SDK Agreement", note: nil)
                 }
@@ -566,15 +496,10 @@ struct SettingsView: View {
                     }
                     .accessibilityLabel("Show FFmpeg LGPL-2.1 license")
 
-                    Button("SigLIP") {
-                        openBundledResource(name: "LICENSE", ext: nil)
+                    Button("EmbeddingGemma 2") {
+                        openBundledResource(name: "EmbeddingGemma2-NOTICE", ext: "txt")
                     }
-                    .accessibilityLabel("Show SigLIP Apache-2.0 license")
-
-                    Button("Gemma") {
-                        openBundledResource(name: "EmbeddingGemma-NOTICE", ext: "txt")
-                    }
-                    .accessibilityLabel("Show EmbeddingGemma Gemma Terms notice")
+                    .accessibilityLabel("Show EmbeddingGemma 2 Apache-2.0 notice")
 
                     Spacer()
                 }

@@ -26,13 +26,13 @@ class Youty < Formula
   # the real per-arch sha256s. Until a matching bottle exists, brew transparently
   # falls back to the from-source build below — so this formula always installs.
 
-  # On-device Core ML model weights (EmbeddingGemma + SigLIP). These live
+  # On-device EmbeddingGemma 2 model weights, tables, and tokenizer. These live
   # outside git — too large for the repo — and ship as a release asset, so the
   # source tarball above doesn't contain them. Fetched here and laid into
   # Vendor/ before the build. This separate pin changes only with model weights.
   resource "models" do
-    url "https://github.com/legetdev/youty/releases/download/v1.1.0/youty-models-1.1.0.tar.gz"
-    sha256 "56e9da609720b5a598bb74d678bc33a41ba563b6742c6dee120e8e5236ab6a96"
+    url "https://github.com/legetdev/youty/releases/download/models-2.0.0/youty-models-2.0.0.tar.gz"
+    sha256 "d0fb8541138a0460a59eb869cdc4cb13563d31fb8bc30bbd1a69793c5b3340f4"
   end
 
   # macOS 26 Tahoe is required: the SpeechAnalyzer + SpeechTranscriber
@@ -49,7 +49,7 @@ class Youty < Formula
     # the repo lean). Merge the release-asset tarball's Vendor/ tree into the
     # source so xcodebuild finds the .mlpackage build inputs. Homebrew strips the
     # asset's single top-level "Vendor/" dir on stage, so the CWD here holds its
-    # contents (embeddinggemma/, siglip/) — merge each into the source's Vendor/,
+    # contents (embeddinggemma2/) — merge it into the source's Vendor/,
     # which already carries the .mlpackage Manifests + FFmpeg statics from git.
     resource("models").stage do
       Dir["*"].each do |sub|
@@ -75,24 +75,31 @@ class Youty < Formula
     # The CLI is a bare binary with no Resources/ bundle of its own, so the
     # index schema, the on-device models, and the tokenizer live in
     # <prefix>/share/youty/, which SharedResourceLocator.swift checks relative
-    # to the binary. This gives the brew CLI the *exact same* text
-    # (EmbeddingGemma) + frame (SigLIP) indexing the Mac app performs.
+    # to the binary. This gives the brew CLI the *exact same* text and frame
+    # indexing (EmbeddingGemma 2) the Mac app performs; the youty-mcp server
+    # also reuses these files for query embedding instead of downloading them.
     youty_share = share/"youty"
     youty_share.install "Sources/IndexSchema.sql"
 
     # Compile the Core ML models (.mlpackage -> .mlmodelc) into share/youty.
-    # The weights come from the `models` resource staged above. coremlcompiler
-    # emits "<name>.mlmodelc" — the exact name SharedResourceLocator looks up.
-    system "xcrun", "coremlcompiler", "compile",
-           "Vendor/siglip/models/SigLIP-Base-224_image.mlpackage", youty_share
-    system "xcrun", "coremlcompiler", "compile",
-           "Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage", youty_share
+    # coremlcompiler emits "<name>.mlmodelc" — the name SharedResourceLocator
+    # looks up.
+    %w[EmbeddingGemma2Text EmbeddingGemma2Vision].each do |model|
+      system "xcrun", "coremlcompiler", "compile",
+             "Vendor/embeddinggemma2/models/#{model}.mlpackage", youty_share
+    end
 
-    # The EmbeddingGemma tokenizer artifacts (the native vocab/merges/added
-    # tokens the Swift GemmaTokenizer reads from the model's directory).
-    youty_share.install "Vendor/embeddinggemma/tokenizer/vocab.bin",
-                        "Vendor/embeddinggemma/tokenizer/merges.bin",
-                        "Vendor/embeddinggemma/tokenizer/added_tokens.bin"
+    # Token and position tables, the native tokenizer artifacts the Swift
+    # GemmaTokenizer reads, Google's tokenizer.json for the MCP server, and
+    # the model license + NOTICE.
+    youty_share.install "Vendor/embeddinggemma2/resources/EmbeddingGemma2Tokens.bf16",
+                        "Vendor/embeddinggemma2/resources/EmbeddingGemma2Positions.f16",
+                        "Vendor/embeddinggemma2/tokenizer/vocab.bin",
+                        "Vendor/embeddinggemma2/tokenizer/merges.bin",
+                        "Vendor/embeddinggemma2/tokenizer/added_tokens.bin",
+                        "Vendor/embeddinggemma2/tokenizer/tokenizer.json",
+                        "Vendor/embeddinggemma2/licenses/EmbeddingGemma2-LICENSE.txt",
+                        "Vendor/embeddinggemma2/licenses/EmbeddingGemma2-NOTICE.txt"
   end
 
   def caveats
@@ -100,10 +107,9 @@ class Youty < Formula
       youty (CLI) is now installed. The Mac app is a separate download:
         https://youtyapp.vercel.app
 
-      The MCP server (for Claude Desktop / Cursor / any MCP client) is
-      a separate Python package — wire it as uvx youty-mcp@latest so it
-      always loads the newest version (no manual upgrade):
-        claude mcp add youty -- uvx youty-mcp@latest
+      Connect your AI assistant (Claude Code, Codex, Cursor, …) to your
+      saved videos with one command — it wires every client it finds:
+        uvx youty-mcp@latest install
 
       Quick start:
         youty save https://www.youtube.com/watch?v=...
@@ -117,7 +123,7 @@ class Youty < Formula
   test do
     # Lightweight smoke checks — no network calls, no FFmpeg invocation,
     # just confirm the binary runs and reports a sensible version + help.
-    assert_match "youty 1.", shell_output("#{bin}/youty --version")
+    assert_match(/youty \d+\./, shell_output("#{bin}/youty --version"))
     assert_match "USAGE", shell_output("#{bin}/youty --help")
   end
 end

@@ -6,10 +6,10 @@ import AppKit
 //   2. AI search — runs 100% on-device (no key, nothing to configure).
 //   3. Install the `youty` command-line binary — copies the install
 //      command + opens Terminal so the user can see what runs.
-//   4. Connect your AI (MCP) — one command (`uvx youty-mcp@latest install`)
-//      auto-wires every MCP client detected on the Mac; or pick a single
-//      client (Claude Code, Codex, Gemini CLI, Claude Desktop, Cursor, …)
-//      and copy its exact command / JSON snippet.
+//   4. Connect your AI (MCP) — one click per app: Claude Desktop installs the
+//      bundled extension (Youty.mcpb, no Terminal or uv needed), Cursor and
+//      VS Code open their install links, Claude Code gets the plugin command;
+//      every other client is wired by `uvx youty-mcp@latest install`.
 //
 // Plus an always-visible footer disclosure card on ContentView (the
 // IG/TikTok ToS posture mirroring yt-dlp). The footer is in
@@ -25,9 +25,7 @@ struct OnboardingView: View {
     let onDismiss: () -> Void
 
     @State private var cliCopyConfirmed: Bool = false
-    @State private var mcpCopyConfirmed: Bool = false
-    @State private var mcpAutoCopyConfirmed: Bool = false
-    @State private var mcpClient: MCPClient = .claudeCode
+    @State private var copiedClient: AIClient?
 
     private var vaultDone: Bool { vault.vaultURL != nil }
     /// "Done" for CLI/MCP is heuristic — we can't detect whether the
@@ -206,105 +204,61 @@ struct OnboardingView: View {
     }
 
     private var mcpCard: some View {
-        card(number: 3, title: "Connect your AI assistant (MCP)", required: false, done: mcpDone) {
+        card(number: 3, title: "Connect your AI assistant", required: false, done: mcpDone) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("The main way to use Youty agentically — your AI searches everything you've saved by meaning, across transcripts and frames, then reads them straight into its context. Works with any MCP-capable client.")
+                Text("Your AI can then search everything you save — what was said, shown, and seen — read transcripts, look at frames, and save new links for you.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                // Primary path: one command auto-detects every MCP client on the
-                // Mac and wires Youty into each. The sandboxed app can't edit other
-                // apps' configs itself, so this runs the (non-sandboxed) youty-mcp
-                // package's installer via uvx.
-                Text("Wire every AI client on this Mac — one command:")
-                    .font(.system(size: 11, weight: .medium))
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(AIClient.allCases.filter(\.isInstalled)) { client in
+                        Button {
+                            connect(client)
+                        } label: {
+                            Label(copiedClient == client ? "Copied — paste it into Terminal" : client.buttonTitle,
+                                  systemImage: copiedClient == client ? "checkmark" : client.symbol)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.glass)
+                        .accessibilityHint(client.hint)
+                    }
+                }
+
+                Text("Other apps — Codex, Gemini CLI, Windsurf, Cline, and more — are wired by one command (needs uv: brew install uv):")
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 codeBlock(Self.mcpAutoInstallCommand)
-                HStack(spacing: 10) {
-                    Button {
-                        copyAndOpenTerminal(command: Self.mcpAutoInstallCommand)
-                        mcpAutoCopyConfirmed = true
-                        settings.onboardingMCPDone = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            mcpAutoCopyConfirmed = false
-                        }
-                    } label: {
-                        Label(mcpAutoCopyConfirmed ? "Copied ✓" : "Copy + open Terminal",
-                              systemImage: mcpAutoCopyConfirmed ? "checkmark" : "terminal")
-                    }
-                    .controlSize(.small)
-                    .accessibilityLabel("Copy the auto-install command and open Terminal")
-                    Spacer()
+                Button {
+                    copyAndOpenTerminal(command: Self.mcpAutoInstallCommand)
+                    settings.onboardingMCPDone = true
+                    flashCopied(.otherApps)
+                } label: {
+                    Label(copiedClient == .otherApps ? "Copied ✓" : "Copy + open Terminal",
+                          systemImage: copiedClient == .otherApps ? "checkmark" : "terminal")
                 }
-                Text("Detects Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI and more, and adds Youty to each — preserving your other settings. Re-run anytime; it only touches Youty's own entry. Needs uv: brew install uv")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Divider().opacity(0.4).padding(.vertical, 2)
-
-                // Manual path: copy one client's exact config / command instead.
-                Text("Or set up one client yourself")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 8) {
-                    Text("Client")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                    Picker("AI client", selection: $mcpClient) {
-                        ForEach(MCPClient.allCases) { client in
-                            Text(client.displayName).tag(client)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
-                    .accessibilityLabel("Choose your MCP client")
-                    Spacer()
-                }
-                Text(mcpClient.instruction)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                codeBlock(mcpClient.snippet)
-                HStack(spacing: 10) {
-                    Button {
-                        if mcpClient.isCLI {
-                            copyAndOpenTerminal(command: mcpClient.snippet)
-                        } else {
-                            copyToClipboard(mcpClient.snippet)
-                        }
-                        mcpCopyConfirmed = true
-                        settings.onboardingMCPDone = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            mcpCopyConfirmed = false
-                        }
-                    } label: {
-                        Label(mcpCopyConfirmed ? "Copied ✓"
-                                : mcpClient.isCLI ? "Copy + open Terminal" : "Copy config",
-                              systemImage: mcpCopyConfirmed ? "checkmark"
-                                : mcpClient.isCLI ? "terminal" : "doc.on.doc")
-                    }
-                    .controlSize(.small)
-                    .accessibilityLabel(mcpClient.isCLI
-                                        ? "Copy MCP command and open Terminal"
-                                        : "Copy the MCP config snippet to clipboard")
-                    Spacer()
-                }
-
-                // GUI apps launched from Finder run with a stripped-down PATH and
-                // may not find a bare `uvx`. The one-command setup above writes the
-                // full path automatically; this is the fallback for the manual route.
-                Text("Not showing up after restarting the client? Replace uvx with its full path — run which uvx in Terminal. The one-command setup above already does this for you.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Link("How to add an MCP server →",
-                     destination: URL(string: "https://modelcontextprotocol.io/quickstart/user")!)
-                    .font(.system(size: 11))
+                .controlSize(.small)
+                .accessibilityLabel("Copy the install command for other AI apps and open Terminal")
             }
+        }
+    }
+
+    private func connect(_ client: AIClient) {
+        switch client.action {
+        case .open(let url):
+            NSWorkspace.shared.open(url)
+        case .copy(let text):
+            copyToClipboard(text)
+            flashCopied(client)
+        }
+        settings.onboardingMCPDone = true
+    }
+
+    private func flashCopied(_ client: AIClient) {
+        copiedClient = client
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if copiedClient == client { copiedClient = nil }
         }
     }
 
@@ -435,75 +389,78 @@ struct OnboardingView: View {
     /// command, so the user never has to know about the tap mechanic.
     static let cliInstallCommand = "brew install legetdev/youty/youty"
 
-    // `uvx …@latest` fetches + runs the newest published youty-mcp on every
-    // launch — so there's no separate install step and no manual upgrade ever:
-    // a normal client restart always loads the latest server. The Mac app
-    // (Sparkle) and CLI (brew) already auto-update; this keeps the MCP in step.
-    static let mcpInstallCommand = "claude mcp add youty -- uvx youty-mcp@latest"
-
     // One-shot auto-wiring: the youty-mcp package's installer detects every MCP
     // client on the Mac and merges Youty into each config. `uvx …@latest install`
     // dispatches to youty_mcp.cli → install (bare `uvx …@latest` runs the server).
-    static let mcpAutoInstallCommand = "uvx youty-mcp@latest install"
-
-    static let mcpConfigSnippet = """
-{
-  "mcpServers": {
-    "youty": {
-      "command": "uvx",
-      "args": ["youty-mcp@latest"]
-    }
-  }
-}
-"""
+    nonisolated static let mcpAutoInstallCommand = "uvx youty-mcp@latest install"
 }
 
-// The MCP clients surfaced in onboarding. CLI agents (Claude Code, Codex,
-// Gemini CLI) are wired with a single `… mcp add` command; GUI/file clients
-// (Claude Desktop, Cursor) take the JSON snippet pasted into a config file.
-// Every path points at `uvx youty-mcp@latest`, so a normal client restart
-// always loads the newest server — no manual upgrade. Commands verified against
-// each tool's current docs (June 2026).
-private enum MCPClient: String, CaseIterable, Identifiable {
-    case claudeCode, codex, geminiCLI, claudeDesktop, cursor
+/// AI apps Onboarding connects in one click. Claude Desktop installs the
+/// bundled extension (it ships its own uv, so nothing else is needed); Cursor
+/// and VS Code accept install links; Claude Code installs the Youty plugin
+/// from this repository's marketplace. All of them run `uvx youty-mcp@latest`,
+/// so a client restart always loads the newest server.
+enum AIClient: String, Identifiable {
+    case claudeDesktop, claudeCode, cursor, vsCode, otherApps
+
+    static let allCases: [AIClient] = [.claudeDesktop, .claudeCode, .cursor, .vsCode]
+
+    enum Action { case open(URL), copy(String) }
 
     var id: String { rawValue }
 
-    var displayName: String {
+    static let claudeCodeCommand = "claude plugin marketplace add legetdev/youty && claude plugin install youty@youty"
+
+    var buttonTitle: String {
         switch self {
-        case .claudeCode: return "Claude Code"
-        case .codex: return "Codex"
-        case .geminiCLI: return "Gemini CLI"
-        case .claudeDesktop: return "Claude Desktop"
-        case .cursor: return "Cursor"
+        case .claudeDesktop: return "Add to Claude Desktop"
+        case .claudeCode:    return "Copy the Claude Code install command"
+        case .cursor:        return "Add to Cursor"
+        case .vsCode:        return "Add to VS Code"
+        case .otherApps:     return "Other apps"
         }
     }
 
-    /// CLI agents take a terminal command; the rest paste JSON into a config file.
-    var isCLI: Bool {
+    var symbol: String { self == .claudeCode ? "terminal" : "plus.app" }
+
+    var hint: String {
         switch self {
-        case .claudeCode, .codex, .geminiCLI: return true
-        case .claudeDesktop, .cursor: return false
+        case .claudeDesktop: return "Opens Claude Desktop's install dialog for the Youty extension"
+        case .claudeCode:    return "Copies a Terminal command that installs the Youty plugin for Claude Code"
+        case .cursor:        return "Opens Cursor's install dialog for Youty; needs uv"
+        case .vsCode:        return "Opens VS Code's install dialog for Youty; needs uv"
+        case .otherApps:     return ""
         }
     }
 
-    var instruction: String {
+    var action: Action {
         switch self {
-        case .claudeCode, .codex, .geminiCLI:
-            return "Run this in your terminal:"
         case .claudeDesktop:
-            return "Paste into ~/Library/Application Support/Claude/claude_desktop_config.json, then restart Claude Desktop:"
+            return .open(Bundle.main.url(forResource: "Youty", withExtension: "mcpb")
+                         ?? URL(string: "https://github.com/legetdev/youty/releases/latest/download/Youty.mcpb")!)
+        case .claudeCode, .otherApps:
+            return .copy(Self.claudeCodeCommand)
         case .cursor:
-            return "Paste into ~/.cursor/mcp.json (or .cursor/mcp.json in a project), then restart Cursor:"
+            let config = Data(#"{"command":"uvx","args":["youty-mcp@latest"]}"#.utf8).base64EncodedString()
+            let query = config.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? config
+            return .open(URL(string: "cursor://anysphere.cursor-deeplink/mcp/install?name=youty&config=\(query)")!)
+        case .vsCode:
+            let json = #"{"name":"youty","command":"uvx","args":["youty-mcp@latest"]}"#
+            let encoded = json.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? json
+            return .open(URL(string: "vscode:mcp/install?\(encoded)")!)
         }
     }
 
-    var snippet: String {
+    /// Whether the app is on this Mac. Claude Code is a command-line tool the
+    /// sandbox can't see, so it is always offered.
+    var isInstalled: Bool {
+        let bundleID: String
         switch self {
-        case .claudeCode: return OnboardingView.mcpInstallCommand
-        case .codex: return "codex mcp add youty -- uvx youty-mcp@latest"
-        case .geminiCLI: return "gemini mcp add youty uvx youty-mcp@latest"
-        case .claudeDesktop, .cursor: return OnboardingView.mcpConfigSnippet
+        case .claudeDesktop: bundleID = "com.anthropic.claudefordesktop"
+        case .cursor:        bundleID = "com.todesktop.230313mzl4w4u92"
+        case .vsCode:        bundleID = "com.microsoft.VSCode"
+        case .claudeCode, .otherApps: return true
         }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) != nil
     }
 }

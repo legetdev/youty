@@ -8,7 +8,7 @@ options:
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    exactVersion: 2.9.6
+    exactVersion: 2.10.0
 
 settings:
   base:
@@ -39,7 +39,12 @@ targets:
       - path: Sources
         excludes:
           - "IndexSchema.sql"
+          - "Youty.mcpb"
       - path: Sources/IndexSchema.sql
+        buildPhase: resources
+      # Claude Desktop extension opened by Onboarding's one-click button
+      # (built by Scripts/build-mcpb.sh).
+      - path: Sources/Youty.mcpb
         buildPhase: resources
       # Bundled license texts — surfaced by the in-app About panel and
       # required for LGPL §1 compliance (accompany the binary with the
@@ -48,27 +53,29 @@ targets:
         buildPhase: resources
       - path: Vendor/ffmpeg/licenses
         buildPhase: resources
-      # SigLIP image encoder + its Apache-2.0 license text. The .mlpackage
-      # ships inside the app bundle so the indexer can compile + load it
-      # on first use without any runtime download.
-      - path: Vendor/siglip/models/SigLIP-Base-224_image.mlpackage
+      # EmbeddingGemma 2 (Apache-2.0): one on-device space for transcript text,
+      # on-screen text, and frames. Text + vision Core ML packages (compiled to
+      # .mlmodelc at build time), the memory-mapped token and position tables,
+      # the compact native tokenizer, the original tokenizer.json (so the MCP
+      # server can reuse the installed app's models without a download), and
+      # the license + NOTICE.
+      - path: Vendor/embeddinggemma2/models/EmbeddingGemma2Text.mlpackage
         buildPhase: resources
-      - path: Vendor/siglip/licenses
+      - path: Vendor/embeddinggemma2/models/EmbeddingGemma2Vision.mlpackage
         buildPhase: resources
-      # EmbeddingGemma on-device text encoder (Phase S.1): the Core ML model +
-      # its compact native tokenizer artifact (vocab/merges/added_tokens .bin —
-      # the 32 MB tokenizer.json is deliberately NOT shipped) + the Gemma-license
-      # NOTICE. The .mlpackage auto-compiles to .mlmodelc in the bundle and
-      # supplies the on-device text encoder used for vault indexing.
-      - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
+      - path: Vendor/embeddinggemma2/resources/EmbeddingGemma2Tokens.bf16
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/vocab.bin
+      - path: Vendor/embeddinggemma2/resources/EmbeddingGemma2Positions.f16
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/merges.bin
+      - path: Vendor/embeddinggemma2/tokenizer/vocab.bin
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/added_tokens.bin
+      - path: Vendor/embeddinggemma2/tokenizer/merges.bin
         buildPhase: resources
-      - path: Vendor/embeddinggemma/licenses
+      - path: Vendor/embeddinggemma2/tokenizer/added_tokens.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma2/tokenizer/tokenizer.json
+        buildPhase: resources
+      - path: Vendor/embeddinggemma2/licenses
         buildPhase: resources
     settings:
       base:
@@ -141,29 +148,30 @@ targets:
           - "IndexBadgeView.swift"
           - "IndexStatusStore.swift"
           - "AppUpdater.swift"
+          - "Youty.mcpb"
       - path: Sources/IndexSchema.sql
         buildPhase: resources
-      # CLI binary uses the same bundled SigLIP image encoder as the Mac
-      # app — frame embedding happens during `youty save`. Resource is
-      # picked up by the binary's enclosing bundle (or, if the CLI was
-      # invoked standalone, via the bundle-walking fallback in
-      # SigLIPLoader.bundledModelURL()).
-      - path: Vendor/siglip/models/SigLIP-Base-224_image.mlpackage
+      # Same EmbeddingGemma 2 resources as the app, so CLI saves index text and
+      # frames in the identical space. A standalone CLI resolves them from the
+      # shared directory install-cli.sh / the Homebrew formula populate
+      # (SharedResourceLocator).
+      - path: Vendor/embeddinggemma2/models/EmbeddingGemma2Text.mlpackage
         buildPhase: resources
-      - path: Vendor/siglip/licenses
+      - path: Vendor/embeddinggemma2/models/EmbeddingGemma2Vision.mlpackage
         buildPhase: resources
-      # EmbeddingGemma text encoder for CLI text indexing parity (Phase S.1).
-      # Standalone CLI resolves these from the shared dir install-cli.sh
-      # populates (SharedResourceLocator).
-      - path: Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage
+      - path: Vendor/embeddinggemma2/resources/EmbeddingGemma2Tokens.bf16
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/vocab.bin
+      - path: Vendor/embeddinggemma2/resources/EmbeddingGemma2Positions.f16
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/merges.bin
+      - path: Vendor/embeddinggemma2/tokenizer/vocab.bin
         buildPhase: resources
-      - path: Vendor/embeddinggemma/tokenizer/added_tokens.bin
+      - path: Vendor/embeddinggemma2/tokenizer/merges.bin
         buildPhase: resources
-      - path: Vendor/embeddinggemma/licenses
+      - path: Vendor/embeddinggemma2/tokenizer/added_tokens.bin
+        buildPhase: resources
+      - path: Vendor/embeddinggemma2/tokenizer/tokenizer.json
+        buildPhase: resources
+      - path: Vendor/embeddinggemma2/licenses
         buildPhase: resources
       - path: CLI
     settings:

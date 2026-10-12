@@ -17,21 +17,15 @@ xcuserdata/
 # Debug logs
 .playwright-mcp/
 
-# On-device Core ML model weights (EmbeddingGemma + SigLIP) — NOT committed.
-# Too large for a lean public repo and would burn the Git-LFS bandwidth quota.
-# Published as a checksummed GitHub Release asset and fetched into Vendor/ via
-# Scripts/fetch-models.sh. The tiny Manifest.json companions stay tracked so the
-# .mlpackages reassemble. End users get these bundled inside the shipped DMG.
-Vendor/embeddinggemma/models/**/*.bin
-Vendor/embeddinggemma/models/**/*.mlmodel
-Vendor/embeddinggemma/tokenizer/*.bin
-Vendor/siglip/models/**/*.bin
-Vendor/siglip/models/**/*.mlmodel
-
-# EmbeddingGemma raw tokenizer source — 32 MB build input fetched from HuggingFace.
-# The compact vocab/merges/added_tokens .bin artifacts ship in the models asset
-# above (built by Scripts/build-gemma-tokenizer-artifact.py).
-Vendor/embeddinggemma/tokenizer/tokenizer.json
+# On-device EmbeddingGemma 2 weights, token/position tables, and tokenizer —
+# NOT committed. Too large for a lean public repo and would burn the Git-LFS
+# bandwidth quota. Published as a checksummed GitHub Release asset and fetched
+# into Vendor/ via Scripts/fetch-models.sh. The tiny Manifest.json companions
+# and the license/NOTICE stay tracked. End users get these bundled in the DMG.
+Vendor/embeddinggemma2/models/**/*.bin
+Vendor/embeddinggemma2/models/**/*.mlmodel
+Vendor/embeddinggemma2/resources/
+Vendor/embeddinggemma2/tokenizer/
 
 # macOS
 .DS_Store
@@ -63,3 +57,6 @@ secrets/
 
 # Local-only one-command release wrapper (hardcodes machine setup).
 /Scripts/release.sh
+
+# Private search evaluation set built from the owner's own vault.
+/eval/
