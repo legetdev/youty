@@ -70,7 +70,10 @@ final class MenuBarController: ObservableObject {
                 if indexing != self.isIndexingNow {
                     let finished = self.isIndexingNow && !indexing
                     self.applyIcon(indexing: indexing)
-                    if finished { self.flashReady() }
+                    // Sparkle only when the save that just finished is searchable.
+                    let latest = IndexStatusStore.shared.entries.values
+                        .filter { $0.finishedAt != nil }.max { $0.finishedAt! < $1.finishedAt! }
+                    if finished, latest?.state == .indexed { self.flashReady() }
                 }
             }
     }
@@ -101,6 +104,8 @@ final class MenuBarController: ObservableObject {
             readyReset?.cancel()
             button.toolTip = "Youty — making your new video searchable…"
             pulse()
+            // A steady dot instead of a breathing one under Reduce Motion.
+            guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
             let timer = Timer(timeInterval: 0.18, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated { self?.pulse() }
             }

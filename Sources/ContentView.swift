@@ -40,6 +40,7 @@ struct ContentView: View {
     @State private var recents: [VaultLocalSearch.Match] = []
     @State private var framePrefetch: FramePrefetch?
     @State private var justSaved: URL?
+    @State private var savingURL: String?
     @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
 
@@ -398,10 +399,14 @@ struct ContentView: View {
         savePending = true
         defer { savePending = false }
         let requested = urlInput
+        savingURL = requested
         startFramePrefetch()
         await fetch()
         // Another link (Share Sheet, menu bar, AI) replaced this one meanwhile.
-        guard urlInput == requested else { return }
+        guard urlInput == requested else {
+            framePrefetch?.task.cancel(); framePrefetch = nil
+            return
+        }
         // Instagram sign-in in progress: the login sheet continues the save.
         if showInstagramLogin { saveAfterLogin = true; return }
         guard lastResult != nil || shortFormPreview != nil else {
@@ -729,6 +734,7 @@ struct ContentView: View {
     /// Drive a single fetch+save cycle. Re-entrant: the Instagram login
     /// flow may re-invoke this after the user signs in.
     private func runAutoIngest() async {
+        savingURL = urlInput
         startFramePrefetch()
         await fetch()
         // Instagram login in progress — sheet handler will re-call us.
@@ -975,11 +981,14 @@ struct ContentView: View {
             NSLog("[youty] \(mode): \(count) frames in \(ms)ms")
             withAnimation { vault.frameState = .done(count) }
             if vault.vaultURL != nil {
-                // Saved: back to the library, new video on top, ready for the next link.
+                // Saved: back to the library, new video on top, ready for the
+                // next link — unless the user already pasted that next link.
                 justSaved = folderURL
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                    state = .idle
-                    urlInput = ""
+                if urlInput == savingURL || urlInput.isEmpty {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        state = .idle
+                        urlInput = ""
+                    }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                     if justSaved == folderURL { withAnimation(.easeOut(duration: 0.6)) { justSaved = nil } }
