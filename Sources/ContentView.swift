@@ -38,8 +38,17 @@ struct ContentView: View {
     @State private var savePending = false
     @State private var saveAfterLogin = false
     @State private var recents: [VaultLocalSearch.Match] = []
+    @State private var framePrefetch: FramePrefetch?
+    @State private var justSaved: URL?
     @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
+
+    /// Frames captured while the transcript is still loading (YouTube saves).
+    private struct FramePrefetch {
+        let videoID: String
+        let pipeline: FastFramePipeline
+        let task: Task<[FrameExtractor.Frame], Error>
+    }
 
     private struct FastFailure: Equatable {
         let reason: String
@@ -153,13 +162,7 @@ struct ContentView: View {
     // MARK: - Header
 
     private var header: some View {
-        Image("HeaderLogo")
-            .resizable()
-            .interpolation(.high)
-            .antialiased(true)
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 96, height: 96)
-            .accessibilityLabel("youty")
+        LogoView()
     }
 
     // MARK: - Search upgrade
@@ -286,6 +289,13 @@ struct ContentView: View {
             upgradeBanner
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
+                    Image(systemName: isValidURL ? Self.platformSymbol(detectedPlatform.rawValue) : "link")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(isValidURL ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
+                        .contentTransition(.symbolEffect(.replace))
+                        .symbolEffect(.bounce, value: isValidURL)
+                        .frame(width: 16)
+                        .accessibilityHidden(true)
                     TextField("Paste a YouTube, Instagram, or TikTok link…", text: $urlInput)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
@@ -309,14 +319,14 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 11)
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
+                .glassEffect(isValidURL ? .regular.tint(Color.accentColor.opacity(0.12)).interactive()
+                                        : .regular.interactive(), in: .rect(cornerRadius: 12))
+                .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isValidURL)
 
                 Button {
                     openWindow(id: "settings")
                 } label: {
-                    Image(systemName: "gearshape.fill")
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 18, height: 18)
+                    HoverSpinGear()
                 }
                 .buttonStyle(.glass)
                 .controlSize(.large)
@@ -342,18 +352,19 @@ struct ContentView: View {
             Task { await primaryAction() }
         } label: {
             HStack(spacing: 8) {
-                if isBusy {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: vault.vaultURL == nil ? "waveform.and.magnifyingglass" : "square.and.arrow.down.on.square")
-                }
+                Image(systemName: primarySymbol)
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.pulse, options: .repeating, isActive: isBusy)
                 Text(primaryLabel)
                     .font(.system(size: 13, weight: .medium))
+                    .contentTransition(.interpolate)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
+            .animation(.snappy, value: primaryLabel)
         }
         .buttonStyle(.glassProminent)
+        .hoverLift()
         .controlSize(.large)
         .disabled(!isValidURL || isBusy)
         .animation(.easeInOut(duration: 0.15), value: isValidURL)
@@ -364,8 +375,21 @@ struct ContentView: View {
     }
 
     private var primaryLabel: String {
-        if isBusy { return vault.vaultURL == nil ? "Fetching…" : "Saving…" }
-        return vault.vaultURL == nil ? "Get Transcript" : "Save to Vault"
+        guard isBusy else { return vault.vaultURL == nil ? "Get Transcript" : "Save to Vault" }
+        if vault.vaultURL == nil { return "Fetching…" }
+        if case .loading = state { return "Reading the transcript…" }
+        switch vault.frameState {
+        case .capturingStream, .downloading, .extracting: return "Capturing frames…"
+        default: return "Saving…"
+        }
+    }
+
+    private var primarySymbol: String {
+        guard isBusy else {
+            return vault.vaultURL == nil ? "waveform.and.magnifyingglass" : "square.and.arrow.down.on.square"
+        }
+        if case .loading = state { return "text.page" }
+        return "photo.stack"
     }
 
     /// Fetch, then save straight away when a vault is set.
@@ -374,12 +398,16 @@ struct ContentView: View {
         savePending = true
         defer { savePending = false }
         let requested = urlInput
+        startFramePrefetch()
         await fetch()
         // Another link (Share Sheet, menu bar, AI) replaced this one meanwhile.
         guard urlInput == requested else { return }
         // Instagram sign-in in progress: the login sheet continues the save.
         if showInstagramLogin { saveAfterLogin = true; return }
-        guard lastResult != nil || shortFormPreview != nil else { return }
+        guard lastResult != nil || shortFormPreview != nil else {
+            framePrefetch?.task.cancel(); framePrefetch = nil
+            return
+        }
         // Keep the button busy until frames are captured and indexing starts, so
         // a second click can't run a competing save into the same bundle.
         await saveToVault(allowVaultPrompt: false)?.value
@@ -564,65 +592,58 @@ struct ContentView: View {
 
     // MARK: - Recently saved
 
-    /// The last few saves, so it's always visible what the AI can search.
+    /// The last few saves, so it's always visible what the AI can search — and,
+    /// for a fresh save, when the AI will be able to find it.
     @ViewBuilder
     private var recentSection: some View {
-        if !recents.isEmpty {
+        if recents.isEmpty {
+            if vault.vaultURL != nil {
+                EmptyLibraryView()
+                    .padding(.horizontal, 24)
+                    .padding(.top, 18)
+                    .transition(.opacity)
+            }
+        } else {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Recently saved")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
-                VStack(spacing: 0) {
+                VStack(spacing: 2) {
                     ForEach(recents, id: \.folder) { item in
-                        Button {
-                            NSWorkspace.shared.activateFileViewerSelecting([item.folder])
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: Self.platformSymbol(item.platform))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 16)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(item.title).font(.system(size: 13)).lineLimit(1)
-                                    Text(item.channel).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                                }
-                                Spacer(minLength: 8)
-                                if let state = indexStatus.state(for: item.folder) {
-                                    IndexBadgeView(state: state)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(item.title), \(item.channel)")
-                        .accessibilityHint("Shows the saved video in Finder")
-                        .contextMenu {
-                            if let url = URL(string: item.url) {
-                                Button("Open Original") { NSWorkspace.shared.open(url) }
-                                Button("Copy Link") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(item.url, forType: .string)
-                                }
-                            }
-                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.folder]) }
-                        }
+                        RecentRow(item: item,
+                                  symbol: Self.platformSymbol(item.platform),
+                                  state: indexStatus.state(for: item.folder),
+                                  highlighted: item.folder == justSaved)
+                            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
+                                                    removal: .opacity))
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(4)
                 .glassEffect(.regular, in: .rect(cornerRadius: 12))
-                Text(settings.onboardingMCPDone
-                     ? "Ask your AI about anything here — “what did they say about …?”"
-                     : "Connect your AI in Settings to ask it about anything you save.")
+                .animation(.spring(response: 0.45, dampingFraction: 0.8), value: recents.map(\.folder))
+                footerHint
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 4)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.25), value: anyLearning)
             }
             .padding(.horizontal, 24)
             .padding(.top, 18)
             .transition(.opacity)
         }
+    }
+
+    private var anyLearning: Bool {
+        recents.contains { indexStatus.state(for: $0.folder) == .indexing }
+    }
+
+    private var footerHint: Text {
+        if anyLearning { return Text("Your AI can ask about it as soon as it says “Ready to ask”.") }
+        return Text(settings.onboardingMCPDone
+                    ? "Ask your AI about anything here — “what did they say about …?”"
+                    : "Connect your AI in Settings to ask it about anything you save.")
     }
 
     private static func platformSymbol(_ platform: String) -> String {
@@ -708,11 +729,13 @@ struct ContentView: View {
     /// Drive a single fetch+save cycle. Re-entrant: the Instagram login
     /// flow may re-invoke this after the user signs in.
     private func runAutoIngest() async {
+        startFramePrefetch()
         await fetch()
         // Instagram login in progress — sheet handler will re-call us.
         if showInstagramLogin { return }
         // Fetch failed (no preview, no result) → tell the funnel we're done.
         if lastResult == nil && shortFormPreview == nil {
+            framePrefetch?.task.cancel(); framePrefetch = nil
             finishExternalIngest()
             return
         }
@@ -834,17 +857,29 @@ struct ContentView: View {
         }
     }
 
+    /// Starts capturing a YouTube video's frames as soon as Save is pressed, so
+    /// they're ready by the time the transcript arrives.
+    private func startFramePrefetch() {
+        framePrefetch?.task.cancel()
+        framePrefetch = nil
+        guard vault.vaultURL != nil, detectedPlatform == .youtube,
+              let id = TranscriptFetcher.extractVideoID(from: urlInput) else { return }
+        let pipeline = FastFramePipeline(playerFetcher: playerFetcher, vault: vault, settings: settings)
+        framePrefetch = FramePrefetch(videoID: id, pipeline: pipeline, task: pipeline.prefetch(videoID: id))
+    }
+
     private func runFramePipeline(videoID: String, folderURL: URL) async {
         frameProgress = 0
         downloadProgress = 0
         fastFailure = nil
 
-        let pipeline: any FramePipeline = FastFramePipeline(
-            playerFetcher: playerFetcher,
-            vault: vault,
-            settings: settings
-        )
-        let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL) { stage in
+        let prefetch = framePrefetch?.videoID == videoID ? framePrefetch : nil
+        if prefetch == nil { framePrefetch?.task.cancel() }
+        framePrefetch = nil
+        let pipeline = prefetch?.pipeline
+            ?? FastFramePipeline(playerFetcher: playerFetcher, vault: vault, settings: settings)
+        let outcome = await pipeline.extract(videoID: videoID, folderURL: folderURL,
+                                             prefetched: prefetch?.task) { stage in
             applyStage(stage)
         }
         applyOutcome(outcome, videoID: videoID, folderURL: folderURL)
@@ -875,34 +910,28 @@ struct ContentView: View {
         Task.detached(priority: .utility) {
             let acquired = vaultURL.startAccessingSecurityScopedResource()
             defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
-            var transcriptOK = false
-            var framesOK = false
-            var lastError: String?
+            // Text and frames index side by side (different chips). The video is
+            // "ready to ask" as soon as its transcript is searchable; frames
+            // join visual search moments later.
+            async let frames: String? = {
+                do { try await Indexer.indexFrames(videoMdURL: videoMd, vaultRoot: vaultURL); return nil }
+                catch { NSLog("[youty] frame indexer skipped/failed: \(error.localizedDescription)"); return error.localizedDescription }
+            }()
+            var textError: String?
             do {
                 try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultURL)
-                transcriptOK = true
+                await MainActor.run { IndexStatusStore.shared.markIndexed(folder: bundleFolder) }
             } catch {
                 NSLog("[youty] indexer skipped/failed: \(error.localizedDescription)")
-                lastError = error.localizedDescription
+                textError = error.localizedDescription
             }
-            do {
-                try await Indexer.indexFrames(videoMdURL: videoMd, vaultRoot: vaultURL)
-                framesOK = true
-            } catch {
-                NSLog("[youty] frame indexer skipped/failed: \(error.localizedDescription)")
-                lastError = error.localizedDescription
-            }
-            // Frame indexing is local + offline (EmbeddingGemma 2) — if it
-            // succeeds, the bundle is searchable. Transcript indexing failing
-            // alone usually means the on-device text model wasn't available;
-            // frames are independently useful, so it's not a hard failure.
+            let frameError = await frames
+            guard let textError else { return }
             await MainActor.run {
-                if framesOK || transcriptOK {
+                if frameError == nil {
                     IndexStatusStore.shared.markIndexed(folder: bundleFolder)
                 } else {
-                    IndexStatusStore.shared.markFailed(
-                        folder: bundleFolder,
-                        reason: lastError ?? "unknown")
+                    IndexStatusStore.shared.markFailed(folder: bundleFolder, reason: textError)
                 }
             }
         }
@@ -945,6 +974,17 @@ struct ContentView: View {
         case .success(let count, let ms, let mode):
             NSLog("[youty] \(mode): \(count) frames in \(ms)ms")
             withAnimation { vault.frameState = .done(count) }
+            if vault.vaultURL != nil {
+                // Saved: back to the library, new video on top, ready for the next link.
+                justSaved = folderURL
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                    state = .idle
+                    urlInput = ""
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    if justSaved == folderURL { withAnimation(.easeOut(duration: 0.6)) { justSaved = nil } }
+                }
+            }
         case .failed(let reason, let canFallback):
             if canFallback {
                 withAnimation {

@@ -49,8 +49,10 @@ enum FrameOCR {
         // slots, then run the order-dependent filters single-threaded below.
         let perFrameLines = LineSlots(count: distinct.count)
         DispatchQueue.concurrentPerform(iterations: distinct.count) { i in
-            guard let cg = loadCGImage(distinct[i].url) else { return }
-            perFrameLines.set(i, recognizeLines(in: cg))
+            autoreleasepool {   // concurrentPerform doesn't drain per iteration
+                guard let cg = loadCGImage(distinct[i].url) else { return }
+                perFrameLines.set(i, recognizeLines(in: cg))
+            }
         }
         let candidates: [[(raw: String, norm: String)]] = (0..<distinct.count).map { i in
             perFrameLines.get(i).compactMap { line in

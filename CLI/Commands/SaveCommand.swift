@@ -172,6 +172,12 @@ enum SaveCommand {
                                     skipIndex: Bool,
                                     progress: ProgressLog) async throws -> SavedBundle {
         progress.stage("Fetching YouTube transcript…")
+        // Capture frames while the transcript loads; they're written once the note exists.
+        let playerFetcher = PlayerFetcher()
+        playerFetcher.attach(to: hostWindow)
+        let pipeline = FastFramePipeline(playerFetcher: playerFetcher, vault: vault, settings: settings)
+        let prefetchedID = TranscriptFetcher.extractVideoID(from: url.absoluteString)
+        let prefetched = prefetchedID.map { pipeline.prefetch(videoID: $0) }
         let loader = TranscriptLoader()
         // YouTube's default-WebKit-UA response strips captionTracks from
         // ytInitialPlayerResponse, which makes the transcript scrape miss.
@@ -188,23 +194,23 @@ enum SaveCommand {
         // strips captionTracks from the video-page response. Block until
         // the warm-up settles (cap 6 s) before kicking the real fetch.
         await waitForWebViewIdle(loader.webView, timeout: 6.0)
-        let result = try await loader.fetch(urlString: url.absoluteString)
+        let result: FetchResult
+        do {
+            result = try await loader.fetch(urlString: url.absoluteString)
+        } catch {
+            prefetched?.cancel()
+            throw error
+        }
 
         progress.stage("Writing video.md…")
         let metadata = MetadataEnricher.enrich(from: result)
         let folderURL = try vault.saveNote(result: result, metadata: metadata)
 
         progress.stage("Extracting frames (\(settings.frameCountCap) max, \(settings.targetResolution)p)…")
-        let playerFetcher = PlayerFetcher()
-        playerFetcher.attach(to: hostWindow)
-        let pipeline = FastFramePipeline(
-            playerFetcher: playerFetcher,
-            vault: vault,
-            settings: settings
-        )
         let outcome = await pipeline.extract(
             videoID: result.videoID,
             folderURL: folderURL,
+            prefetched: prefetchedID == result.videoID ? prefetched : nil,
             stage: { stage in progress.frameStage(stage) }
         )
 
@@ -275,16 +281,19 @@ enum SaveCommand {
                                    progress: ProgressLog) async {
         let videoMd = folder.appendingPathComponent("video.md")
         progress.stage("Indexing for search… (on-device)")
+        // Text and frames index side by side on different chips.
+        async let frames: String? = {
+            do { try await Indexer.indexFrames(videoMdURL: videoMd, vaultRoot: vaultRoot); return nil }
+            catch { return error.localizedDescription }
+        }()
         do {
             let embedder = try Indexer.makeEmbedder()
             try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultRoot, embedder: embedder)
         } catch {
             progress.stage("warning: text indexer skipped (\(error.localizedDescription))")
         }
-        do {
-            try await Indexer.indexFrames(videoMdURL: videoMd, vaultRoot: vaultRoot)
-        } catch {
-            progress.stage("warning: frame indexer skipped (\(error.localizedDescription))")
+        if let frameError = await frames {
+            progress.stage("warning: frame indexer skipped (\(frameError))")
         }
     }
 

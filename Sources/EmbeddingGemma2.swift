@@ -224,6 +224,12 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
     /// aspect ratio kept, to sides that are multiples of 48 px within the patch
     /// budget, exactly as Google's Gemma 4 image processor does.
     func embedImage(at url: URL) throws -> [Float] {
+        // Frames are embedded in long loops; release each frame's image and
+        // model buffers as soon as it's done.
+        try autoreleasepool { try embedImageNow(at: url) }
+    }
+
+    private func embedImageNow(at url: URL) throws -> [Float] {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw EmbedError.unreadableImage(url) }
         let budget = Self.imageTokenBudget

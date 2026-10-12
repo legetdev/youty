@@ -79,6 +79,7 @@
 		86D1580BFF32100B5515B247 /* VaultLocalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */; };
 		875EDC64DC621AF33A11D999 /* MainWindowKeeper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356CCF219ED8189DA67F3402 /* MainWindowKeeper.swift */; };
 		918F44C18723E24916B23DBB /* EmbeddingGemma2Vision.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = B56A837060686D852C0A1DAD /* EmbeddingGemma2Vision.mlpackage */; };
+		91AD354F7852E4A3125295D6 /* PlayfulViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D339EDB8A082A831F89D590C /* PlayfulViews.swift */; };
 		9417C71FA609B112D97E513F /* VaultResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 013AA49E501B8578D1468372 /* VaultResolver.swift */; };
 		95177DA36FFB1E5C7D32A1FF /* CanvasFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC01752B7DC1ABC7BE839D7B /* CanvasFramePipeline.swift */; };
 		95565110F2CCB83E409EF569 /* FrameOCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 758B37768FA8016F11B5B178 /* FrameOCR.swift */; };
@@ -258,6 +259,7 @@
 		CF78DB0683DB0DBAC273AA27 /* ListCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListCommand.swift; sourceTree = "<group>"; };
 		D05244C5AC872F3078AE348F /* EmbeddingGemma2Tokens.bf16 */ = {isa = PBXFileReference; path = EmbeddingGemma2Tokens.bf16; sourceTree = "<group>"; };
 		D07EACD9853587F324A75FFB /* VideoExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExtractor.swift; sourceTree = "<group>"; };
+		D339EDB8A082A831F89D590C /* PlayfulViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayfulViews.swift; sourceTree = "<group>"; };
 		D7465842BED6624F7B3B6AD9 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_LICENSES.md; sourceTree = "<group>"; };
 		DB4DB273A82F354414E993F7 /* MediaDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDownloader.swift; sourceTree = "<group>"; };
 		DD24184554CE6FFF9B2F5E0D /* FFmpegFrameExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegFrameExtractor.swift; sourceTree = "<group>"; };
@@ -436,6 +438,7 @@
 				13370E21DD4886D040B9C4DD /* PHashFilter.swift */,
 				0E454D60F2EC467DCDA263E7 /* PlatformRouter.swift */,
 				FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */,
+				D339EDB8A082A831F89D590C /* PlayfulViews.swift */,
 				61F403150ACD28D7C5A9F18C /* SettingsStore.swift */,
 				7F0A56EE058438A3D7841601 /* SettingsView.swift */,
 				5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */,
@@ -766,6 +769,7 @@
 				9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */,
 				1032CEABD5436FC124C83529 /* PlatformRouter.swift in Sources */,
 				9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */,
+				91AD354F7852E4A3125295D6 /* PlayfulViews.swift in Sources */,
 				1164AB2D5DD0A4C678A2122E /* SettingsStore.swift in Sources */,
 				E3165888D2C54EB8455B0EAE /* SettingsView.swift in Sources */,
 				CBD157B29E988892CD2A1040 /* SharedResourceLocator.swift in Sources */,

@@ -67,7 +67,7 @@ enum PhaseIError: LocalizedError {
 enum PhaseIFrameExtractor {
 
     // Tunables.
-    private static let segmentConcurrencyCap = 8      // segments fetched/decoded in parallel
+    private static let segmentConcurrencyCap = 4      // segments fetched/decoded in parallel (each holds a decoder)
     private static let moofPrefetchBytes: Int64 = 32_768   // first chunk per segment
 
     // MARK: - Public entry point
@@ -78,7 +78,7 @@ enum PhaseIFrameExtractor {
         timestamps: [TimeInterval],
         maxLongEdge: Int32 = 1920,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
-    ) async throws -> [(timestamp: TimeInterval, image: NSImage)] {
+    ) async throws -> [FrameExtractor.Frame] {
 
         let started = Date()
 
@@ -191,6 +191,8 @@ enum PhaseIFrameExtractor {
             workerChunks[i % workerCount].append(job)
         }
         let fmtDescBox = SendableFormatDescription(fmtDesc)
+        // CIContext is thread-safe but not Sendable in Swift's eyes.
+        let ciBox = SendableCIContext(CIContext(options: [.useSoftwareRenderer: false]))
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             for chunk in workerChunks where !chunk.isEmpty {
@@ -206,6 +208,8 @@ enum PhaseIFrameExtractor {
                                                   vtSession: sessionBox.session,
                                                   vtPayload: payload,
                                                   fmtDesc: fmtDescBox.value,
+                                                  ciContext: ciBox.value,
+                                                  maxLongEdge: maxLongEdge,
                                                   results: results,
                                                   progressBox: progressBox)
                     }
@@ -214,48 +218,14 @@ enum PhaseIFrameExtractor {
             try await group.waitForAll()
         }
 
-        // 5. Sanity-check completeness.
-        let captures = results.takeAll()
-        for (i, c) in captures.enumerated() {
-            if c == nil {
-                throw PhaseIError.missingDecodedFrame(at: timestamps[i])
-            }
-        }
-        DebugLog.log("phase-I: decode complete in \(Int(Date().timeIntervalSince(started)*1000))ms; converting buffers")
-
-        // 6. Parallel CVPixelBuffer → CGImage → NSImage with optional scaling.
-        // CIContext is thread-safe but not Sendable in Swift's eyes; wrap in
-        // an @unchecked Sendable box so the task group accepts it.
-        let ciBox = SendableCIContext(CIContext(options: [.useSoftwareRenderer: false]))
-        let conversions = await withTaskGroup(of: (Int, NSImage?).self) { group -> [Int: NSImage] in
-            for (i, capOpt) in captures.enumerated() {
-                guard let pb = capOpt else { continue }
-                let ts = timestamps[i]
-                let edge = maxLongEdge
-                let pbBox = SendablePixelBuffer(pb)
-                let ctx = ciBox
-                group.addTask {
-                    let img = renderToNSImage(pixelBuffer: pbBox.value,
-                                               maxLongEdge: edge,
-                                               ciContext: ctx.value,
-                                               at: ts)
-                    return (i, img)
-                }
-            }
-            var out: [Int: NSImage] = [:]
-            for await (i, img) in group {
-                if let img { out[i] = img }
-            }
-            return out
-        }
-
-        var final: [(TimeInterval, NSImage)] = []
+        // 5. Every slot must hold a frame; each was compressed as it was decoded.
+        let frames = results.takeAll()
+        var final: [FrameExtractor.Frame] = []
         final.reserveCapacity(timestamps.count)
-        for i in 0..<timestamps.count {
-            guard let img = conversions[i] else {
-                throw PhaseIError.imageConversionFailed(at: timestamps[i])
-            }
-            final.append((timestamps[i], img))
+        for (i, frame) in frames.enumerated() {
+            guard let frame else { throw PhaseIError.missingDecodedFrame(at: timestamps[i]) }
+            guard !frame.jpeg.isEmpty else { throw PhaseIError.imageConversionFailed(at: timestamps[i]) }
+            final.append(frame)
         }
         DebugLog.log("phase-I: total \(Int(Date().timeIntervalSince(started)*1000))ms (\(final.count) frames)")
         return final
@@ -271,6 +241,8 @@ enum PhaseIFrameExtractor {
         vtSession: VTDecompressionSession,
         vtPayload: SampleDecodeBox,
         fmtDesc: CMVideoFormatDescription,
+        ciContext: CIContext,
+        maxLongEdge: Int32,
         results: ResultBox,
         progressBox: ProgressBox
     ) async throws {
@@ -336,17 +308,23 @@ enum PhaseIFrameExtractor {
             segmentStartInFile: segStart,
             samples: samples,
             lastSampleIdx: highestSampleIdx,
+            wanted: Set(segTargets.map(\.sampleIdx)),
             session: vtSession,
             payload: vtPayload,
             fmtDesc: fmtDesc
         )
 
-        // 4f. Emit per-target frames into the shared results array.
+        // 4f. Compress each wanted frame right away so no decoded picture
+        //     outlives its segment (decoded pictures live in the system's
+        //     video-decoder process; holding them is what grows its memory).
         for st in segTargets {
             guard let pb = pixelBuffers[st.sampleIdx] else {
                 throw PhaseIError.missingDecodedFrame(at: st.ts)
             }
-            results.set(slot: st.inputIndex, pixelBuffer: pb)
+            guard let cg = renderToCGImage(pixelBuffer: pb, maxLongEdge: maxLongEdge, ciContext: ciContext) else {
+                throw PhaseIError.imageConversionFailed(at: st.ts)
+            }
+            results.set(slot: st.inputIndex, frame: FrameExtractor.Frame(timestamp: st.ts, cgImage: cg))
             progressBox.tick()
         }
     }
@@ -363,6 +341,7 @@ enum PhaseIFrameExtractor {
         segmentStartInFile: Int64,
         samples: [MP4Sample],
         lastSampleIdx: Int,
+        wanted: Set<Int>,
         session: VTDecompressionSession,
         payload: SampleDecodeBox,
         fmtDesc: CMVideoFormatDescription
@@ -375,6 +354,9 @@ enum PhaseIFrameExtractor {
         payload.lock.lock()
         payload.frames.removeAll(keepingCapacity: true)
         payload.errors.removeAll(keepingCapacity: true)
+        // Reaching a target means decoding every frame before it in the
+        // segment; only the targets are kept, the rest are released at once.
+        payload.wanted = wanted
         payload.lock.unlock()
 
         // Feed each sample in decode order (== array order).
@@ -490,29 +472,16 @@ enum PhaseIFrameExtractor {
 
     // MARK: - CVPixelBuffer → NSImage with optional downscale
 
-    private static func renderToNSImage(pixelBuffer: CVPixelBuffer,
+    private static func renderToCGImage(pixelBuffer: CVPixelBuffer,
                                           maxLongEdge: Int32,
-                                          ciContext: CIContext,
-                                          at ts: TimeInterval) -> NSImage? {
-        let srcW = CVPixelBufferGetWidth(pixelBuffer)
-        let srcH = CVPixelBufferGetHeight(pixelBuffer)
-        let srcMax = max(srcW, srcH)
-        let outW: Int
-        let outH: Int
-        let ci: CIImage
+                                          ciContext: CIContext) -> CGImage? {
+        let srcMax = max(CVPixelBufferGetWidth(pixelBuffer), CVPixelBufferGetHeight(pixelBuffer))
+        var ci = CIImage(cvPixelBuffer: pixelBuffer)
         if maxLongEdge > 0 && srcMax > Int(maxLongEdge) {
-            let scale = Double(maxLongEdge) / Double(srcMax)
-            outW = Int((Double(srcW) * scale).rounded())
-            outH = Int((Double(srcH) * scale).rounded())
-            ci = CIImage(cvPixelBuffer: pixelBuffer)
-                .transformed(by: .init(scaleX: CGFloat(scale), y: CGFloat(scale)))
-        } else {
-            outW = srcW
-            outH = srcH
-            ci = CIImage(cvPixelBuffer: pixelBuffer)
+            let scale = CGFloat(maxLongEdge) / CGFloat(srcMax)
+            ci = ci.transformed(by: .init(scaleX: scale, y: scale))
         }
-        guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return nil }
-        return NSImage(cgImage: cg, size: NSSize(width: outW, height: outH))
+        return ciContext.createCGImage(ci, from: ci.extent)
     }
 }
 
@@ -533,14 +502,14 @@ private struct PhaseISegmentTarget: Sendable {
 
 private final class ResultBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var buffers: [CVPixelBuffer?]
+    private var buffers: [FrameExtractor.Frame?]
     init(slotCount: Int) {
         buffers = Array(repeating: nil, count: slotCount)
     }
-    func set(slot: Int, pixelBuffer: CVPixelBuffer) {
-        lock.lock(); buffers[slot] = pixelBuffer; lock.unlock()
+    func set(slot: Int, frame: FrameExtractor.Frame) {
+        lock.lock(); buffers[slot] = frame; lock.unlock()
     }
-    func takeAll() -> [CVPixelBuffer?] {
+    func takeAll() -> [FrameExtractor.Frame?] {
         lock.lock(); defer { lock.unlock() }
         return buffers
     }
@@ -565,15 +534,12 @@ private final class SampleDecodeBox: @unchecked Sendable {
     let lock = NSLock()
     var frames: [Int: CVPixelBuffer] = [:]
     var errors: [Int: OSStatus] = [:]
+    var wanted: Set<Int> = []
 }
 
 private final class SendableCIContext: @unchecked Sendable {
     let value: CIContext
     init(_ v: CIContext) { value = v }
-}
-private final class SendablePixelBuffer: @unchecked Sendable {
-    let value: CVPixelBuffer
-    init(_ v: CVPixelBuffer) { value = v }
 }
 
 private final class SendableFormatDescription: @unchecked Sendable {
@@ -602,7 +568,7 @@ private func makeReusableSession(fmtDesc: CMVideoFormatDescription,
             let box = Unmanaged<SampleDecodeBox>.fromOpaque(refCon!).takeUnretainedValue()
             box.lock.lock()
             if status == noErr, let imageBuffer {
-                box.frames[idx] = imageBuffer
+                if box.wanted.contains(idx) { box.frames[idx] = imageBuffer }
             } else {
                 box.errors[idx] = status
             }

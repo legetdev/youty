@@ -51,6 +51,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--hardness-probe")
             || CommandLine.arguments.contains("--bench-indexer")
             || CommandLine.arguments.contains("--embeddinggemma2-probe")
+            || CommandLine.arguments.contains("--frame-bench")
             || CommandLine.arguments.contains("--migrate")
             || CommandLine.arguments.contains("--youtube-audio-probe")
             || CommandLine.arguments.contains("--ocr-probe")
@@ -96,6 +97,9 @@ enum DebugRunner {
         }
         if let nStr = stringArg(args, key: "--bench-indexer") {
             runBenchIndexer(count: Int(nStr) ?? 1000)
+        }
+        if let folder = stringArg(args, key: "--frame-bench") {
+            runFrameBench(folder: folder)
         }
         if args.contains("--embeddinggemma2-probe") {
             runEmbeddingGemma2Probe(referencePath: stringArg(args, key: "--embeddinggemma2-probe"))
@@ -238,7 +242,7 @@ enum DebugRunner {
 
         // Stage 4: extract via selected pipeline.
         let extractStart = Date()
-        let frames: [(timestamp: TimeInterval, image: NSImage)]
+        let frames: [FrameExtractor.Frame]
         do {
             switch mode {
             case "phase1":
@@ -310,9 +314,8 @@ enum DebugRunner {
                     group.addTask {
                         let ms = Int(frame.timestamp * 1000)
                         let name = String(format: "%08d.jpg", ms)
-                        guard let data = frame.image.jpegData(compressionQuality: 0.85) else {
-                            return nil
-                        }
+                        let data = frame.jpeg
+                        guard !data.isEmpty else { return nil }
                         let h = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
                         return (name, data, h)
                     }
@@ -395,7 +398,7 @@ enum DebugRunner {
                 let frameTimes = FrameExtractor.frameTimes(duration: r.metadata.duration)
                 print("FRAMES_REQUESTED=\(frameTimes.count) over \(r.metadata.duration)s")
 
-                async let framesTask: [(timestamp: TimeInterval, image: NSImage)] = {
+                async let framesTask: [FrameExtractor.Frame] = {
                     try await LocalFrameExtractor.extract(
                         fileURL: fileURL,
                         timestamps: frameTimes,
@@ -1353,6 +1356,31 @@ enum DebugRunner {
 
     /// Headless search upgrade: moves the index onto the current model exactly
     /// as the app does on launch (text first, then frames; resumable).
+    /// Frame-embedding throughput, one at a time vs. the indexer's overlapped
+    /// path, and whether overlapping changes any vector (it must not).
+    private static func runFrameBench(folder: String) -> Never {
+        let urls = ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: folder),
+                                                                   includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.pathExtension.lowercased() == "jpg" }.sorted { $0.path < $1.path }.prefix(24).map { $0 }
+        guard !urls.isEmpty, let model = try? EmbeddingGemma2.shared() else { print("FRAME_BENCH=no frames or model"); exit(1) }
+        let sem = DispatchSemaphore(value: 0)
+        Task.detached {
+            _ = try? model.embedImage(at: urls[0])   // load + compile outside the timing
+            let widths = ProcessInfo.processInfo.environment["YOUTY_BENCH_INFLIGHT"].flatMap(Int.init).map { [$0] } ?? [1, 3]
+            for inFlight in widths {
+                let t = Date()
+                let vectors = (try? await Indexer.embedFrames(urls, with: model, inFlight: inFlight)) ?? []
+                let ms = Date().timeIntervalSince(t) * 1000 / Double(urls.count)
+                let reference = urls.map { (try? model.embedImage(at: $0)) ?? [] }
+                let drift = zip(reference, vectors).map { a, b in zip(a, b).map { abs($0 - $1) }.max() ?? 1 }.max() ?? 1
+                print(String(format: "IN_FLIGHT=%d MS_PER_FRAME=%.0f MAX_DIFF=%.5f", inFlight, ms, drift))
+            }
+            sem.signal()
+        }
+        sem.wait()
+        exit(0)
+    }
+
     private static func runMigrateProbe(vaultPath: String) -> Never {
         let bareURL = URL(fileURLWithPath: vaultPath, isDirectory: true).standardizedFileURL
         var vaultURL = bareURL

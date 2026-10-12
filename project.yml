@@ -146,6 +146,7 @@ targets:
           - "DebugRunner.swift"
           - "OnboardingView.swift"
           - "IndexBadgeView.swift"
+          - "PlayfulViews.swift"
           - "IndexStatusStore.swift"
           - "AppUpdater.swift"
           - "Youty.mcpb"

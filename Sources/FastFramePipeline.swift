@@ -39,15 +39,48 @@ final class FastFramePipeline: FramePipeline {
     func extract(videoID: String,
                  folderURL: URL,
                  stage: @escaping (FrameStage) -> Void) async -> FramePipelineOutcome {
+        await extract(videoID: videoID, folderURL: folderURL, prefetched: nil, stage: stage)
+    }
 
+    /// Starts capturing a video's frames into memory right away — a save calls
+    /// this while the transcript is still loading, then `extract` writes them.
+    func prefetch(videoID: String) -> Task<[FrameExtractor.Frame], Error> {
+        Task { try await capture(videoID: videoID) }
+    }
+
+    func extract(videoID: String,
+                 folderURL: URL,
+                 prefetched: Task<[FrameExtractor.Frame], Error>?,
+                 stage: @escaping (FrameStage) -> Void) async -> FramePipelineOutcome {
         currentStage = stage
         defer { currentStage = nil }
 
         let started = Date()
-        DebugLog.log("=== FAST PATH START (ffmpeg) === videoID=\(videoID)")
-
+        DebugLog.log("=== FAST PATH START (ffmpeg) === videoID=\(videoID) prefetched=\(prefetched != nil)")
         do {
             emit(.loading)
+            let frames: [FrameExtractor.Frame]
+            if let prefetched {
+                frames = try await prefetched.value
+            } else {
+                frames = try await capture(videoID: videoID)
+            }
+            emit(.writing)
+            try vault.writeFrames(frames, to: folderURL)
+            let totalMs = Int(Date().timeIntervalSince(started) * 1000)
+            DebugLog.log("=== FAST PATH SUCCESS === videoID=\(videoID) frames=\(frames.count) total=\(totalMs)ms")
+            return .success(framesWritten: frames.count, durationMs: totalMs, mode: "fast")
+        } catch {
+            let totalMs = Int(Date().timeIntervalSince(started) * 1000)
+            let reason  = userMessage(for: error)
+            DebugLog.log("=== FAST PATH FAILED === videoID=\(videoID) reason=\"\(reason)\" elapsed=\(totalMs)ms (raw: \(error))")
+            return .failed(reason: reason, canFallback: true)
+        }
+    }
+
+    /// Formats → stream selection → frame decode into memory; never touches the vault.
+    private func capture(videoID: String) async throws -> [FrameExtractor.Frame] {
+        do {
 
             // ---- Stage 1: format fetch ----
             let formatsStart = Date()
@@ -88,7 +121,7 @@ final class FastFramePipeline: FramePipeline {
             // The gate below preempts the loss case before paying Phase I's
             // setup cost. On any error Phase I throws → caller falls back.
             let usePhaseI = shouldTryPhaseI(stream: stream, duration: trueDuration)
-            let frames: [(timestamp: TimeInterval, image: NSImage)]
+            let frames: [FrameExtractor.Frame]
             if usePhaseI {
                 do {
                     frames = try await PhaseIFrameExtractor.extract(
@@ -126,26 +159,8 @@ final class FastFramePipeline: FramePipeline {
             guard frames.count == timestamps.count else {
                 throw FastPipelineError.incompleteCapture(got: frames.count, expected: timestamps.count)
             }
-
-            // ---- Stage 4: write ----
-            emit(.writing)
-            let extractorFrames = frames.map {
-                FrameExtractor.Frame(timestamp: $0.timestamp, image: $0.image)
-            }
-            let wrStart = Date()
-            try vault.writeFrames(extractorFrames, to: folderURL)
-            let wrMs = Int(Date().timeIntervalSince(wrStart) * 1000)
-
-            let totalMs = Int(Date().timeIntervalSince(started) * 1000)
-            DebugLog.log("=== FAST PATH SUCCESS === videoID=\(videoID) frames=\(frames.count) total=\(totalMs)ms (formats=\(formatsMs)ms ffmpeg=\(exMs)ms write=\(wrMs)ms)")
-
-            return .success(framesWritten: frames.count, durationMs: totalMs, mode: "fast")
-
-        } catch {
-            let totalMs = Int(Date().timeIntervalSince(started) * 1000)
-            let reason  = userMessage(for: error)
-            DebugLog.log("=== FAST PATH FAILED === videoID=\(videoID) reason=\"\(reason)\" elapsed=\(totalMs)ms (raw: \(error))")
-            return .failed(reason: reason, canFallback: true)
+            DebugLog.log("fast: captured \(frames.count) frames (formats=\(formatsMs)ms decode=\(exMs)ms)")
+            return frames
         }
     }
 

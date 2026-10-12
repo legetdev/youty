@@ -31,10 +31,10 @@ final class FFmpegURLSessionIO {
     //     without saturating the link with redundant lookahead.
     private let prefetchAhead: Int = 2
 
-    // LRU cap. At 1 MB chunks that's up to 256 MB resident, but typical
-    // sessions stay well under this — only as many chunks as the demuxer
-    // revisits within an extraction.
-    private let cacheMaxChunks: Int = 256
+    // LRU cap: 24 MB. Each frame needs only the chunks around its seek point
+    // (about one keyframe interval), so a large cache only held memory — at
+    // 256 chunks a long 1080p60 video kept ~700 MB of downloaded bytes.
+    private let cacheMaxChunks: Int = 24
 
     private let url: URL
     private let userAgent: String
@@ -243,6 +243,7 @@ final class FFmpegURLSessionIO {
         }
         totalLength = total
         inf.expectedBytes = Int(end - start + 1)
+        inf.buffer.reserveCapacity(inf.expectedBytes)   // grow once, not by doubling
     }
 
     fileprivate func sessionReceived(data: Data, for dataTask: URLSessionDataTask) {
