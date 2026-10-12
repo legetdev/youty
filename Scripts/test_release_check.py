@@ -141,11 +141,7 @@ class ReleaseChecks(unittest.TestCase):
         old_review = json.dumps([{'user': {'login': release.CODEX}, 'commit_id': 'h1'}])
         clean = json.dumps([{'user': {'login': release.CODEX}, 'commit_id': 'h2'}])
         finding = json.dumps([{'user': {'login': release.CODEX}, 'original_commit_id': 'h2'}])
-        commit = json.dumps({'commit': {'committer': {'date': '2026-10-12T10:00:00Z'}}})
-        stale_thumbs = json.dumps([{'user': {'login': release.CODEX}, 'content': '+1',
-                                    'created_at': '2026-10-12T09:00:00Z'}])
-        with patch.object(release, 'run', side_effect=[pr, '[]', old_review, stale_thumbs, commit,
-                                                       pr, '[]', clean, '[]', commit]), \
+        with patch.object(release, 'run', side_effect=[pr, '[]', old_review, pr, '[]', clean]), \
                 patch.object(release.time, 'sleep') as sleep:
             self.assertEqual(release.pr_ready('o/r', 7), 'h2')
             sleep.assert_called_once()

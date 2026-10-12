@@ -96,7 +96,9 @@ else
     DEST="$HOME/.local/bin/youty"
     mkdir -p "$HOME/.local/bin"
 fi
-if ! { $SUDO cp "$BIN" "$DEST" && $SUDO chmod 0755 "$DEST"; }; then
+# Copy beside the destination, then rename: a failed copy never touches $DEST.
+if ! { $SUDO cp "$BIN" "$DEST.new" && $SUDO chmod 0755 "$DEST.new" && $SUDO mv -f "$DEST.new" "$DEST"; }; then
+    $SUDO rm -f "$DEST.new" 2>/dev/null || true
     echo "error: couldn't install youty to $DEST; existing installation is unchanged." >&2
     exit 1
 fi
