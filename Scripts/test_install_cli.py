@@ -66,9 +66,10 @@ if [ "$YOUTY_FIXTURE_FAILURE" != missing-output ]; then mkdir -p "$4/$name.mlmod
             (scripts / "install-cli.sh").write_text(
                 source.replace(destination, "RES_DIR=" + shlex.quote(str(resources))))
             args_file = root / "build-args"
+            target = root / "missing-dir" if failed_model == "binary" else install_dir
             result = subprocess.run(["bash", str(scripts / "install-cli.sh")],
                                     env={**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
-                                         "YOUTY_INSTALL_DIR": str(install_dir),
+                                         "YOUTY_INSTALL_DIR": str(target),
                                          "YOUTY_FIXTURE_ARGS": str(args_file),
                                          "YOUTY_FIXTURE_FAILURE": failed_model},
                                     text=True, capture_output=True, timeout=10)
@@ -89,6 +90,10 @@ if [ "$YOUTY_FIXTURE_FAILURE" != missing-output ]; then mkdir -p "$4/$name.mlmod
     def test_missing_compiler_output(self):
         """Even a zero compiler exit must provide both expected model directories."""
         self.check_compile_failure("missing-output")
+
+    def test_binary_install_failure(self):
+        """New models are not swapped in when the binary can't be installed."""
+        self.check_compile_failure("binary")
 
 
 if __name__ == "__main__":

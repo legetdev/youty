@@ -17,15 +17,20 @@ from typing import Iterable
 import sqlite_vec
 
 
-def _resolve_default_db_path() -> Path:
-    """Prefer the sandboxed-Mac-app container path when it exists.
+def default_db_path() -> Path:
+    """The index to use: `YOUTY_INDEX_DB`, else the Mac app's container index
+    when it exists, else the unsandboxed (CLI) location.
 
     The Mac app is App-Store sandboxed, so its writes land at
     ~/Library/Containers/dev.leget.youty/Data/Library/Application Support/
     Youty/index.db. The Python MCP server isn't sandboxed, so the plain
     ~/Library/Application Support/Youty/index.db is a separate file. When
     the container DB exists we point at it — that's where real writes go.
+    Resolved on every call: the app may create its index after the server starts.
     """
+    override = os.environ.get("YOUTY_INDEX_DB")
+    if override:
+        return Path(override).expanduser()
     container = Path(
         "~/Library/Containers/dev.leget.youty/Data/Library/"
         "Application Support/Youty/index.db"
@@ -34,8 +39,6 @@ def _resolve_default_db_path() -> Path:
         return container
     return Path("~/Library/Application Support/Youty/index.db").expanduser()
 
-
-DEFAULT_DB_PATH = _resolve_default_db_path()
 
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
@@ -78,7 +81,7 @@ _FALLBACK_VAULT_PARENTS = [
 
 def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     """Open the index DB, load sqlite-vec, apply schema + promotion idempotently."""
-    path = Path(db_path) if db_path else DEFAULT_DB_PATH
+    path = Path(db_path) if db_path else default_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # MCP SDK 2 runs synchronous tools on worker threads; the server serializes

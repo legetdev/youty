@@ -374,7 +374,9 @@ struct ContentView: View {
         // Instagram sign-in in progress: the login sheet continues the save.
         if showInstagramLogin { saveAfterLogin = true; return }
         guard lastResult != nil || shortFormPreview != nil else { return }
-        saveToVault(allowVaultPrompt: false)
+        // Keep the button busy until frames are captured and indexing starts, so
+        // a second click can't run a competing save into the same bundle.
+        await saveToVault(allowVaultPrompt: false)?.value
     }
 
     // MARK: - Result
@@ -742,7 +744,9 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4, execute: work)
     }
 
-    private func saveToVault(allowVaultPrompt: Bool = true) {
+    /// Returns the background save (frames + indexing) for callers that wait on it.
+    @discardableResult
+    private func saveToVault(allowVaultPrompt: Bool = true) -> Task<Void, Never>? {
         vaultError = nil
 
         // No vault configured. For a user-initiated save, prompt them to pick a
@@ -753,11 +757,11 @@ struct ContentView: View {
         if vault.vaultURL == nil {
             if allowVaultPrompt {
                 vault.chooseVault()
-                guard vault.vaultURL != nil else { return }
+                guard vault.vaultURL != nil else { return nil }
             } else {
                 vaultError = VaultError.noVault.localizedDescription
                 finishExternalIngest()
-                return
+                return nil
             }
         }
 
@@ -767,7 +771,7 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 withAnimation { self.vaultSaved = false }
             }
-            Task { @MainActor in
+            return Task { @MainActor in
                 let pipeline = shortForm.pipeline(vault: vault, settings: settings)
                 do {
                     let stageHandler: @Sendable (FrameStage) -> Void = { stage in
@@ -787,14 +791,13 @@ struct ContentView: View {
                     finishExternalIngest()
                 }
             }
-            return
         }
 
-        // YouTube path (unchanged).
+        // YouTube path.
         guard let result = lastResult else {
             vaultError = "Nothing to save yet. Load a video first."
             finishExternalIngest()
-            return
+            return nil
         }
         let metadata = MetadataEnricher.enrich(from: result)
         do {
@@ -805,12 +808,13 @@ struct ContentView: View {
                 withAnimation { self.vaultSaved = false }
             }
             let videoID = result.videoID
-            Task {
+            return Task {
                 await runFramePipeline(videoID: videoID, folderURL: folderURL)
             }
         } catch {
             vaultError = error.localizedDescription
             finishExternalIngest()
+            return nil
         }
     }
 

@@ -166,8 +166,11 @@ def pr_ready(repo, number, timeout=3600, review_timeout=1800):
         require(not findings, f'Codex left {len(findings)} finding(s) on PR #{number}; address them, then resume')
         reviews = json.loads(run('gh', 'api', f'repos/{repo}/pulls/{number}/reviews'))
         reactions = json.loads(run('gh', 'api', f'repos/{repo}/issues/{number}/reactions'))
+        # A 👍 has no commit, so it only counts when given after the head was committed.
+        committed = json.loads(run('gh', 'api', f'repos/{repo}/commits/{head}'))['commit']['committer']['date']
         reviewed = (any(r['user']['login'] == CODEX and r.get('commit_id') == head for r in reviews)
-                    or any(r['user']['login'] == CODEX and r['content'] == '+1' for r in reactions))
+                    or any(r['user']['login'] == CODEX and r['content'] == '+1'
+                           and r['created_at'] > committed for r in reactions))
         if reviewed and not pending:
             return head
         elapsed = time.monotonic() - started

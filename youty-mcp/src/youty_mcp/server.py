@@ -97,14 +97,18 @@ class _State:
         # single SQLite connection is never used concurrently.
         self.lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
+        self._path: Path | None = None
         self._encoder: QueryEncoder | None = None
         self._encoder_lock = threading.Lock()
         self._release_timer: threading.Timer | None = None
 
     def conn(self) -> sqlite3.Connection:
+        path = _db.default_db_path()
+        if self._conn is not None and path != self._path:
+            # The app created its index after this server started: follow it.
+            self.close()
         if self._conn is None:
-            path = Path(os.environ.get("YOUTY_INDEX_DB", str(_db.DEFAULT_DB_PATH))).expanduser()
-            self._conn = _db.open_db(path)
+            self._conn, self._path = _db.open_db(path), path
             try:
                 _db.resolve_vault_root(self._conn)
             except Exception as exc:  # noqa: BLE001
@@ -276,6 +280,10 @@ def _render_search(result: dict[str, Any]) -> str:
                 "try other words, or save_video(url) to add a video.")
     lines = [f"Results for {result['query']!r}" + ("" if result["semantic"] else
              " (keyword matching only — the on-device search model isn't available)")]
+    # Quotes share one page budget, so even 25 videos stay within client limits;
+    # get_transcript reads the full passage.
+    moments = sum(len(video["moments"]) for video in result["videos"]) or 1
+    quote_chars = max(240, min(1200, _TRANSCRIPT_PAGE_CHARS // moments))
     for i, video in enumerate(result["videos"], 1):
         row = video["row"]
         lines += ["", f"## {i}. {row['title']}", f"`{row['video_id']}` · {_headline(row)} · {row['url']}"]
@@ -287,7 +295,10 @@ def _render_search(result: dict[str, Any]) -> str:
                 head += f" · frame_ms {m['frame_ms']}"
             lines.append(f"- {head}")
             if m["text"]:
-                lines.append(f"  > {m['text'].strip().replace(chr(10), chr(10) + '  > ')}")
+                quote = m["text"].strip()
+                if len(quote) > quote_chars:
+                    quote = quote[:quote_chars].rsplit(" ", 1)[0] + " …"
+                lines.append(f"  > {quote.replace(chr(10), chr(10) + '  > ')}")
     lines += ["", "Next: get_transcript(video_id, start_ms=…) to read more around a moment · "
               "view_frames(video_id, frame_ms=[…]) to see it."]
     return "\n".join(lines)
@@ -654,7 +665,7 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
     while time.monotonic() < deadline:
         await anyio.sleep(3)
         with _STATE.lock:
-            row = _saved_row(conn, expected, started_ms)
+            row = _saved_row(_STATE.conn(), expected, started_ms)
         if row is not None and row["n"] > 0:
             return (f"Saved and searchable: `{row['video_id']}` — {row['title']}. Frames are indexed in "
                     f"the background. Read it with get_transcript(\"{row['video_id']}\") or search it.")
@@ -713,7 +724,7 @@ def main() -> None:
         _log.warning("could not open log file (continuing stderr-only): %s", exc)
 
     _log.info("youty-mcp %s starting (db=%s)", __version__,
-              os.environ.get("YOUTY_INDEX_DB", str(_db.DEFAULT_DB_PATH)))
+              _db.default_db_path())
     _STATE.conn()
     # Warm the query model in the background so the first search is fast; the
     # model is released again after a stretch of inactivity.

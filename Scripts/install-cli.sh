@@ -81,6 +81,27 @@ for MODEL in EmbeddingGemma2Text EmbeddingGemma2Vision; do
         exit 1
     fi
 done
+# Install the binary first: if that fails, the existing CLI and its resources
+# stay untouched. Only then retire old models and move the staged ones in.
+SUDO=""
+if [ -n "${YOUTY_INSTALL_DIR:-}" ]; then
+    DEST="$YOUTY_INSTALL_DIR/youty"
+elif [ -w /usr/local/bin ]; then
+    DEST="/usr/local/bin/youty"
+elif [ -d /usr/local/bin ] && command -v sudo >/dev/null 2>&1; then
+    echo "==> /usr/local/bin not writable; installing with sudo."
+    DEST="/usr/local/bin/youty"
+    SUDO="sudo"
+else
+    DEST="$HOME/.local/bin/youty"
+    mkdir -p "$HOME/.local/bin"
+fi
+if ! { $SUDO cp "$BIN" "$DEST" && $SUDO chmod 0755 "$DEST"; }; then
+    echo "error: couldn't install youty to $DEST; existing installation is unchanged." >&2
+    exit 1
+fi
+echo "==> Installed to $DEST"
+
 mkdir -p "$RES_DIR"
 # Retired models from earlier versions.
 rm -rf "$RES_DIR/SigLIP-Base-224_image.mlmodelc" "$RES_DIR/EmbeddingGemma-300m_text.mlmodelc"
@@ -92,28 +113,6 @@ cp "$STAGED_RES/IndexSchema.sql" "$STAGED_RES/EmbeddingGemma2Tokens.bf16" "$STAG
     "$STAGED_RES/vocab.bin" "$STAGED_RES/merges.bin" "$STAGED_RES/added_tokens.bin" \
     "$STAGED_RES/tokenizer.json" "$RES_DIR/"
 echo "==> Installed search models, tokenizer, and index schema."
-
-# Pick the destination.
-if [ -n "${YOUTY_INSTALL_DIR:-}" ]; then
-    DEST="$YOUTY_INSTALL_DIR/youty"
-elif [ -w /usr/local/bin ]; then
-    DEST="/usr/local/bin/youty"
-elif [ -d /usr/local/bin ] && command -v sudo >/dev/null 2>&1; then
-    echo "==> /usr/local/bin not writable; installing with sudo."
-    sudo cp "$BIN" /usr/local/bin/youty
-    sudo chmod 0755 /usr/local/bin/youty
-    DEST="/usr/local/bin/youty"
-    echo "==> Installed to $DEST"
-    "$DEST" --version
-    exit 0
-else
-    DEST="$HOME/.local/bin/youty"
-    mkdir -p "$HOME/.local/bin"
-fi
-
-cp "$BIN" "$DEST"
-chmod 0755 "$DEST"
-echo "==> Installed to $DEST"
 
 # Make sure the destination is on $PATH; warn if not.
 case ":$PATH:" in

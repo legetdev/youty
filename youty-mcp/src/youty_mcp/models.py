@@ -111,14 +111,20 @@ def _compiled(assets: Assets) -> Assets:
     """Use a compiled `.mlmodelc`; compile an `.mlpackage` once into the cache."""
     if assets.text_model.suffix == ".mlmodelc":
         return assets
-    target = CACHE / f"{TEXT_MODEL}.mlmodelc"
+    source = assets.text_model.resolve()
+    if CACHE.resolve() in source.parents:
+        target = CACHE / f"{TEXT_MODEL}.mlmodelc"
+    else:  # e.g. YOUTY_MODELS_DIR: key by source and contents' age so it is never reused stale
+        newest = max(p.stat().st_mtime_ns for p in source.rglob("*") if p.is_file())
+        key = hashlib.sha256(f"{source}:{newest}".encode()).hexdigest()[:16]
+        target = CACHE / "compiled" / key / f"{TEXT_MODEL}.mlmodelc"
     if not target.exists():
         import coremltools as ct
 
         _log.info("Compiling %s once …", assets.text_model.name)
-        CACHE.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
         compiled = Path(ct.models.utils.compile_model(str(assets.text_model)))
-        staged = CACHE / f".{TEXT_MODEL}.{os.getpid()}.mlmodelc"
+        staged = target.parent / f".{TEXT_MODEL}.{os.getpid()}.mlmodelc"
         shutil.move(str(compiled), staged)
         try:
             staged.rename(target)

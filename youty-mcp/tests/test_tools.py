@@ -93,5 +93,18 @@ def test_save_video_resaves_missing_notes_and_never_guesses(server_state, monkey
     assert sent.startswith("Sent to Youty") and "vm.tiktok.com" in opened[-1]
 
 
+def test_large_searches_and_index_switch_stay_bounded(server_state, monkeypatch, tmp_path):
+    long = {"video_id": "yt:abc123", "title": "T", "channel": "C", "platform": "youtube", "url": "u",
+            "duration_ms": 1, "date_saved": 1, "folder_path": "f", "tags_json": "[]"}
+    moment = {"kind": "said", "start_ms": 0, "end_ms": 1, "frame_ms": None, "link": "l", "text": "word " * 2000}
+    result = {"query": "q", "semantic": True,
+              "videos": [{"video_id": "yt:abc123", "row": long, "moments": [moment] * 3}] * 25}
+    assert len(server._render_search(result)) < server._TRANSCRIPT_PAGE_CHARS * 1.5
+    # The server follows the app's index once it appears at a different path.
+    first = server._STATE.conn()
+    monkeypatch.setenv("YOUTY_INDEX_DB", str(tmp_path / "app" / "index.db"))
+    assert server._STATE.conn() is not first
+
+
 def test_instructions_fit_client_limit():
     assert len(server.INSTRUCTIONS) < 2048
