@@ -136,7 +136,7 @@ def _compiled(assets: Assets) -> Assets:
 def _download() -> None:
     """Fetch and verify the pinned models asset, extracting only on a match."""
     _log.info("Fetching Youty models (one time) from %s …", MODELS_URL)
-    CACHE.mkdir(parents=True, exist_ok=True)
+    CACHE.parent.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
     with tempfile.TemporaryDirectory(prefix="youty-models-") as directory:
         tarball = Path(directory) / "models.tar.gz"
@@ -149,5 +149,15 @@ def _download() -> None:
                 "Youty models asset failed checksum verification — refusing to extract.\n"
                 f"  expected {MODELS_SHA256}\n  got      {digest.hexdigest()}"
             )
-        with tarfile.open(tarball) as archive:
-            archive.extractall(CACHE, filter="data")
+        # Extract beside the cache and publish it only once complete, so an
+        # interrupted extraction is never mistaken for a usable cache.
+        staged = Path(tempfile.mkdtemp(prefix=".staging-", dir=CACHE.parent))
+        try:
+            with tarfile.open(tarball) as archive:
+                archive.extractall(staged, filter="data")
+            if _assets_in(staged) is None:
+                raise RuntimeError("the models asset is incomplete")
+            shutil.rmtree(CACHE, ignore_errors=True)
+            staged.rename(CACHE)
+        finally:
+            shutil.rmtree(staged, ignore_errors=True)

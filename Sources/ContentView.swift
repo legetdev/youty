@@ -78,7 +78,10 @@ struct ContentView: View {
         }
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
-        .onChange(of: vault.vaultURL) { refreshRecents() }
+        .onChange(of: vault.vaultURL) {
+            refreshRecents()
+            maintainIndexOnLaunch()   // a vault picked during onboarding gets indexed now
+        }
         .onAppear {
             checkClipboard()
             refreshRecents()
@@ -370,7 +373,10 @@ struct ContentView: View {
         guard vault.vaultURL != nil else { await fetch(); return }
         savePending = true
         defer { savePending = false }
+        let requested = urlInput
         await fetch()
+        // Another link (Share Sheet, menu bar, AI) replaced this one meanwhile.
+        guard urlInput == requested else { return }
         // Instagram sign-in in progress: the login sheet continues the save.
         if showInstagramLogin { saveAfterLogin = true; return }
         guard lastResult != nil || shortFormPreview != nil else { return }
@@ -653,6 +659,8 @@ struct ContentView: View {
                 withAnimation(.spring(duration: 0.4)) {
                     state = .success(title: result.title, markdown: result.markdown)
                 }
+            } catch is CancellationError {
+                // Superseded by a newer link; that fetch owns the screen now.
             } catch {
                 withAnimation(.spring(duration: 0.3)) {
                     state = .error(error.localizedDescription)

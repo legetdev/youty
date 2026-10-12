@@ -103,6 +103,8 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
         currentURL = url
         return try await withCheckedThrowingContinuation { cont in
+            // A newer request supersedes any in-flight one: end that one first.
+            self.continuation?.resume(throwing: CancellationError())
             self.continuation = cont
             self.startAttempt()
         }
