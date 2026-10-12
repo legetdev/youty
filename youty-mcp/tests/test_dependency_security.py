@@ -11,5 +11,7 @@ def test_security_floors_and_lean_dependencies():
     assert Version(version("mcp")) >= Version("2.3.0")
     assert "1.28.0" not in dependencies["mcp"].specifier
     assert Version(version("cryptography")) >= Version("50.0.0")  # via MCP's JWT support
+    assert Version(version("pyjwt")) >= Version("2.15.0")  # via MCP's JWT support
+    assert Version(version("anyio")) >= Version("4.14.2")
     for removed in ("transformers", "torch", "sentencepiece", "huggingface-hub", "httpx"):
         assert removed not in dependencies
