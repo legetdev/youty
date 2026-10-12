@@ -1,0 +1,40 @@
+{
+  "manifest_version": "0.4",
+  "name": "youty",
+  "display_name": "Youty",
+  "version": "2.0.0",
+  "description": "Ask Claude about the YouTube, Instagram, and TikTok videos you saved with Youty.",
+  "long_description": "Youty saves videos to a folder on your Mac as transcripts and frames. This extension lets Claude search them on-device — what was said, what was shown on screen, and what was visible — read transcripts page by page, look at frames, and save new links through the Youty app. Every answer links to the exact moment. Requires the Youty Mac app (youtyapp.vercel.app).",
+  "author": {
+    "name": "Bent Eisheuer",
+    "url": "https://github.com/legetdev"
+  },
+  "homepage": "https://youtyapp.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/legetdev/youty"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": ["youtube", "video", "transcripts", "research", "knowledge base"],
+  "server": {
+    "type": "uv",
+    "entry_point": "pyproject.toml",
+    "mcp_config": {
+      "command": "uv",
+      "args": ["tool", "run", "youty-mcp@latest"]
+    }
+  },
+  "tools": [
+    {"name": "search", "description": "Search saved videos by what they said, showed on screen, or visibly depicted."},
+    {"name": "get_transcript", "description": "Read a video's transcript as timestamped paragraphs, page by page."},
+    {"name": "get_video", "description": "Overview of a saved video with its chapters."},
+    {"name": "view_frames", "description": "See frames from a saved video."},
+    {"name": "list_videos", "description": "List saved videos, newest first."},
+    {"name": "find_similar", "description": "Find saved videos similar to one you have."},
+    {"name": "save_video", "description": "Save a YouTube, Instagram, or TikTok link through the Youty app."}
+  ],
+  "compatibility": {
+    "platforms": ["darwin"]
+  }
+}

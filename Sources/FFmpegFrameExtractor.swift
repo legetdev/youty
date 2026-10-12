@@ -4,6 +4,7 @@ import CoreGraphics
 import VideoToolbox
 import CoreVideo
 import CoreImage
+import os
 
 // Sendable mutable box for hop-out-of-async-context patterns.
 private final class SendableBox<T>: @unchecked Sendable {
@@ -271,7 +272,7 @@ enum FFmpegFrameExtractor {
         guard let swsCtx = sws_getContext(
             srcW, srcH, srcPixFmt,
             outW, outH, AV_PIX_FMT_BGRA,
-            SWS_BILINEAR, nil, nil, nil
+            Int32(bitPattern: SWS_BILINEAR.rawValue), nil, nil, nil
         ) else { throw FFmpegError.swsInitFailed }
         defer { sws_freeContext(swsCtx) }
 
@@ -357,7 +358,7 @@ enum FFmpegFrameExtractor {
 
     private static func captureFrame(
         from avFrame: UnsafeMutablePointer<AVFrame>,
-        sws: OpaquePointer,
+        sws: UnsafeMutablePointer<SwsContext>,
         outW: Int32, outH: Int32
     ) -> CapturedFrame? {
         if avFrame.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue,
@@ -413,25 +414,28 @@ enum FFmpegFrameExtractor {
             // sequentially.
             let queue = DispatchQueue(label: "ffmpeg.gpu-pull", attributes: .concurrent)
             let group = DispatchGroup()
-            let lock = NSLock()
-            var converted: [Int: NSImage] = [:]
+            let converted = OSAllocatedUnfairLock(uncheckedState: [Int: NSImage]())
             for task in hwTasks {
                 group.enter()
+                // Each buffer is owned by exactly one readback (released below),
+                // so handing it to the queue can't race.
+                nonisolated(unsafe) let buffer = task.pb
+                let slot = task.slot
                 queue.async {
-                    let ci = CIImage(cvPixelBuffer: task.pb)
+                    let ci = CIImage(cvPixelBuffer: buffer)
                     let cg = ciContext.createCGImage(ci, from: ci.extent)
                     // Release the extra CFRetain we added in captureFrame.
-                    _ = Unmanaged.passUnretained(task.pb).release()
+                    Unmanaged.passUnretained(buffer).release()
                     if let cg {
                         let ns = NSImage(cgImage: cg,
                                          size: NSSize(width: cg.width, height: cg.height))
-                        lock.lock(); converted[task.slot] = ns; lock.unlock()
+                        converted.withLockUnchecked { $0[slot] = ns }
                     }
                     group.leave()
                 }
             }
             group.wait()
-            for (slot, img) in converted {
+            for (slot, img) in converted.withLockUnchecked({ $0 }) {
                 let ts = slotToTs[slot] ?? 0
                 out[slot] = (ts, img)
             }
@@ -451,7 +455,7 @@ enum FFmpegFrameExtractor {
     // Software path: sws_scale → BGRA → CGImage → NSImage.
     private static func renderViaSws(
         from avFrame: UnsafeMutablePointer<AVFrame>,
-        sws: OpaquePointer,
+        sws: UnsafeMutablePointer<SwsContext>,
         outW: Int32, outH: Int32
     ) -> NSImage? {
         let stride = Int(outW) * 4

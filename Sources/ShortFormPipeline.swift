@@ -286,7 +286,8 @@ final class ShortFormPipeline {
         }()
 
         // ASR only when there are no prefetched captions.
-        let chosenLocale = settings.resolvedTranscriptionLocale()
+        let chosenLocale = settings.resolvedTranscriptionLocale(
+            hint: "\(preview.title)\n\(preview.descriptionText)")
         async let transcriptTask: [TranscriptSegment]? = {
             if let pre = preview.prefetchedTranscript { return pre }
             do {
@@ -654,8 +655,12 @@ final class ShortFormPipeline {
     }
 
     private static func yamlString(_ s: String) -> String {
+        // Same escaping as VaultManager: a newline would end the YAML line and
+        // let caption text inject frontmatter keys.
         let escaped = s.replacingOccurrences(of: "\\", with: "\\\\")
                        .replacingOccurrences(of: "\"", with: "\\\"")
+                       .replacingOccurrences(of: "\n", with: " ")
+                       .replacingOccurrences(of: "\r", with: " ")
         return "\"\(escaped)\""
     }
 

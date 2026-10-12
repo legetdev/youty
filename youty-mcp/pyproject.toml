@@ -1,7 +1,7 @@
 [project]
 name = "youty-mcp"
-version = "1.4.9"
-description = "Youty MCP server — exposes the Youty vault index (sqlite-vec + FTS5) to MCP-compatible AIs."
+version = "2.0.0"
+description = "Youty MCP server — lets AI assistants search, read, watch, and save videos in your local Youty vault."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
@@ -26,31 +26,18 @@ classifiers = [
 # actually uses; upper bounds capped one major above current (or at the
 # next 0.x for pre-1.0 packages).
 dependencies = [
-    "mcp>=1.28.1,<2.0.0",
-    # Already pulled in by MCP's JWT support; publish the security floor too,
-    # so installs outside uv cannot resolve the vulnerable PKCS#7 implementation.
-    "cryptography>=50.0.0,<51",
-    "sqlite-vec>=0.1.6,<0.2.0",     # pre-1.0; breaking changes likely in 0.2
-    "httpx>=0.27.0,<1.0.0",         # transport + fetching the on-device models
+    # MCP Python SDK 2.x: the 2026-07-28 protocol (server/discover, sessionless)
+    # with the legacy initialize handshake kept for older clients.
+    "mcp>=2.3.0,<3",
+    "sqlite-vec>=0.1.9,<0.2.0",     # pre-1.0; breaking changes likely in 0.2
     "numpy>=1.26.0,<3.0.0",
-    # Query embeddings run on-device via Core ML — the *same* EmbeddingGemma +
-    # SigLIP models the Mac app/CLI use, loaded with coremltools (CPU-only, to
-    # match the int8-quant indexer). This drops torch (~250 MB) + the ~1.6 GB
-    # HuggingFace model downloads, and makes query and document vectors share
-    # the exact same space (more accurate than the old PyTorch path).
-    # coremltools is the macOS Core ML runtime — Core ML does not exist on Linux,
-    # so this is a darwin-only dependency. Real (dense + frame) embedding runs only
-    # on macOS, where the Youty vault + models live; Linux installs (CI, sdist) stay
-    # lean, and the tokenizers below still import fine for the Linux test suite.
-    "coremltools>=8.0,<10 ; sys_platform == 'darwin'",
-    # Existing tokenizer engines used directly; no Transformers model loader or
-    # its command-line dependency chain. Hub provides asset caching/downloads.
-    "tokenizers>=0.22.2,<0.24",
-    "huggingface-hub>=1.5,<2",
-    # 0.2.2 changes BPE tie-breaking (9/520 golden cases). Keep the version
-    # that matches existing vault vectors until a future encoder migration.
-    "sentencepiece==0.2.1",
-    "protobuf>=4,<8",
+    # Queries are embedded on-device with the same EmbeddingGemma 2 Core ML model
+    # the Youty app indexed with (CPU, so it loads instantly in every AI session).
+    # Core ML exists only on macOS; Linux installs (CI, sdist) stay lean and run
+    # the fixture test suite.
+    "coremltools>=9.0,<10 ; sys_platform == 'darwin'",
+    # Google's tokenizer.json, run by the existing Rust tokenizer engine.
+    "tokenizers>=0.23,<2",
 ]
 
 [project.urls]
@@ -63,7 +50,7 @@ Documentation = "https://github.com/legetdev/youty/blob/main/youty-mcp/README.md
 youty-mcp = "youty_mcp.cli:main"
 
 [build-system]
-requires = ["uv_build>=0.10.9,<0.12.0"]
+requires = ["uv_build>=0.10.9,<0.14.0"]
 build-backend = "uv_build"
 
 [dependency-groups]

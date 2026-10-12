@@ -14,7 +14,7 @@ just a folder of `.md` files and JPEGs under your control.
 |---|---|---|
 | **Mac app** | Download the DMG from [Releases](https://github.com/legetdev/youty/releases/latest), drag to `/Applications` | Apple Silicon, macOS 26 (Tahoe) |
 | **CLI** | `brew install legetdev/youty/youty` or `./Scripts/install-cli.sh` from a clone | Apple Silicon, macOS 26; Xcode 26 for source builds |
-| **MCP server** | Run `uvx youty-mcp@latest install` to connect detected MCP clients | Python 3.11+, `uv`; macOS for local Core ML search |
+| **AI assistants** | Claude Desktop: *Add to Claude Desktop* in the app's setup. Claude Code: `claude plugin marketplace add legetdev/youty && claude plugin install youty@youty`. Others: `uvx youty-mcp@latest install` | macOS; `uv` for the command-line route |
 
 The Mac app auto-updates via Sparkle once installed — *Check for
 Updates…* lives in the app menu (or *Settings → About*). New releases
@@ -30,11 +30,12 @@ write the same vault folder.
 
 ## Using it
 
-**Mac app.** First launch walks you through a four-card setup (pick a
-vault; AI search works on-device with no key; optional CLI install;
-optional MCP wiring).
-The cards stay reachable from *Settings → Onboarding*. After that:
-paste a video URL, hit Load → Save to Vault. The Mac app also shows up in:
+**Mac app.** First launch walks you through a short setup: pick a vault,
+connect your AI assistant in one click, optionally install the CLI. The cards
+stay reachable from *Settings → Onboarding*. After that: paste a video link
+and press **Save to Vault** — Youty saves the transcript and frames and makes
+them searchable; your recent saves are listed below. Videos without captions
+are transcribed on your Mac. The Mac app also shows up in:
 
 - Safari / Notes / Mail's Share menu (Share → Save to Youty)
 - The macOS Services menu (right-click any URL → Save to Youty Vault)
@@ -52,10 +53,12 @@ youty reindex --text-only  # re-embed the vault for on-device search
 youty login instagram      # one-time, only for Instagram saves
 ```
 
-**MCP.** Add `youty-mcp` to your Claude Desktop / Cursor / Claude Code
-config and your AI can semantically search the vault, retrieve
-transcripts, and find frames. Results are passed to that client, whose own
-privacy settings govern any cloud processing. See [`youty-mcp/README.md`](youty-mcp/README.md).
+**AI assistants (MCP).** Once connected, your AI searches everything you saved
+— what videos said, showed on screen, and visibly depicted — reads transcripts
+page by page, looks at frames, and can save new links for you, citing each
+moment with a link that opens the video there. Results are passed to that
+client, whose own privacy settings govern any cloud processing. See
+[`youty-mcp/README.md`](youty-mcp/README.md).
 
 ## What lands in the vault
 
@@ -69,18 +72,18 @@ manifest.json         # JSON array of video metadata and bundle paths
 ```
 
 YouTube transcripts are scraped from YouTube's caption panel. TikTok
-uses platform auto-captions. Instagram and TikToks-without-captions are
-transcribed on-device via Apple's `SpeechAnalyzer` + `SpeechTranscriber`
-(macOS 26 only; audio never leaves your Mac).
+uses platform auto-captions. Instagram, and YouTube or TikTok videos without
+captions, are transcribed on-device via Apple's `SpeechAnalyzer` +
+`SpeechTranscriber` in the post's own language (audio never leaves your Mac).
 
 ## Privacy
 
 See [`docs/privacy.md`](docs/privacy.md). The short version: vault is
 local, transcripts and frames are local, **AI search is 100% on-device**,
-no telemetry. Text search uses Google's EmbeddingGemma converted to Core ML
-without an API key or remote embedding provider. Network access supplies
-platform media, software updates, and initially required model, tokenizer,
-or speech-language assets. Connected AI clients receive requested vault
+no telemetry. Search uses Google's EmbeddingGemma 2 (Core ML) for transcripts,
+on-screen text, and frames alike, without an API key or remote embedding
+provider. Network access supplies platform media, software updates, and
+speech-language assets. Connected AI clients receive requested vault
 content and may send it to their providers; see the privacy page for details.
 
 ## Terms
@@ -92,7 +95,7 @@ complies with each platform's terms of service.
 
 ## Building from source
 
-The on-device Core ML models (~415 MB) aren't committed — they're fetched from
+The on-device Core ML models (~880 MB) aren't committed — they're fetched from
 the matching GitHub Release. Run this once before building (it's a checksummed,
 idempotent no-op once they're in place); `install-cli.sh` and `release-app.sh`
 call it for you:
@@ -113,6 +116,7 @@ The live extractor smoke suite expects a separate Debug app at `build/dd`:
 xcodebuild -scheme youty -configuration Debug -derivedDataPath build/dd build
 xcodebuild -scheme youty-cli -configuration Debug -derivedDataPath build/dd build
 ./Scripts/smoke-test-extractors.sh                          # YouTube + TikTok; Instagram skipped
+./Scripts/install-canary.sh                                 # optional: run it weekly on this Mac
 ```
 
 For contributor prerequisites and verification commands, see
@@ -134,31 +138,23 @@ Found something concerning? See [`SECURITY.md`](SECURITY.md).
 
 ## Open source notice
 
-Youty's Mac app links against FFmpeg 7.1.1 (`libavcodec`, `libavformat`,
+Youty's Mac app links against FFmpeg 9.0.2 (`libavcodec`, `libavformat`,
 `libavutil`, `libswscale`), built from source as statically-linked
 archives via [`Scripts/build-ffmpeg.sh`](Scripts/build-ffmpeg.sh).
 FFmpeg is licensed under the GNU Lesser General Public License v2.1+
 (LGPL-2.1+) — verbatim text in
 [`Vendor/ffmpeg/licenses/COPYING.LGPLv2.1`](Vendor/ffmpeg/licenses/COPYING.LGPLv2.1).
 
-The app also bundles Google's SigLIP-Base-Patch16-224 image encoder
-(Apache License 2.0) converted to Core ML for frame embedding — verbatim
-text in [`Vendor/siglip/licenses/LICENSE`](Vendor/siglip/licenses/LICENSE),
-with attribution + conversion provenance in
-[`Vendor/siglip/licenses/NOTICE`](Vendor/siglip/licenses/NOTICE).
-
-The app also bundles Google's EmbeddingGemma-300m text encoder, converted
-to Core ML for on-device AI search (the default — no API key). It is
-distributed under the **Gemma Terms of Use** (not an OSI license;
-commercial use + redistribution permitted with attribution) — the required
-NOTICE + modification record is in
-[`Vendor/embeddinggemma/licenses/EmbeddingGemma-NOTICE.txt`](Vendor/embeddinggemma/licenses/EmbeddingGemma-NOTICE.txt),
-and the canonical terms live at <https://ai.google.dev/gemma/terms>. A
-from-scratch Swift BPE tokenizer reproduces Gemma's tokenizer with no
+The app also bundles Google's EmbeddingGemma 2 text and vision encoders
+(Apache License 2.0) as Core ML for on-device search — license text in
+[`Vendor/embeddinggemma2/licenses/EmbeddingGemma2-LICENSE.txt`](Vendor/embeddinggemma2/licenses/EmbeddingGemma2-LICENSE.txt),
+with attribution, conversion provenance, and checksums in
+[`Vendor/embeddinggemma2/licenses/EmbeddingGemma2-NOTICE.txt`](Vendor/embeddinggemma2/licenses/EmbeddingGemma2-NOTICE.txt).
+A from-scratch Swift BPE tokenizer reproduces Gemma's tokenizer with no
 third-party dependency.
 
 The app also bundles Sparkle (MIT, the auto-update framework). Pinned
-at version 2.9.6 in
+at version 2.10.0 in
 [`Package.resolved`](youty.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved);
 license text ships inside the framework at
 `Sparkle.framework/Versions/Current/Resources/LICENSE`. Vetted against
@@ -167,11 +163,10 @@ updates, single-purpose).
 
 To relink the app against a modified FFmpeg, follow the source-build steps in
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md#lgpl-6--relinking-obligation).
-To rebuild the SigLIP
-Core ML artifact: edit and re-run
-[`Scripts/convert-siglip-coreml.py`](Scripts/convert-siglip-coreml.py).
-Pinned versions for both also appear in the app's *About* panel
-(Settings → About).
+To re-check the Core ML models against Google's reference, run
+[`Scripts/verify-embeddinggemma2.py`](Scripts/verify-embeddinggemma2.py) and the
+app's `--embeddinggemma2-probe`. Pinned versions also appear in the app's
+*About* panel (Settings → About).
 
 Other third-party components, their licenses, and where to find their
 verbatim license texts:

@@ -63,10 +63,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_frames USING vec0(
 );
 """
 
-# Frame + chunk embeddings are both 768-d (SigLIP-Base for frames since R.0b,
-# on-device EmbeddingGemma for text). The expected vec0 vector width — used to detect
-# and rebuild a stale virtual table left from an older model (e.g. the 512-d
-# MobileCLIP-S2 frame encoder).
+# Chunk and frame embeddings are both 768-d EmbeddingGemma 2 vectors in one
+# space. The expected vec0 width — used to detect and rebuild a stale virtual
+# table left from an older model (e.g. the 512-d MobileCLIP-S2 frame encoder).
 _VEC_DIM = 768
 
 # Possible default vault locations to scan if index_meta.vault_root is missing.
@@ -82,7 +81,9 @@ def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     path = Path(db_path) if db_path else DEFAULT_DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = sqlite3.connect(str(path))
+    # MCP SDK 2 runs synchronous tools on worker threads; the server serializes
+    # every use of this connection with one lock (see server._State).
+    conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     # The Swift app writes this same DB (WAL mode); wait briefly for its write
     # lock rather than failing when an incremental promotion lands during an
@@ -185,7 +186,7 @@ def _backfill_vec_frames(conn: sqlite3.Connection) -> None:
     for r in rows:
         blob = r["embedding"]
         dim = r["embedding_dim"]
-        # vec_frames is declared float[768] (SigLIP-Base); only insert matching width.
+        # vec_frames is declared float[768]; only insert matching width.
         if dim != _VEC_DIM or not blob or len(blob) != dim * 4:
             continue
         conn.execute(

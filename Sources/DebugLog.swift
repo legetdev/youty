@@ -23,7 +23,7 @@ enum DebugLog {
                 FileManager.default.createFile(atPath: url.path, contents: nil)
             }
             if let handle = try? FileHandle(forWritingTo: url) {
-                try? handle.seekToEnd()
+                _ = try? handle.seekToEnd()
                 if let data = line.data(using: .utf8) { try? handle.write(contentsOf: data) }
                 try? handle.close()
             }

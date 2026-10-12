@@ -1,0 +1,13 @@
+{
+  "name": "youty",
+  "version": "2.0.0",
+  "description": "Ask Claude about the YouTube, Instagram, and TikTok videos you saved with Youty — on-device search over transcripts, on-screen text, and frames, with timestamped links.",
+  "author": {
+    "name": "Bent Eisheuer",
+    "url": "https://github.com/legetdev"
+  },
+  "homepage": "https://youtyapp.vercel.app",
+  "repository": "https://github.com/legetdev/youty",
+  "license": "MIT",
+  "keywords": ["youtube", "video", "transcripts", "research", "mcp", "knowledge base"]
+}

@@ -11,7 +11,10 @@
 
 set -euo pipefail
 
-FFMPEG_VERSION="7.1.1"
+FFMPEG_VERSION="9.0.2"
+# SHA-256 of the release tarball; its release signature (key FCF986EA…D67658D8)
+# was verified when this pin was set. Update both together.
+FFMPEG_SHA256="8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$(mktemp -d)/ffmpeg-build"
 PREFIX="$BUILD/install"
@@ -21,6 +24,7 @@ mkdir -p "$BUILD"
 cd "$BUILD"
 echo "→ Downloading FFmpeg $FFMPEG_VERSION ..."
 curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+echo "$FFMPEG_SHA256  ffmpeg.tar.xz" | shasum -a 256 -c - >/dev/null || { echo "error: FFmpeg download checksum mismatch" >&2; exit 1; }
 tar -xf ffmpeg.tar.xz
 
 cd "$SRC"

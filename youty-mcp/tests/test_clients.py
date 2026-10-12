@@ -52,3 +52,18 @@ def test_symlink_config_keeps_link_and_updates_target(tmp_path):
     clients.write_entry(client)
     assert path.is_symlink()
     assert json.loads(target.read_text())["mcpServers"]["youty"] == client.entry
+
+
+def test_installer_skips_clients_that_already_have_youty(tmp_path, monkeypatch):
+    """The plugin or desktop extension already provides Youty; no duplicate entry."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    claude = clients.CLIENTS["claude"]
+    desktop = clients.CLIENTS["claude-desktop"]
+    assert clients.plugin_provides(claude) is None
+    plugins = tmp_path / ".claude/plugins"
+    plugins.mkdir(parents=True)
+    (plugins / "installed_plugins.json").write_text('{"version": 2, "plugins": {"youty@youty": []}}')
+    assert "plugin" in clients.plugin_provides(claude)
+    extensions = tmp_path / "Library/Application Support/Claude/Claude Extensions"
+    (extensions / "local.mcpb.bent-eisheuer.youty").mkdir(parents=True)
+    assert "extension" in clients.plugin_provides(desktop)

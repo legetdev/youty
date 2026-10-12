@@ -1,0 +1,35 @@
+EmbeddingGemma 2 (text and vision encoders)
+-------------------------------------------
+
+This product includes Google's EmbeddingGemma 2 embedding model, used on
+device to place transcript text, on-screen text, and video frames in one
+768-dimensional search space:
+
+    https://huggingface.co/google/embeddinggemma-2
+    (revision 914f7f89142e33e77833254d9c9b90c3cef7303b)
+
+Licensed under the Apache License, Version 2.0. The full license text is
+included alongside this NOTICE at `EmbeddingGemma2-LICENSE.txt`.
+
+The Core ML packages, token table, and vision position table are the
+Apache-2.0 conversion published by FluidInference:
+
+    https://huggingface.co/FluidInference/embeddinggemma-2-coreml
+    (revision 3f978ddf92cac9aa07eb2dcf6eb36cf450f3dba4)
+
+Youty ships the text and vision encoders unmodified (the audio encoder is
+not included) and renames `embeddings.bf16` to `EmbeddingGemma2Tokens.bf16`
+and `position_embeddings.f16` to `EmbeddingGemma2Positions.f16`. The
+tokenizer is Google's original `tokenizer.json`; the compact `vocab.bin`,
+`merges.bin`, and `added_tokens.bin` files are derived from it by
+`Scripts/build-gemma-tokenizer-artifact.py`. Before adoption the converted
+models were checked against Google's sentence-transformers reference on
+saved-vault text and frames (`Scripts/verify-embeddinggemma2.py`).
+
+SHA-256 of the shipped weights:
+
+    EmbeddingGemma2Text.mlpackage   weight.bin  75b97ab036ca87ea…
+    EmbeddingGemma2Vision.mlpackage weight.bin  5b5b6dd8d80aa438…
+    EmbeddingGemma2Tokens.bf16                  56ebbdbfd706c827…
+    EmbeddingGemma2Positions.f16                17de9480acc23638…
+    tokenizer.json                              4d777ef5bdc1aa36…

@@ -12,9 +12,12 @@ They are deliberately short.
 
 - Fetches the publicly-accessible page for a URL you give it (YouTube,
   Instagram, TikTok).
-- Extracts transcripts, frames, and metadata from that page.
+- Extracts transcripts, frames, and metadata from that page. When a video
+  has no transcript, Youty fetches its audio once and transcribes it on your
+  Mac; the audio is deleted afterwards.
 - Writes the result to the vault folder you pick.
-- Indexes the vault locally so AI assistants you run can search it.
+- Indexes the vault locally so AI assistants you run can search it, and
+  saves links those assistants pass to it on your behalf.
 
 ## What you can do with the output
 

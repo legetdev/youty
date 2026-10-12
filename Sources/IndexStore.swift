@@ -62,7 +62,7 @@ struct IndexStats: Sendable {
     let frameCount: Int
     let lastRebuildMs: Int?           // unix epoch ms, nil if never rebuilt
     let textModelID: String?          // e.g. "embeddinggemma-300m@768"
-    let frameModelID: String?         // e.g. "siglip-base-patch16-224@768"
+    let frameModelID: String?         // e.g. "embeddinggemma-2@768"
     let vaultRoot: String?
     let dbBytes: Int64                // index.db + index.db-wal size
 }
@@ -119,7 +119,27 @@ actor IndexStore {
         }
         try exec(sql)
         try migrateSchemaIfNeeded()
+        try purgeOrphans()
+        Self.removeLegacySecrets(nextTo: try Self.defaultDatabaseURL())
         didBootstrap = true
+    }
+
+    /// Chunk and frame rows whose video row is gone are unreachable (search
+    /// hydrates through `videos`) yet still occupy keyword and vector pools.
+    /// The v1→v2 rebuild deliberately carried such rows over, so drop them on
+    /// every open; with no orphans this is two indexed no-op deletes.
+    private func purgeOrphans() throws {
+        try exec("""
+        DELETE FROM chunks WHERE video_id NOT IN (SELECT video_id FROM videos);
+        DELETE FROM frames WHERE video_id NOT IN (SELECT video_id FROM videos);
+        """)
+    }
+
+    /// Youty once stored a cloud embedding API key as plain text beside the
+    /// index. Search is on-device now and nothing reads it, so remove it.
+    nonisolated static func removeLegacySecrets(nextTo dbURL: URL) {
+        let legacyKey = dbURL.deletingLastPathComponent().appendingPathComponent(".gemini-api.key")
+        try? FileManager.default.removeItem(at: legacyKey)
     }
 
     /// One-time, idempotent schema migrations for index DBs created by an older
@@ -325,7 +345,7 @@ actor IndexStore {
     /// caller's current frame-model identifier, then records that
     /// identifier in `index_meta`. Called once per app session at the
     /// start of any frame-indexing path — if the binary has been
-    /// upgraded to a new frame model (e.g. MobileCLIP-S2 → SigLIP),
+    /// upgraded to a new frame model (e.g. SigLIP → EmbeddingGemma 2),
     /// existing vectors live in a different embedding space and must be
     /// re-computed before any retrieval can correctly compare new query
     /// embeddings against them. Idempotent — once the table is purged,
@@ -447,7 +467,7 @@ actor IndexStore {
     /// provider switch would need to re-embed. Returns the count of distinct
     /// videos and of chunks whose `model_version` differs. Both zero ⇒ the
     /// index already matches the active model (no migration needed). Frames
-    /// are deliberately excluded — they live in their own SigLIP space.
+    /// are counted separately (see `needsModelMigration`).
     func textMigrationScope(activeModel: String) throws -> (videos: Int, chunks: Int) {
         try openIfNeeded()
         // JOIN videos so only real, disk-backed videos count — never orphaned
@@ -465,6 +485,32 @@ actor IndexStore {
             return (Int(sqlite3_column_int64(stmt, 0)), Int(sqlite3_column_int64(stmt, 1)))
         }
         return (0, 0)
+    }
+
+    /// True when any text chunk or frame of a real video was embedded by a
+    /// model other than `activeModel` — the trigger for the automatic upgrade.
+    func needsModelMigration(activeModel: String) throws -> Bool {
+        try openIfNeeded()
+        let sql = """
+            SELECT EXISTS(SELECT 1 FROM chunks c JOIN videos v ON v.video_id = c.video_id
+                          WHERE c.model_version <> ?1)
+                OR EXISTS(SELECT 1 FROM frames f JOIN videos v ON v.video_id = f.video_id
+                          WHERE f.model_version <> ?1);
+            """
+        let stmt = try prepare(sql)
+        defer { sqlite3_finalize(stmt) }
+        bindText(stmt, 1, activeModel)
+        return sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) != 0
+    }
+
+    /// Frames of `videoID` already embedded by `model`.
+    func frameCount(videoID: String, model: String) throws -> Int {
+        try openIfNeeded()
+        let stmt = try prepare("SELECT COUNT(*) FROM frames WHERE video_id = ? AND model_version = ?;")
+        defer { sqlite3_finalize(stmt) }
+        bindText(stmt, 1, videoID)
+        bindText(stmt, 2, model)
+        return sqlite3_step(stmt) == SQLITE_ROW ? Int(sqlite3_column_int64(stmt, 0)) : 0
     }
 
     /// Convenience: updates an `index_meta` key.
@@ -488,6 +534,11 @@ actor IndexStore {
     // MARK: - Path
 
     private static func defaultDatabaseURL() throws -> URL {
+        // Same override the MCP server honours; lets tests and probes work on a
+        // copy without touching the real index.
+        if let override = ProcessInfo.processInfo.environment["YOUTY_INDEX_DB"], !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
         let appSupport = try FileManager.default.url(for: .applicationSupportDirectory,
                                                       in: .userDomainMask,
                                                       appropriateFor: nil,
@@ -579,7 +630,7 @@ actor IndexStore {
         if let v { bindInt(stmt, idx, v) } else { sqlite3_bind_null(stmt, idx) }
     }
     private func bindBlob(_ stmt: OpaquePointer?, _ idx: Int32, _ data: Data) {
-        data.withUnsafeBytes { raw in
+        _ = data.withUnsafeBytes { raw in
             sqlite3_bind_blob(stmt, idx, raw.baseAddress, Int32(data.count), Self.SQLITE_TRANSIENT_BRIDGE)
         }
     }

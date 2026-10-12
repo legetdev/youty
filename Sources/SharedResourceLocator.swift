@@ -1,7 +1,7 @@
 import Foundation
 
-/// Locates bundled resources (the SigLIP image encoder, the SQLite index
-/// schema) for execution contexts where `Bundle.main` can't find them —
+/// Locates bundled resources (the EmbeddingGemma 2 models and tables, the
+/// SQLite index schema) for execution contexts where `Bundle.main` can't find them —
 /// chiefly the standalone `youty` CLI binary, which is a bare Mach-O tool
 /// with no `Resources/` of its own.
 ///

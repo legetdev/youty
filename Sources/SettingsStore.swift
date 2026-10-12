@@ -58,7 +58,7 @@ final class SettingsStore: ObservableObject {
 
     // MARK: - Transcription
 
-    /// "auto" → use Locale.current; otherwise a BCP-47 identifier
+    /// "auto" → the language of the post's own text, else Locale.current; otherwise a BCP-47 identifier
     /// (e.g. "en-US", "de-DE"). SpeechTranscriber.supportedLocale(equivalentTo:)
     /// handles fallback when the exact identifier isn't installed.
     @AppStorage("transcriptionLocale") var transcriptionLocaleIdentifier: String = "auto"
@@ -80,12 +80,6 @@ final class SettingsStore: ObservableObject {
     /// triggers a one-time background backfill on launch; equal = done, stays
     /// quiet. Lets the OCR layer roll out to old vaults with zero user action.
     @AppStorage("ocrBackfillVersion") var ocrBackfillVersion: Int = 0
-
-    /// The text model id the index was last re-embedded to (Phase S.4 → now
-    /// always the on-device model). When it equals the on-device model the
-    /// launch re-embed offer has been satisfied and stays quiet; it is only
-    /// ever non-matching for a legacy index built with an older model.
-    @AppStorage("textMigrationOfferedFor") var textMigrationOfferedFor: String = ""
 
     // MARK: - Menu bar (Phase L)
 
@@ -140,7 +134,7 @@ final class SettingsStore: ObservableObject {
         Option(label: "5 fps", value: 5.0),
     ]
 
-    /// Locale picker. "auto" reads `Locale.current`; the rest are explicit
+    /// Locale picker. "auto" detects the post language (see `transcriptionLocale`); the rest are explicit
     /// BCP-47 identifiers that Apple's on-device SpeechTranscriber supports
     /// on macOS 26 (empirically verified). Excludes Russian, Arabic, Hindi,
     /// Dutch, Turkish, Polish, Swedish — none are in
@@ -149,7 +143,7 @@ final class SettingsStore: ObservableObject {
     /// user up for a confusing "speech model unavailable" error on first
     /// save.
     static let localeOptions: [Option<String>] = [
-        Option(label: "Auto (system language)", value: "auto"),
+        Option(label: "Automatic (match the post)", value: "auto"),
         Option(label: "English (US)",           value: "en-US"),
         Option(label: "English (UK)",           value: "en-GB"),
         Option(label: "German",                  value: "de-DE"),
@@ -167,12 +161,18 @@ final class SettingsStore: ObservableObject {
 
     // MARK: - Convenience: resolve transcription locale to a Locale value
 
-    /// Returns the Locale the speech pipeline should use. "auto" maps to
-    /// `Locale.current`; otherwise the picked identifier.
-    func resolvedTranscriptionLocale() -> Locale {
-        if transcriptionLocaleIdentifier == "auto" {
-            return Locale.current
-        }
-        return Locale(identifier: transcriptionLocaleIdentifier)
+    /// Returns the Locale the speech pipeline should use. "auto" uses the
+    /// language of the post's own words (title, caption, description) when it
+    /// is recognizable, else `Locale.current`; otherwise the picked identifier.
+    func resolvedTranscriptionLocale(hint: String = "") -> Locale {
+        Self.transcriptionLocale(hint: hint)
+    }
+
+    /// The same resolution for callers without a store (the YouTube fetcher,
+    /// shared by the app and CLI), read straight from the stored preference.
+    nonisolated static func transcriptionLocale(hint: String) -> Locale {
+        let stored = UserDefaults.standard.string(forKey: "transcriptionLocale") ?? "auto"
+        guard stored == "auto" else { return Locale(identifier: stored) }
+        return SpeechTranscriptionPipeline.detectedLocale(in: hint) ?? Locale.current
     }
 }

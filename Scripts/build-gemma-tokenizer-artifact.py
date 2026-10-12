@@ -23,7 +23,7 @@ import struct
 import sys
 from pathlib import Path
 
-TOK_DIR = Path(__file__).resolve().parent.parent / "Vendor/embeddinggemma/tokenizer"
+TOK_DIR = Path(__file__).resolve().parent.parent / "Vendor/embeddinggemma2/tokenizer"
 
 
 def main() -> int:

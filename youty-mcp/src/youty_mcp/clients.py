@@ -154,6 +154,26 @@ def get(key: str) -> Client | None:
     return CLIENTS.get(ALIASES.get(k, k))
 
 
+def plugin_provides(client: Client) -> str | None:
+    """Why `client` already has Youty through another route, if it does.
+
+    The Youty Claude Code plugin registers the same server under its own name,
+    so also adding a `youty` entry would load the vault twice. Claude Desktop's
+    Youty extension is the analogous case for Claude Desktop."""
+    if client.key == "claude":
+        try:
+            data = json.loads(_h(".claude", "plugins", "installed_plugins.json").read_text())
+        except (OSError, ValueError):
+            return None
+        if any(name.split("@", 1)[0] == "youty" for name in (data.get("plugins") or {})):
+            return "the Youty plugin is installed"
+    if client.key == "claude-desktop":
+        extensions = _h("Library", "Application Support", "Claude", "Claude Extensions")
+        if extensions.is_dir() and any(p.name.endswith("youty") for p in extensions.iterdir()):
+            return "the Youty extension is installed"
+    return None
+
+
 def is_present(client: Client) -> bool:
     """Heuristic: is this client installed on this Mac? True when its config file
     exists, or its *dedicated* config directory exists (created on the client's

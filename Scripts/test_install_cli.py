@@ -34,27 +34,28 @@ class InstallCLITests(unittest.TestCase):
             executable(tools / "xcodebuild", 'printf "%s\\n" "$@" > "$YOUTY_FIXTURE_ARGS"\n')
             executable(tools / "xcrun", """
 case "$3" in
-  *SigLIP*) name=SigLIP-Base-224_image; kind=image ;;
-  *) name=EmbeddingGemma-300m_text; kind=text ;;
+  *Vision*) name=EmbeddingGemma2Vision; kind=image ;;
+  *) name=EmbeddingGemma2Text; kind=text ;;
 esac
 if [ "$kind" = "$YOUTY_FIXTURE_FAILURE" ]; then exit 1; fi
 if [ "$YOUTY_FIXTURE_FAILURE" != missing-output ]; then mkdir -p "$4/$name.mlmodelc"; fi
 """)
             executable(root / "build/release/Build/Products/Release/youty", "exit 0\n")
-            for name in ("SigLIP-Base-224_image", "EmbeddingGemma-300m_text"):
+            for name in ("EmbeddingGemma2Vision", "EmbeddingGemma2Text"):
                 model = resources / (name + ".mlmodelc")
                 model.mkdir()
                 (model / "original").write_text("original model")
-            for relative in ("Sources/IndexSchema.sql", "Vendor/embeddinggemma/tokenizer/vocab.bin",
-                             "Vendor/embeddinggemma/tokenizer/merges.bin",
-                             "Vendor/embeddinggemma/tokenizer/added_tokens.bin"):
+            assets = ("resources/EmbeddingGemma2Tokens.bf16", "resources/EmbeddingGemma2Positions.f16",
+                      "tokenizer/vocab.bin", "tokenizer/merges.bin", "tokenizer/added_tokens.bin",
+                      "tokenizer/tokenizer.json")
+            for relative in ("Sources/IndexSchema.sql", *("Vendor/embeddinggemma2/" + a for a in assets)):
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("new asset")
-            for relative in ("Vendor/siglip/models/SigLIP-Base-224_image.mlpackage",
-                             "Vendor/embeddinggemma/models/EmbeddingGemma-300m_text.mlpackage"):
+            for relative in ("Vendor/embeddinggemma2/models/EmbeddingGemma2Text.mlpackage",
+                             "Vendor/embeddinggemma2/models/EmbeddingGemma2Vision.mlpackage"):
                 (root / relative).mkdir(parents=True)
-            for name in ("IndexSchema.sql", "vocab.bin", "merges.bin", "added_tokens.bin"):
+            for name in ("IndexSchema.sql", *(Path(a).name for a in assets)):
                 (resources / name).write_text("original asset")
             (install_dir / "youty").write_text("original executable")
             before = {str(p): p.read_bytes() for p in root.rglob("*")
@@ -77,13 +78,13 @@ if [ "$YOUTY_FIXTURE_FAILURE" != missing-output ]; then mkdir -p "$4/$name.mlmod
             for path, content in before.items():
                 self.assertEqual(Path(path).read_bytes(), content)
 
-    def test_image_compilation_failure(self):
-        """The first compilation failure cannot remove installed resources."""
-        self.check_compile_failure("image")
-
     def test_text_compilation_failure(self):
-        """A successful image compile followed by text failure remains harmless."""
+        """The first compilation failure cannot remove installed resources."""
         self.check_compile_failure("text")
+
+    def test_image_compilation_failure(self):
+        """A successful text compile followed by an image failure remains harmless."""
+        self.check_compile_failure("image")
 
     def test_missing_compiler_output(self):
         """Even a zero compiler exit must provide both expected model directories."""

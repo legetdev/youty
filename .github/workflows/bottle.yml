@@ -66,7 +66,7 @@ jobs:
         # copy carries a placeholder source sha256 (the real one is filled into the
         # published tap at release time). brew downloads the actual TAG source via
         # the formula's `url`, so the build still targets the released version.
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Show toolchain
         run: brew --version && xcodebuild -version
@@ -195,7 +195,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the bottled formula as an artifact
         if: ${{ env.TAG != 'HEAD' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: youty-formula-${{ env.TAG }}
           path: Scripts/homebrew/youty.rb

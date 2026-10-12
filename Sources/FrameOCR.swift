@@ -6,7 +6,7 @@ import CoreGraphics
 /// On-device OCR of saved video frames via Apple's Vision framework. Turns the
 /// text shown *on screen* — slides, code, terminal output, chart labels, tool
 /// names — into searchable content, complementing the spoken transcript and the
-/// SigLIP visual index. No network, no key, nothing leaves the Mac: it runs at
+/// visual index. No network, no key, nothing leaves the Mac: it runs at
 /// index time over the full-resolution frame JPEGs already on disk.
 enum FrameOCR {
 
@@ -23,10 +23,10 @@ enum FrameOCR {
 
     /// OCR every `NNNNNNNN.jpg` frame in `folder` and return timestamped,
     /// de-noised on-screen text. Lines already in the spoken `transcript`
-    /// (burned-in captions) or equal to the title/channel watermark are dropped,
-    /// and a frame whose text repeats the previous kept frame (a held slide) is
-    /// skipped — so the result is the *changes* in on-screen text over time, not
-    /// one entry per identical frame.
+    /// (burned-in captions), equal to the title/channel watermark, or repeated
+    /// across a large share of frames (interface chrome) are dropped, and each
+    /// kept frame lists only lines that are new since the last few frames — so
+    /// the result is the *changes* in on-screen text over time.
     static func onScreenText(forFrameDir folder: URL,
                              transcript: String,
                              title: String,
@@ -45,37 +45,66 @@ enum FrameOCR {
         // frame embedder uses.
         let distinct = PHashFilter.keepIndices(jpegURLs: frames.map { $0.url }).map { frames[$0] }
 
-        // Each frame is independent; recognize concurrently, then do the
-        // order-dependent dedup pass single-threaded below. Results go to
-        // pre-allocated slots under a lock (Array isn't safe for unsynchronized
-        // concurrent writes even to distinct indices).
-        var perFrameLines = [[String]](repeating: [], count: distinct.count)
-        let lock = NSLock()
+        // Each frame is independent; recognize concurrently into pre-allocated
+        // slots, then run the order-dependent filters single-threaded below.
+        let perFrameLines = LineSlots(count: distinct.count)
         DispatchQueue.concurrentPerform(iterations: distinct.count) { i in
             guard let cg = loadCGImage(distinct[i].url) else { return }
-            let lines = recognizeLines(in: cg)
-            lock.lock(); perFrameLines[i] = lines; lock.unlock()
+            perFrameLines.set(i, recognizeLines(in: cg))
+        }
+        let candidates: [[(raw: String, norm: String)]] = (0..<distinct.count).map { i in
+            perFrameLines.get(i).compactMap { line in
+                let n = normalize(line)
+                if n.count < minLineChars || n.filter(\.isLetter).count < minLineChars { return nil }
+                if stop.contains(n) { return nil }                                    // watermark / channel bug
+                if !transcriptNorm.isEmpty && transcriptNorm.contains(n) { return nil } // burned-in caption
+                return (line, n)
+            }
         }
 
+        // Interface chrome (browser menus, tab strips, menu-bar clocks) repeats
+        // across most frames of a screen recording and drowns the useful text,
+        // so a line seen in a large share of frames is chrome, not content.
+        let framesWithText = candidates.filter { !$0.isEmpty }.count
+        var frequency: [String: Int] = [:]
+        for frame in candidates { for n in Set(frame.map(\.norm)) { frequency[n, default: 0] += 1 } }
+        let chromeThreshold = max(3, Int((Double(framesWithText) * chromeShare).rounded(.up)))
+        let chrome = framesWithText >= 4 ? Set(frequency.filter { $0.value >= chromeThreshold }.keys) : []
+
+        // Emit only lines that are new relative to the last few kept frames, so a
+        // slowly changing screen yields its changes rather than full repeats.
         var out: [(ms: Int, text: String)] = []
-        var lastKeptNorm = ""
+        var recent: [Set<String>] = []
         for (i, frame) in distinct.enumerated() {
-            let ms = frame.ms
-            let kept = perFrameLines[i].filter { line in
-                let n = normalize(line)
-                if n.count < minLineChars { return false }
-                if stop.contains(n) { return false }                       // watermark / channel bug
-                if !transcriptNorm.isEmpty && transcriptNorm.contains(n) { return false }  // burned-in caption
-                return true
+            let seen = recent.reduce(into: Set<String>()) { $0.formUnion($1) }
+            var emitted = Set<String>()
+            let fresh = candidates[i].filter { line in
+                guard !chrome.contains(line.norm), !seen.contains(line.norm) else { return false }
+                return emitted.insert(line.norm).inserted
             }
-            guard !kept.isEmpty else { continue }
-            let joined = kept.joined(separator: " · ")
-            let joinedNorm = normalize(joined)
-            if joinedNorm == lastKeptNorm { continue }   // held slide — skip the repeat
-            lastKeptNorm = joinedNorm
-            out.append((ms: ms, text: joined))
+            let current = Set(candidates[i].map(\.norm))
+            if !current.isEmpty {
+                recent.append(current)
+                if recent.count > noveltyWindow { recent.removeFirst() }
+            }
+            guard !fresh.isEmpty else { continue }
+            out.append((ms: frame.ms, text: fresh.map(\.raw).joined(separator: " · ")))
         }
         return out
+    }
+
+    /// Fraction of text-bearing frames a line must appear in to count as chrome.
+    private static let chromeShare = 0.3
+    /// Number of preceding text-bearing frames whose lines are not repeated.
+    private static let noveltyWindow = 3
+
+    /// Lock-protected result slots for the concurrent recognition pass.
+    private final class LineSlots: @unchecked Sendable {
+        private var slots: [[String]]
+        private let lock = NSLock()
+        init(count: Int) { slots = Array(repeating: [], count: count) }
+        func set(_ i: Int, _ lines: [String]) { lock.withLock { slots[i] = lines } }
+        func get(_ i: Int) -> [String] { lock.withLock { slots[i] } }
     }
 
     // MARK: - Vision

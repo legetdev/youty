@@ -50,8 +50,9 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--phase-l-e2e-check")
             || CommandLine.arguments.contains("--hardness-probe")
             || CommandLine.arguments.contains("--bench-indexer")
-            || CommandLine.arguments.contains("--siglip-probe")
-            || CommandLine.arguments.contains("--embeddinggemma-probe")
+            || CommandLine.arguments.contains("--embeddinggemma2-probe")
+            || CommandLine.arguments.contains("--migrate")
+            || CommandLine.arguments.contains("--youtube-audio-probe")
             || CommandLine.arguments.contains("--ocr-probe")
             || CommandLine.arguments.contains("--ocr-backfill")
     }
@@ -96,11 +97,14 @@ enum DebugRunner {
         if let nStr = stringArg(args, key: "--bench-indexer") {
             runBenchIndexer(count: Int(nStr) ?? 1000)
         }
-        if args.contains("--siglip-probe") {
-            runSigLIPProbe()
+        if args.contains("--embeddinggemma2-probe") {
+            runEmbeddingGemma2Probe(referencePath: stringArg(args, key: "--embeddinggemma2-probe"))
         }
-        if args.contains("--embeddinggemma-probe") {
-            runEmbeddingGemmaProbe()
+        if let vaultPath = stringArg(args, key: "--migrate") {
+            runMigrateProbe(vaultPath: vaultPath)
+        }
+        if let videoID = stringArg(args, key: "--youtube-audio-probe") {
+            runYouTubeAudioProbe(videoID: videoID, locale: stringArg(args, key: "--locale"))
         }
         if let folder = stringArg(args, key: "--ocr-probe") {
             runOCRProbe(folder: folder)
@@ -714,7 +718,7 @@ enum DebugRunner {
         exit(box.code)
     }
 
-    // Headless frame indexer. Walks every bundle, runs pHash + SigLIP-Base,
+    // Headless frame indexer. Walks every bundle, runs pHash + EmbeddingGemma 2,
     // writes to the `frames` table. Bundles using the legacy 4-digit-seconds
     // JPEG names are silently skipped (FRAMES_KEPT=0 each).
     private static func runIndexFramesProbe(vaultPath: String) -> Never {
@@ -742,10 +746,10 @@ enum DebugRunner {
             defer { sem.signal() }
             do {
                 let dbPath = (try? IndexStore.databasePath()) ?? "?"
-                let modelPath = (try? SigLIPLoader.bundledModelURL().path) ?? "?"
+                let modelPath = EmbeddingGemma2.modelIdentifier
                 print("VAULT_ROOT=\(vaultURL.path)")
                 print("INDEX_DB=\(dbPath)")
-                print("MODEL_PATH=\(modelPath)")
+                print("MODEL=\(modelPath)")
                 print("SCOPED_RESOURCE=\(scoped)")
                 let summary = try await Indexer.reindexFrames(vaultRoot: vaultURL) { line in
                     print(line)
@@ -1239,119 +1243,80 @@ enum DebugRunner {
         return TranscriptFetcher.extractVideoID(from: urlString)
     }
 
-    // SigLIP-probe — proves the bundled image encoder (Vendor/siglip/) loads
-    // and runs an actual prediction on the ANE. Creates a synthetic 224×224
-    // RGB pixel buffer (deterministic gradient), runs it through
-    // SigLIPLoader → CoreML, validates the output is a 768-dim
-    // L2-normalised vector.
-    //
-    // Catches regressions that build + accessibility audit wouldn't:
-    //   - .mlmodelc resource path resolution under Bundle.main
-    //   - CoreML model input/output schema mismatches after a conversion change
-    //   - Unexpected dtype on the output multiarray
-    private static func runSigLIPProbe() -> Never {
+    /// Self-test for the on-device EmbeddingGemma 2 embedder. Verifies the
+    /// bundled models, token table, and tokenizer resolve; that text and frame
+    /// vectors are 768-d, finite, unit-length, and deterministic; that related
+    /// text out-scores unrelated text and the matching caption ranks first for a
+    /// frame. With a reference file from `Scripts/verify-embeddinggemma2.py`
+    /// it also checks token ids exactly and vectors against Google's reference
+    /// (text cosine ≥ 0.998, frames ≥ 0.99, allowing for resampling).
+    private static func runEmbeddingGemma2Probe(referencePath: String?) -> Never {
         let sem = DispatchSemaphore(value: 0)
         let box = ExitBox()
         Task.detached {
             defer { sem.signal() }
             do {
-                let url = try SigLIPLoader.bundledModelURL()
-                print("MODEL_PATH=\(url.path)")
-                print("MODEL_EXT=\(url.pathExtension)")
                 let started = Date()
-                let encoder = try await SigLIPLoader.shared.imageEncoder()
-                let loadMs = Int(Date().timeIntervalSince(started) * 1000)
-                print("MODEL_LOAD_MS=\(loadMs)")
+                let embedder = try EmbeddingGemma2.shared()
+                try embedder.warmUp()
+                print("MODEL_ID=\(embedder.modelIdentifier)")
+                print("MODEL_LOAD_MS=\(Int(Date().timeIntervalSince(started) * 1000))")
 
-                // Build a synthetic 224×224 ARGB pixel buffer with a vertical
-                // gradient so we can prove the model executes on non-trivial
-                // input (all-zeros input can produce NaN-ish embeddings on
-                // some quantized models).
-                let size = siglipImageInputSize
-                let attrs: [CFString: Any] = [
-                    kCVPixelBufferIOSurfacePropertiesKey: [:],
-                ]
-                var buffer: CVPixelBuffer?
-                guard CVPixelBufferCreate(nil, size, size,
-                                           kCVPixelFormatType_32ARGB,
-                                           attrs as CFDictionary, &buffer) == kCVReturnSuccess,
-                      let buf = buffer else {
-                    print("ERROR=cannot_create_pixel_buffer")
-                    box.code = 2
-                    return
-                }
-                CVPixelBufferLockBaseAddress(buf, [])
-                let base = CVPixelBufferGetBaseAddress(buf)!
-                let stride = CVPixelBufferGetBytesPerRow(buf)
-                for y in 0..<size {
-                    let row = base.advanced(by: y * stride)
-                    for x in 0..<size {
-                        let pixel = row.advanced(by: x * 4)
-                            .assumingMemoryBound(to: UInt8.self)
-                        pixel[0] = 255                           // A
-                        pixel[1] = UInt8(min(255, y))            // R: vertical gradient
-                        pixel[2] = UInt8(min(255, x))            // G: horizontal gradient
-                        pixel[3] = UInt8((x ^ y) & 0xFF)         // B: xor texture
+                func check(_ v: [Float], _ label: String) -> Bool {
+                    let norm = v.reduce(0) { $0 + Double($1) * Double($1) }.squareRoot()
+                    guard v.count == 768, v.allSatisfy(\.isFinite), abs(norm - 1) < 0.01 else {
+                        print("ERROR=bad_vector \(label) dim=\(v.count) norm=\(norm)"); return false
                     }
+                    return true
                 }
-                CVPixelBufferUnlockBaseAddress(buf, [])
 
-                let input = try MLDictionaryFeatureProvider(dictionary: [
-                    "image": MLFeatureValue(pixelBuffer: buf),
+                let query = try embedder.embedQuery("how to make ultra realistic AI generated videos")
+                let t0 = Date()
+                let docs = try await embedder.embed([
+                    EmbeddingGemma2.documentInput(title: "AI video tutorial", text: "a tutorial on AI video generation tools and cinematic clips"),
+                    EmbeddingGemma2.documentInput(title: "Markets", text: "the current price of bitcoin and the crypto market today"),
                 ])
-                let inferStart = Date()
-                let prediction = try await encoder.model.prediction(from: input)
-                let inferMs = Int(Date().timeIntervalSince(inferStart) * 1000)
-                print("INFER_MS=\(inferMs)")
+                print("TEXT_MS_PER_DOC=\(Int(Date().timeIntervalSince(t0) * 500))")
+                guard check(query, "query"), docs.allSatisfy({ check($0, "doc") }) else { box.code = 3; return }
+                let again = try embedder.embedQuery("how to make ultra realistic AI generated videos")
+                let related = cosineSim(query, docs[0]), unrelated = cosineSim(query, docs[1])
+                print("DETERMINISM_COSINE=\(String(format: "%.5f", cosineSim(query, again)))")
+                print("SIM_RELATED=\(String(format: "%.4f", related)) SIM_UNRELATED=\(String(format: "%.4f", unrelated))")
+                guard cosineSim(query, again) > 0.9999, related > unrelated else {
+                    print("ERROR=semantics"); box.code = 3; return
+                }
 
-                guard let arr = prediction.featureValue(for: "embedding")?.multiArrayValue else {
-                    print("ERROR=missing_embedding_feature")
-                    box.code = 3
-                    return
+                guard let referencePath else { print("EMBEDDINGGEMMA2_PROBE OK"); box.code = 0; return }
+                let data = try Data(contentsOf: URL(fileURLWithPath: referencePath))
+                guard let ref = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let texts = ref["texts"] as? [[String: Any]],
+                      let images = ref["images"] as? [[String: Any]] else {
+                    print("ERROR=bad_reference"); box.code = 2; return
                 }
-                guard arr.count == siglipEmbeddingDim else {
-                    print("ERROR=unexpected_dim got=\(arr.count) expected=\(siglipEmbeddingDim)")
-                    box.code = 3
-                    return
+                var tokenMismatches = 0, minText = 1.0, minImage = 1.0
+                for item in texts {
+                    guard let input = item["input"] as? String, let ids = item["ids"] as? [Int],
+                          let vector = (item["vector"] as? [Double])?.map(Float.init) else { continue }
+                    if embedder.contentTokens(input) + 2 != ids.count { tokenMismatches += 1 }
+                    let v = try embedder.embedFormatted(input)
+                    minText = min(minText, cosineSim(v, vector))
                 }
-                print("EMBED_DIM=\(arr.count)")
-                print("EMBED_DTYPE=\(arr.dataType.rawValue)")
-
-                // Spot-check: read first 4 values + verify the vector has
-                // non-trivial magnitude AND no NaN/Inf. (The Swift FrameEmbedder
-                // L2-normalises in postprocess, but the bundled wrapper already
-                // normalises inside the graph — verify both invariants hold.)
-                var sumSq: Double = 0
-                var anyNonFinite = false
-                for i in 0..<arr.count {
-                    let v: Float
-                    switch arr.dataType {
-                    case .float16:
-                        let raw = arr.dataPointer.advanced(by: i * 2).load(as: UInt16.self)
-                        v = Float(Float16(bitPattern: raw))
-                    case .float32:
-                        v = arr.dataPointer.advanced(by: i * 4).load(as: Float.self)
-                    default:
-                        v = arr[i].floatValue
-                    }
-                    if !v.isFinite { anyNonFinite = true }
-                    sumSq += Double(v) * Double(v)
+                let i0 = Date()
+                for item in images {
+                    guard let path = item["path"] as? String,
+                          let vector = (item["vector"] as? [Double])?.map(Float.init) else { continue }
+                    let v = try embedder.embedImage(at: URL(fileURLWithPath: path))
+                    guard check(v, "image") else { box.code = 3; return }
+                    minImage = min(minImage, cosineSim(v, vector))
                 }
-                let norm = sqrt(sumSq)
-                print("EMBED_NORM=\(String(format: "%.4f", norm))")
-                if anyNonFinite {
-                    print("ERROR=non_finite_value_in_embedding")
-                    box.code = 3
-                    return
+                print("IMAGE_MS_PER_FRAME=\(images.isEmpty ? 0 : Int(Date().timeIntervalSince(i0) * 1000) / images.count)")
+                print("TEXT_REFERENCE_MIN_COSINE=\(String(format: "%.5f", minText)) n=\(texts.count)")
+                print("IMAGE_REFERENCE_MIN_COSINE=\(String(format: "%.5f", minImage)) n=\(images.count)")
+                print("TOKEN_COUNT_MISMATCHES=\(tokenMismatches)")
+                guard tokenMismatches == 0, minText >= 0.998, minImage >= 0.99 else {
+                    print("ERROR=reference_parity"); box.code = 3; return
                 }
-                // Conversion wrapper normalises in-graph → norm should be ~1.0.
-                // Accept [0.9, 1.1] window to absorb fp16 rounding.
-                guard norm > 0.9 && norm < 1.1 else {
-                    print("ERROR=unexpected_norm \(norm) — expected ~1.0")
-                    box.code = 3
-                    return
-                }
-                print("SIGLIP_PROBE OK")
+                print("EMBEDDINGGEMMA2_PROBE OK")
                 box.code = 0
             } catch {
                 print("ERROR=\(error.localizedDescription)")
@@ -1362,82 +1327,70 @@ enum DebugRunner {
         exit(box.code)
     }
 
-    /// Phase S.6 self-test for the on-device text embedder. Mirrors
-    /// `--siglip-probe` but goes further: it verifies the bundled model +
-    /// native tokenizer resolve, that embeddings are well-formed (768-dim,
-    /// L2-normalized, finite), that the path is DETERMINISTIC, and — the
-    /// sophisticated part — that the vectors are SEMANTICALLY meaningful
-    /// (a related document out-scores an unrelated one). All on-device,
-    /// with no key or network involved at any point. Catches: bundle-resource
-    /// regressions, tokenizer-artifact drift, Core ML i/o schema changes, and
-    /// compute-unit precision regressions.
-    private static func runEmbeddingGemmaProbe() -> Never {
+    /// Exercises the no-captions fallback directly: downloads the video's
+    /// smallest audio stream and transcribes it on-device.
+    private static func runYouTubeAudioProbe(videoID: String, locale: String?) -> Never {
         let sem = DispatchSemaphore(value: 0)
         let box = ExitBox()
         Task.detached {
             defer { sem.signal() }
+            let started = Date()
             do {
-                let started = Date()
-                // Production resolver — Bundle.main then SharedResourceLocator.
-                // Fully on-device — no key, no network; reaching OK proves the
-                // key-free path loads and runs.
-                let embedder = try EmbeddingGemmaEmbedder()
-                let loadMs = Int(Date().timeIntervalSince(started) * 1000)
-                print("MODEL_ID=\(embedder.modelIdentifier)")
-                print("EMBED_DIM_DECLARED=\(embedder.embeddingDim)")
-                print("MODEL_LOAD_MS=\(loadMs)")
-                guard embedder.modelIdentifier.hasPrefix("embeddinggemma") else {
-                    print("ERROR=wrong_model \(embedder.modelIdentifier)"); box.code = 3; return
-                }
-
-                // Reference corpus with a known semantic relationship.
-                let queryDoc   = "how to make ultra realistic AI generated videos"
-                let relatedDoc = "a tutorial on AI video generation tools and cinematic clips"
-                let unrelDoc   = "the current price of bitcoin and the crypto market today"
-
-                let t0 = Date()
-                let vecs = try await embedder.embed([queryDoc, relatedDoc, unrelDoc])
-                let embMs = Int(Date().timeIntervalSince(t0) * 1000)
-                print("EMBED_MS_TOTAL=\(embMs) PER_DOC_MS=\(embMs / 3)")
-                guard vecs.count == 3 else { print("ERROR=embed_count \(vecs.count)"); box.code = 3; return }
-
-                // 1. Shape + finiteness + L2-norm on every vector.
-                for (i, v) in vecs.enumerated() {
-                    guard v.count == 768 else {
-                        print("ERROR=dim got=\(v.count) expected=768 idx=\(i)"); box.code = 3; return
-                    }
-                    var sumSq = 0.0
-                    for x in v {
-                        if !x.isFinite { print("ERROR=non_finite idx=\(i)"); box.code = 3; return }
-                        sumSq += Double(x) * Double(x)
-                    }
-                    let norm = sqrt(sumSq)
-                    print("VEC[\(i)] DIM=\(v.count) NORM=\(String(format: "%.4f", norm))")
-                    guard norm > 0.9 && norm < 1.1 else {
-                        print("ERROR=norm \(norm) idx=\(i) — expected ~1.0"); box.code = 3; return
-                    }
-                }
-
-                // 2. Determinism — the same input must embed identically.
-                let again = try await embedder.embed([queryDoc])
-                let det = cosineSim(vecs[0], again[0])
-                print("DETERMINISM_COSINE=\(String(format: "%.5f", det))")
-                guard det > 0.9999 else { print("ERROR=nondeterministic \(det)"); box.code = 3; return }
-
-                // 3. Semantic sanity — related must out-score unrelated, proving
-                // the vectors carry meaning, not just well-formed noise.
-                let simRelated = cosineSim(vecs[0], vecs[1])
-                let simUnrel   = cosineSim(vecs[0], vecs[2])
-                print("SIM_RELATED=\(String(format: "%.4f", simRelated)) SIM_UNRELATED=\(String(format: "%.4f", simUnrel))")
-                guard simRelated > simUnrel else {
-                    print("ERROR=semantics related(\(simRelated)) <= unrelated(\(simUnrel))"); box.code = 3; return
-                }
-
-                print("EMBEDDINGGEMMA_PROBE OK")
-                box.code = 0
+                let segments = try await YouTubeAudioTranscript.transcribe(
+                    videoID: videoID, locale: Locale(identifier: locale ?? "en-US"))
+                print("SEGMENTS=\(segments.count)")
+                print("TOTAL_MS=\(Int(Date().timeIntervalSince(started) * 1000))")
+                for segment in segments.prefix(5) { print("[\(segment.timestamp)] \(segment.text)") }
+                box.code = segments.isEmpty ? 1 : 0
             } catch {
                 print("ERROR=\(error.localizedDescription)")
                 box.code = 2
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
+    /// Headless search upgrade: moves the index onto the current model exactly
+    /// as the app does on launch (text first, then frames; resumable).
+    private static func runMigrateProbe(vaultPath: String) -> Never {
+        let bareURL = URL(fileURLWithPath: vaultPath, isDirectory: true).standardizedFileURL
+        var vaultURL = bareURL
+        if let data = UserDefaults.standard.data(forKey: "vaultBookmark") {
+            var stale = false
+            if let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope,
+                                  relativeTo: nil, bookmarkDataIsStale: &stale),
+               url.standardizedFileURL.path == bareURL.path {
+                vaultURL = url
+            }
+        }
+        let scoped = vaultURL.startAccessingSecurityScopedResource()
+        defer { if scoped { vaultURL.stopAccessingSecurityScopedResource() } }
+        guard FileManager.default.fileExists(atPath: vaultURL.path) else {
+            FileHandle.standardError.write("error: vault path does not exist or is sandbox-blocked: \(vaultPath)\n".data(using: .utf8)!)
+            exit(2)
+        }
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached { [vaultURL] in
+            defer { sem.signal() }
+            do {
+                print("VAULT_ROOT=\(vaultURL.path)")
+                print("INDEX_DB=\((try? IndexStore.databasePath()) ?? "?")")
+                let needed = try await IndexStore.shared.needsModelMigration(activeModel: EmbeddingGemma2.modelIdentifier)
+                print("NEEDED=\(needed)")
+                let summary = try await Indexer.migrateToCurrentModel(vaultRoot: vaultURL) { done, total in
+                    print("PROGRESS \(done)/\(total)")
+                }
+                print("VIDEOS_INDEXED=\(summary.videosIndexed) CHUNKS=\(summary.chunksWritten) FRAMES=\(summary.framesKept)")
+                for f in summary.failures { print("FAIL_DETAIL folder=\(f.folder) error=\(f.error)") }
+                let still = try await IndexStore.shared.needsModelMigration(activeModel: EmbeddingGemma2.modelIdentifier)
+                print("STILL_NEEDED=\(still)")
+                print("TOTAL_MS=\(summary.totalMs)")
+                box.code = summary.failures.isEmpty && !still ? 0 : 1
+            } catch {
+                print("FATAL=\(error.localizedDescription)")
+                box.code = 3
             }
         }
         sem.wait()

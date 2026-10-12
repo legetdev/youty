@@ -2,6 +2,7 @@ import Foundation
 import AVFoundation
 import Speech
 import CoreMedia
+import NaturalLanguage
 
 // On-device speech transcription for Instagram + TikTok flows.
 //
@@ -148,6 +149,20 @@ enum SpeechTranscriptionPipeline {
     }
 
     // MARK: - Locale resolution
+
+    /// The language of `text` (a post's title and caption) when it is clear
+    /// enough to pick a speech model, e.g. "Step by step wie man …" → German.
+    /// SpeechTranscriber has no spoken-language detection, so the creator's own
+    /// words are the best available signal; nil when they are too short or mixed.
+    static func detectedLocale(in text: String) -> Locale? {
+        let letters = text.filter(\.isLetter).count
+        guard letters >= 12 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first,
+              confidence >= 0.6, language != .undetermined else { return nil }
+        return Locale(identifier: language.rawValue)
+    }
 
     private static func resolveLocale(preferred: Locale) async -> Locale? {
         // Exact match first.

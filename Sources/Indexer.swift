@@ -118,8 +118,8 @@ enum Indexer {
 
         // Frame re-embed pass — "Re-index entire vault" must re-cover
         // frame search too, especially after a model swap (e.g. the
-        // MobileCLIP → SigLIP migration in R.0b). Without this, the
-        // text index gets rebuilt cleanly but `search_frames` returns
+        // SigLIP → EmbeddingGemma 2 move). Without this, the
+        // text index gets rebuilt cleanly but visual search returns
         // nothing until the user runs the CLI re-index probe by hand.
         // Idempotent at the bundle level via `purgeStaleFrameVectors`
         // — bundles already embedded under the current model identifier
@@ -152,7 +152,7 @@ enum Indexer {
     /// embedded (the normal idempotent skip would otherwise block a same-model
     /// re-process). Bundles already carrying the section are skipped instantly, so
     /// this is self-bounding and resumable across launches, and a no-op once done.
-    /// Frames keep their existing SigLIP vectors (no frame re-embed here).
+    /// Frames keep their existing vectors (no frame re-embed here).
     @discardableResult
     static func backfillOnScreenText(vaultRoot: URL,
                                      embedderOverride: Embedder? = nil,
@@ -168,7 +168,7 @@ enum Indexer {
             // that then failed to index (e.g. pre-migration) is reprocessed —
             // keeps the pass resumable + bounded without dropping partial work.
             if let md = try? String(contentsOf: url, encoding: .utf8),
-               md.contains(OnScreenText.heading) {
+               OnScreenText.isCurrent(md) {
                 let placeholder = md.contains("_No on-screen text detected._")
                 var indexed = false
                 if let vid = (try? Chunker.parse(text: md))?.qualifiedID {
@@ -236,7 +236,7 @@ enum Indexer {
                 let count = try await indexBundle(videoMdURL: url,
                                                   vaultRoot: vaultRoot,
                                                   embedder: embedder)
-                try? await indexFrames(videoMdURL: url, vaultRoot: vaultRoot)
+                _ = try? await indexFrames(videoMdURL: url, vaultRoot: vaultRoot)
                 if count > 0 { healed += 1 }
                 progress?("RECONCILE \(url.deletingLastPathComponent().lastPathComponent) — \(count) chunks")
             } catch {
@@ -251,7 +251,7 @@ enum Indexer {
     /// leaving frame vectors untouched. Re-embeds only bundles whose chunks
     /// are on a different `model_version` — `indexBundle`'s idempotent skip
     /// turns already-current bundles into no-ops, so this is surgical and
-    /// safely resumable. Frames keep their SigLIP space (no frame pass here).
+    /// safely resumable. Frames are untouched (no frame pass here).
     ///
     /// During the run the index is briefly mixed (some bundles migrated,
     /// some not); the MCP's dense search filters to `current_text_model`, so
@@ -286,6 +286,55 @@ enum Indexer {
         return summary
     }
 
+    /// Moves an index built with an older model onto the current one: text for
+    /// every bundle first (fast, so search recovers quickly, and outdated
+    /// on-screen text sections are regenerated on the way), then frames.
+    /// Bundles already on the current model are skipped, so an interrupted run
+    /// resumes where it stopped, and keyword search keeps working throughout.
+    /// `progress` receives (steps finished, steps total) across both passes.
+    @discardableResult
+    static func migrateToCurrentModel(vaultRoot: URL,
+                                      progress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> ReindexSummary {
+        let kickoff = Date()
+        let embedder = try makeEmbedder()
+        let bundles = try enumerateBundles(at: vaultRoot)
+        let total = bundles.count * 2
+        var done = 0
+        var summary = ReindexSummary()
+        func record(_ url: URL, _ error: Error) {
+            let rel = url.path.replacingOccurrences(of: vaultRoot.path + "/", with: "")
+            summary.failures.append((folder: rel, error: error.localizedDescription))
+        }
+        for url in bundles {
+            do {
+                summary.chunksWritten += try await indexBundle(videoMdURL: url, vaultRoot: vaultRoot,
+                                                               embedder: embedder)
+                summary.videosIndexed += 1
+            } catch { record(url, error) }
+            done += 1
+            progress?(done, total)
+        }
+        for url in bundles {
+            do {
+                let markdown = try String(contentsOf: url, encoding: .utf8)
+                let videoID = try Chunker.parse(text: markdown).qualifiedID
+                if try await IndexStore.shared.frameCount(videoID: videoID,
+                                                          model: EmbeddingGemma2.modelIdentifier) == 0 {
+                    let (kept, dropped) = try await indexFrames(videoMdURL: url, vaultRoot: vaultRoot)
+                    summary.framesKept += kept
+                    summary.framesDroppedDedupe += dropped
+                }
+            } catch { record(url, error) }
+            done += 1
+            progress?(done, total)
+        }
+        summary.totalMs = Int(Date().timeIntervalSince(kickoff) * 1000)
+        try? await IndexStore.shared.setMeta(key: "vault_root", value: vaultRoot.path)
+        try? await IndexStore.shared.setMeta(key: "last_rebuild",
+                                              value: "\(Int(Date().timeIntervalSince1970 * 1000))")
+        return summary
+    }
+
     // MARK: - Internal: single-bundle path
 
     /// Returns the chunk count it wrote, so reindexVault can sum it up.
@@ -310,7 +359,8 @@ enum Indexer {
         let ocrEnabled = UserDefaults.standard.object(forKey: "ocrIndexingEnabled") as? Bool ?? true
         OnScreenText.ensureSection(inBundle: videoMdURL.deletingLastPathComponent(), enabled: ocrEnabled)
 
-        let (parsed, chunks) = try Chunker.parseAndChunk(videoMdURL: videoMdURL)
+        let (parsed, chunks) = try Chunker.parseAndChunk(videoMdURL: videoMdURL,
+                                                         tokens: embedder.contentTokens)
         guard !parsed.videoID.isEmpty else {
             throw IndexerError.vaultMismatch("video.md has no video_id / post_id field")
         }
@@ -324,12 +374,7 @@ enum Indexer {
         // from chunk freshness.
         let bundleFolder = videoMdURL.deletingLastPathComponent()
         let folderPath = relativePath(of: bundleFolder, under: vaultRoot)
-        let tagsJSON: String = {
-            guard !parsed.tags.isEmpty else { return "[]" }
-            if let data = try? JSONSerialization.data(withJSONObject: parsed.tags, options: []),
-               let str = String(data: data, encoding: .utf8) { return str }
-            return "[]"
-        }()
+        let tagsJSON = Self.tagsJSON(parsed.tags)
         let videoRow = IndexVideoRow(
             videoID:     parsed.qualifiedID,
             platform:    parsed.platform,
@@ -405,14 +450,12 @@ enum Indexer {
             throw IndexerError.vaultMismatch("video.md has no video_id / post_id field")
         }
 
-        // Purge any frame rows embedded by an older model (e.g. a vault
-        // indexed with MobileCLIP-S2 before the SigLIP migration). The
-        // call is idempotent — after the first save under the new model
-        // every row matches and this becomes a no-op COUNT(*) query.
-        // Without this, mixed-model vectors would coexist in vec_frames
-        // and silently degrade `search_frames` retrieval quality.
+        // Purge frame rows embedded by an older model (e.g. SigLIP before the
+        // EmbeddingGemma 2 shared space). Idempotent — once every row matches,
+        // this is a no-op COUNT(*). Mixed-space frame vectors would otherwise
+        // be compared against text queries they were never trained against.
         _ = try? await IndexStore.shared.purgeStaleFrameVectors(
-            currentModel: siglipModelIdentifier
+            currentModel: EmbeddingGemma2.modelIdentifier
         )
 
         let bundleFolder = videoMdURL.deletingLastPathComponent()
@@ -440,13 +483,9 @@ enum Indexer {
         let keptInputs: [(ms: Int, url: URL)] = keepIdx.map { jpegs[$0] }
         let droppedCount = jpegs.count - keptInputs.count
 
-        // Embed kept frames in one pass through CoreML.
-        let urlsKept = keptInputs.map { $0.url }
-        let vectors = try await FrameEmbedder.embedFrames(urlsKept)
-        guard vectors.count == keptInputs.count else {
-            throw IndexerError.vaultMismatch(
-                "frame embedder returned \(vectors.count) vectors for \(keptInputs.count) frames")
-        }
+        // Embed kept frames into the same space as the transcript text.
+        let embedder = try EmbeddingGemma2.shared()
+        let vectors = try keptInputs.map { try embedder.embedImage(at: $0.url) }
 
         // Build IndexFrameRow with phash (cheap second pass on kept frames).
         let rows: [IndexFrameRow] = zip(keptInputs, vectors).map { (k, v) in
@@ -456,18 +495,13 @@ enum Indexer {
                                  path: rel,
                                  phash: phash,
                                  embedding: v,
-                                 modelVersion: siglipModelIdentifier)
+                                 modelVersion: EmbeddingGemma2.modelIdentifier)
         }
 
         // Ensure a `videos` row exists for FK satisfaction. If the bundle has
         // never been text-indexed (e.g. the on-device model was unavailable), we still
         // want frame indexing to succeed — frames are independently useful.
-        let tagsJSON: String = {
-            guard !parsed.tags.isEmpty else { return "[]" }
-            if let data = try? JSONSerialization.data(withJSONObject: parsed.tags, options: []),
-               let str = String(data: data, encoding: .utf8) { return str }
-            return "[]"
-        }()
+        let tagsJSON = Self.tagsJSON(parsed.tags)
         let videoRow = IndexVideoRow(
             videoID:     parsed.qualifiedID,
             platform:    parsed.platform,
@@ -482,7 +516,7 @@ enum Indexer {
         try await IndexStore.shared.upsertVideo(videoRow)
         try await IndexStore.shared.replaceFrames(videoID: parsed.qualifiedID, rows: rows)
         try? await IndexStore.shared.setMeta(key: "current_frame_model",
-                                              value: siglipModelIdentifier)
+                                              value: EmbeddingGemma2.modelIdentifier)
         return (rows.count, droppedCount)
     }
 
@@ -523,37 +557,30 @@ enum Indexer {
     /// 100% on-device — there is no cloud path and never a silent substitute.
     static func makeEmbedder() throws -> Embedder {
         do {
-            return try EmbeddingGemmaEmbedder()
+            return try EmbeddingGemma2.shared()
         } catch {
             throw IndexerError.localModelUnavailable
         }
     }
 
-    /// Caches the per-save text embedder so routine background saves don't each
-    /// reload the ~296 MB Core ML model, and two concurrent saves don't load it
-    /// twice (~600 MB peak). The actor serialises construction: a second save
-    /// arriving mid-load waits and reuses the one instance.
-    private actor EmbedderCache {
-        static let shared = EmbedderCache()
-        private var cached: Embedder?
-        func embedder() throws -> Embedder {
-            if let c = cached { return c }
-            let made = try Indexer.makeEmbedder()
-            cached = made
-            return made
-        }
-    }
-
-    /// The on-device text embedder, cached so repeated saves reuse one model.
-    /// Safe to call off the main actor inside the background indexing task.
+    /// The on-device embedder. `EmbeddingGemma2.shared()` keeps one instance
+    /// per process, so repeated saves reuse the loaded model.
     private static func makeDefaultEmbedder() async throws -> Embedder {
-        try await EmbedderCache.shared.embedder()
+        try makeEmbedder()
     }
 
     /// Used by reindexVault — pre-flights the embedder once so the user
     /// gets a single clear error instead of N failed per-bundle calls.
     private static func makeEmbedderOrThrow() throws -> Embedder {
         try makeEmbedder()
+    }
+
+    /// Cleaned tags as the JSON array stored in `videos.tags_json`.
+    static func tagsJSON(_ tags: [String]) -> String {
+        let cleaned = Array(Tags.clean(tags).prefix(Tags.limit))
+        guard let data = try? JSONSerialization.data(withJSONObject: cleaned),
+              let json = String(data: data, encoding: .utf8) else { return "[]" }
+        return json
     }
 
     // MARK: - Vault walking

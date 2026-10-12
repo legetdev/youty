@@ -293,7 +293,9 @@ private final class InflightChunk {
 
 // URLSession delegate that funnels events back into the owner under its lock.
 private final class ChunkSessionDelegate: NSObject, URLSessionDataDelegate {
-    weak var owner: FFmpegURLSessionIO?
+    // Assigned once in FFmpegURLSessionIO.init, before any task starts; only
+    // read afterwards from the session's delegate queue.
+    nonisolated(unsafe) weak var owner: FFmpegURLSessionIO?
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
                     didReceive response: URLResponse,

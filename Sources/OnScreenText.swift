@@ -13,18 +13,23 @@ import Foundation
 enum OnScreenText {
 
     static let heading = "## On-screen text"
+    /// Marks sections written by the current filter (chrome + novelty dedupe).
+    /// A section without it predates those filters and is regenerated once.
+    static let versionMarker = "<!-- youty:on-screen-text v2 -->"
 
     /// Add the on-screen-text section to `folder`'s video.md if it isn't there
-    /// yet. No-op when disabled, already present, or no frames exist on disk yet
-    /// (so a save that indexes text before frames are written can still add it on
-    /// the next index). Returns true iff it wrote the file.
+    /// yet, or replace one written by an older filter. No-op when disabled,
+    /// already current, or no frames exist on disk yet (so a save that indexes
+    /// text before frames are written can still add it on the next index).
+    /// Returns true iff it wrote the file.
     @discardableResult
     static func ensureSection(inBundle folder: URL, enabled: Bool) -> Bool {
         guard enabled else { return false }
         let mdURL = folder.appendingPathComponent("video.md")
-        guard let md = try? String(contentsOf: mdURL, encoding: .utf8) else { return false }
-        if md.contains(heading) { return false }            // already done — idempotent
+        guard let original = try? String(contentsOf: mdURL, encoding: .utf8) else { return false }
+        if isCurrent(original) { return false }                     // already done — idempotent
         guard FrameOCR.hasFrames(in: folder) else { return false }  // frames not ready yet
+        let md = removingSection(from: original)
 
         // Title / channel / transcript power the noise filters (watermark drop,
         // burned-in-caption dedup).
@@ -44,7 +49,7 @@ enum OnScreenText {
         } else {
             body = entries.map { "[\(label($0.ms))] \(sanitize($0.text))" }.joined(separator: "\n")
         }
-        let section = "\n\(heading)\n\n\(body)\n"
+        let section = "\n\(heading)\n\(versionMarker)\n\n\(body)\n"
         let updated = (md.hasSuffix("\n") ? md : md + "\n") + section
         do {
             try updated.write(to: mdURL, atomically: true, encoding: .utf8)
@@ -52,6 +57,25 @@ enum OnScreenText {
         } catch {
             return false
         }
+    }
+
+    /// True when `md` already carries a section written by the current filter.
+    static func isCurrent(_ md: String) -> Bool {
+        md.contains(heading) && md.contains(versionMarker)
+    }
+
+    /// `md` without its on-screen-text section (heading through the next `## `
+    /// heading or end of file); other sections are preserved byte for byte.
+    static func removingSection(from md: String) -> String {
+        var lines = md.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == heading })
+        else { return md }
+        let end = lines[(start + 1)...].firstIndex(where: { $0.hasPrefix("## ") }) ?? lines.count
+        lines.removeSubrange(start..<end)
+        var head = Array(lines[..<start])
+        let tail = Array(lines[start...])
+        while let last = head.last, last.trimmingCharacters(in: .whitespaces).isEmpty { head.removeLast() }
+        return (head + [""] + tail).joined(separator: "\n")
     }
 
     // MARK: - Formatting

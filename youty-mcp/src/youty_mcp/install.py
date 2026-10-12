@@ -102,6 +102,10 @@ def _configure_client(client) -> bool:
     """Merge Youty into one client's config. Prompts before replacing a *different*
     existing youty entry (EOF/non-interactive → keep it, never clobber). Returns
     True if the client is left configured."""
+    reason = clients.plugin_provides(client)
+    if reason:
+        print(f"  ✓ {client.label} already has Youty ({reason}) — skipped to avoid a duplicate")
+        return True
     try:
         existing = clients.current_entry(client)
     except Exception as e:

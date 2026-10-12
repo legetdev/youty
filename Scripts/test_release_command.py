@@ -45,6 +45,10 @@ class ReleaseCommand(unittest.TestCase):
         dmg.write_bytes(b'fixture immutable dmg')
         (self.state / 'dmg.sha256').write_text(hashlib.sha256(dmg.read_bytes()).hexdigest() + '  ' + str(dmg) + '\n')
         feed = (self.root / 'release/appcast.xml').read_text()
+        # The scenario re-labels the newest entry as 1.4.8, so drop any real
+        # 1.4.8 entry first; otherwise later releases make the fixture invalid.
+        feed = re.sub(r'\s*<item>(?:(?!</item>).)*<sparkle:shortVersionString>1\.4\.8</sparkle:shortVersionString>.*?</item>',
+                      '', feed, flags=re.S)
         entry = ET.fromstring(feed).find('channel/item')
         old_version = entry.findtext('{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString')
         old_build = entry.findtext('{http://www.andymatuschak.org/xml-namespaces/sparkle}version')

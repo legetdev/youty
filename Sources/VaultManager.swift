@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import os
 
 // Bundle structure: each video is a self-contained folder.
 //
@@ -100,9 +101,7 @@ final class VaultManager: NSObject, ObservableObject {
         // sequentially (file-system writes serialize anyway on a single SSD).
         let queue = DispatchQueue(label: "youty.jpeg-encode", attributes: .concurrent)
         let group = DispatchGroup()
-        let lock = NSLock()
-        var encoded: [(name: String, data: Data)] = []
-        var encodeFailures = 0
+        let results = OSAllocatedUnfairLock(initialState: (encoded: [(name: String, data: Data)](), failures: 0))
         for frame in frames {
             group.enter()
             queue.async {
@@ -110,15 +109,15 @@ final class VaultManager: NSObject, ObservableObject {
                 // off the documented exact-millisecond contract.
                 let ms = Int((frame.timestamp * 1000).rounded())
                 let name = String(format: "%08d.jpg", ms)
-                if let data = frame.image.jpegData(compressionQuality: 0.85) {
-                    lock.lock(); encoded.append((name, data)); lock.unlock()
-                } else {
-                    lock.lock(); encodeFailures += 1; lock.unlock()
+                let data = frame.image.jpegData(compressionQuality: 0.85)
+                results.withLock { state in
+                    if let data { state.encoded.append((name, data)) } else { state.failures += 1 }
                 }
                 group.leave()
             }
         }
         group.wait()
+        let (encoded, encodeFailures) = results.withLock { ($0.encoded, $0.failures) }
         // All-or-nothing (hard requirement: no partial / silently-padded bundle).
         // A failed encode aborts before any write; staging keeps write failures
         // from replacing the previous complete capture.
@@ -330,7 +329,7 @@ final class VaultManager: NSObject, ObservableObject {
         for line in frontmatter {
             let parts = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard parts.count == 2 else { continue }
-            kv[parts[0]] = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            kv[parts[0]] = Chunker.frontmatterScalar(parts[1])
         }
         let id = kv["video_id"] ?? kv["post_id"] ?? ""
         guard !id.isEmpty else { return nil }
@@ -345,11 +344,7 @@ final class VaultManager: NSObject, ObservableObject {
         guard !rejectsPathEscape else { return nil }
         let platform = kv["platform"] ?? "youtube"
         let tagsRaw = kv["tags"] ?? kv["hashtags"] ?? "[]"
-        let tags = tagsRaw
-            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            .components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"")) }
-            .filter { !$0.isEmpty }
+        let tags = Chunker.frontmatterList(tagsRaw)
         let channel = kv["channel"] ?? kv["author_display_name"] ?? kv["author"] ?? ""
         let urlFallback: String
         switch platform {
@@ -432,8 +427,11 @@ final class VaultManager: NSObject, ObservableObject {
             "duration: \"\(formatDuration(metadata.durationSeconds))\"",
             "date_saved: \(metadata.dateSaved)",
             "tags: [\(tags)]",
-            "---", ""
         ]
+        if metadata.transcribedOnDevice {
+            lines.append("transcript_source: on-device speech recognition")
+        }
+        lines += ["---", ""]
 
         if !metadata.shortDescription.isEmpty {
             lines += ["## Description", "", metadata.shortDescription, ""]

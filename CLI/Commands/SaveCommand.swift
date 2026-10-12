@@ -60,8 +60,12 @@ enum SaveCommand {
         // Run NSApplication to keep the WKWebView's content process happy.
         // We dispatch the actual work onto a Task, then call NSApp.stop +
         // post a phantom event to unwind the run loop when finished.
-        let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)  // no Dock icon for this run
+        // CLI commands run on the main thread, which is the main actor's executor.
+        let app = MainActor.assumeIsolated { () -> NSApplication in
+            let app = NSApplication.shared
+            app.setActivationPolicy(.accessory)  // no Dock icon for this run
+            return app
+        }
 
         let result = ExitBox()
         let finalPath = StringBox()
@@ -106,7 +110,7 @@ enum SaveCommand {
                 NSApplication.shared.postEvent(phantom, atStart: false)
             }
         }
-        app.run()
+        MainActor.assumeIsolated { app.run() }
 
         if result.code == 0 {
             // Always finalise stderr's mutating-line ('\r') progress lines
