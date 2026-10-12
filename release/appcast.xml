@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 2.0.0</title>
+            <sparkle:version>17</sparkle:version>
+            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Mon, 12 Oct 2026 13:59:30 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 2.0.0</h3>
+                <p>Youty 2.0: one on-device search model (Google&#x27;s EmbeddingGemma 2) for what videos say, show on screen, and depict; transcription for YouTube videos without captions; one-click AI setup for Claude Desktop, Claude Code, Cursor, and VS Code; and a save-first app.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v2.0.0/Youty-2.0.0.dmg"
+                sparkle:edSignature="7mHbfCd9VpK2J110KrqbIEslXe28rr3rKcutgXCJV+8m+R0AkbUVVfPk99uePg9PPp1adcwtylSj8kESwBenDA=="
+                length="673615671"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 1.4.9</title>
             <sparkle:version>16</sparkle:version>
             <sparkle:shortVersionString>1.4.9</sparkle:shortVersionString>
