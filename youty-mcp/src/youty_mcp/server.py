@@ -345,20 +345,18 @@ def _do_get_transcript(video_id: str, start_ms: int | None = None, end_ms: int |
     lines.append("")
     if not note.spoken:
         lines.append("This video has no spoken transcript.")
+    # Spoken paragraphs and on-screen text share one chronological page budget.
+    entries = sorted([(ms, f"[{notes.label(ms)}]({_watch_link(row, ms)}) {text}") for ms, text in spoken]
+                     + [(ms, f"[{notes.label(ms)}] On screen: {text}") for ms, text in shown],
+                     key=lambda entry: entry[0])
     body_chars = sum(len(x) for x in lines)
     next_ms = None
-    for ms, text in spoken:
-        entry = f"[{notes.label(ms)}]({_watch_link(row, ms)}) {text}"
+    for ms, entry in entries:
         if body_chars + len(entry) > _TRANSCRIPT_PAGE_CHARS and body_chars > 2000:
             next_ms = ms
             break
         lines.append(entry)
         body_chars += len(entry)
-    if shown:
-        cutoff = next_ms
-        shown_lines = [f"[{notes.label(ms)}] {t}" for ms, t in shown if cutoff is None or ms < cutoff]
-        if shown_lines:
-            lines += ["", "## On-screen text", *shown_lines]
     if next_ms is not None:
         lines += ["", f"(Continues — get_transcript(\"{video_id}\", start_ms={next_ms}) for the next part.)"]
     elif not include_on_screen_text and note.on_screen:

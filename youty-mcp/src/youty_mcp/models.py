@@ -72,9 +72,10 @@ def _assets_in(root: Path) -> Assets | None:
 def _installed_roots() -> list[Path]:
     """Model locations of an installed Youty app or CLI, most likely first."""
     home = Path.home()
-    roots = [
-        Path("/Applications/Youty.app/Contents/Resources"),
-        home / "Applications/Youty.app/Contents/Resources",
+    # The bundle ships as `youty.app`; check both spellings for case-sensitive volumes.
+    roots = [base / name / "Contents/Resources"
+             for base in (Path("/Applications"), home / "Applications")
+             for name in ("youty.app", "Youty.app")] + [
         home / "Library/Application Support/Youty/resources",   # Scripts/install-cli.sh
         Path("/opt/homebrew/share/youty"),                        # Homebrew formula
         Path("/usr/local/share/youty"),

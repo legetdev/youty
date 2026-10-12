@@ -78,6 +78,7 @@ struct ContentView: View {
         }
         .frame(width: 520)
         .fixedSize(horizontal: false, vertical: true)
+        .onChange(of: vault.vaultURL) { refreshRecents() }
         .onAppear {
             checkClipboard()
             refreshRecents()

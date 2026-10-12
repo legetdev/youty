@@ -60,7 +60,7 @@
 		</dict>
 	</array>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Youty transcribes the audio of saved Instagram and TikTok videos entirely on your device to produce timestamped captions in the vault note. Audio never leaves your Mac.</string>
+	<string>Youty transcribes the audio of saved videos that have no captions entirely on your device to produce timestamped transcripts in the vault note. Audio never leaves your Mac.</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUEnableInstallerLauncherService</key>
