@@ -22,7 +22,8 @@ struct IndexBadgeView: View {
         .background(.regularMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(borderColor, lineWidth: 0.5))
         .overlay { if burst && !reduceMotion { SparkleBurst().allowsHitTesting(false) } }
-        .animation(.spring(response: 0.35, dampingFraction: 0.7), value: state)
+        .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.7), value: state)
+        .symbolEffectsRemoved(reduceMotion)
         .onChange(of: state) { _, new in
             guard new == .indexed else { return }
             burst = true

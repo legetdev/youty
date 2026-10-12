@@ -41,7 +41,7 @@ final class CanvasFramePipeline: FramePipeline {
             let captured = try await canvasExtractor.captureFrames(timestamps: timestamps) { p in
                 stage(.extracting(p))
             }
-            let frames = captured.map { FrameExtractor.Frame(timestamp: $0.0, image: $0.1) }
+            let frames = await FrameExtractor.compress(captured)
 
             guard !frames.isEmpty else {
                 return .failed(reason: "Canvas extraction produced 0 frames.", canFallback: false)

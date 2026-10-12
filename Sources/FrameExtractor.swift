@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 // Frame model and timestamp computation.
 //
@@ -43,6 +44,21 @@ struct FrameExtractor {
         }
 
         var image: NSImage? { NSImage(data: jpeg) }
+    }
+
+    /// Compresses already-captured images in parallel, off the calling actor
+    /// (the canvas fallback captures on the main actor).
+    static func compress(_ images: [(TimeInterval, NSImage)]) async -> [Frame] {
+        final class Box: @unchecked Sendable { let items: [(TimeInterval, NSImage)]; init(_ i: [(TimeInterval, NSImage)]) { items = i } }
+        let box = Box(images)
+        return await Task.detached(priority: .userInitiated) {
+            let out = OSAllocatedUnfairLock(initialState: [Frame?](repeating: nil, count: box.items.count))
+            DispatchQueue.concurrentPerform(iterations: box.items.count) { i in
+                let frame = Frame(timestamp: box.items[i].0, image: box.items[i].1)
+                out.withLock { $0[i] = frame }
+            }
+            return out.withLock { $0.compactMap { $0 } }
+        }.value
     }
 
     static let defaultCountCap: Int = 100
