@@ -413,7 +413,7 @@ struct ContentView: View {
         }
         // Keep the button busy until frames are captured and indexing starts, so
         // a second click can't run a competing save into the same bundle.
-        await saveToVault(allowVaultPrompt: false)?.value
+        await saveToVault(allowVaultPrompt: false, for: requested)?.value
     }
 
     // MARK: - Result
@@ -732,6 +732,7 @@ struct ContentView: View {
     /// Drive a single fetch+save cycle. Re-entrant: the Instagram login
     /// flow may re-invoke this after the user signs in.
     private func runAutoIngest() async {
+        let requested = urlInput
         startFramePrefetch()
         await fetch()
         // Instagram login in progress — sheet handler will re-call us.
@@ -742,7 +743,7 @@ struct ContentView: View {
             finishExternalIngest()
             return
         }
-        saveToVault(allowVaultPrompt: false)
+        saveToVault(allowVaultPrompt: false, for: requested)
         // applyOutcome / save error handlers call finishExternalIngest()
         // once the save settles. We don't await here so the UI updates as
         // the frame pipeline progresses.
@@ -780,10 +781,11 @@ struct ContentView: View {
 
     /// Returns the background save (frames + indexing) for callers that wait on it.
     @discardableResult
-    private func saveToVault(allowVaultPrompt: Bool = true) -> Task<Void, Never>? {
+    private func saveToVault(allowVaultPrompt: Bool = true, for link: String? = nil) -> Task<Void, Never>? {
         vaultError = nil
-        // The link this save belongs to, so finishing never clears a newer one.
-        let savedURL = urlInput
+        // The link this save belongs to (captured by the caller before any
+        // waiting), so finishing never clears a newer one.
+        let savedURL = link ?? urlInput
 
         // No vault configured. For a user-initiated save, prompt them to pick a
         // folder. For a BACKGROUND ingest (Share / Services / Shortcuts / menu
