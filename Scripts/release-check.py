@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 SPARKLE = '{http://www.andymatuschak.org/xml-namespaces/sparkle}'
 REPO = 'legetdev/youty'
 SITE = 'https://youtyapp.vercel.app'
+CODEX = 'chatgpt-codex-connector[bot]'
+FAILED = {'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'}
 
 
 def require(condition, message):
@@ -139,6 +141,44 @@ def wait_run(repo, workflow, sha, title=None, timeout=3600):
     raise ValueError(f'Timed out waiting for {workflow}; release remains incomplete')
 
 
+def pr_ready(repo, number, timeout=3600, review_timeout=1800):
+    """Wait for a release PR's checks and the automatic Codex review of its head.
+
+    Prints `merged` for an already merged PR, else the reviewed head commit.
+    Failed checks or Codex findings on the head stop the release for review.
+    """
+    started = time.monotonic()
+    while True:
+        pr = json.loads(run('gh', 'pr', 'view', str(number), '--repo', repo,
+                            '--json', 'headRefOid,statusCheckRollup,state'))
+        if pr['state'] == 'MERGED':
+            return 'merged'
+        require(pr['state'] == 'OPEN', f'PR #{number} is {pr["state"].lower()}; review it, then resume')
+        head, checks = pr['headRefOid'], pr['statusCheckRollup'] or []
+        failed = [c.get('name') or c.get('context') for c in checks
+                  if (c.get('conclusion') or c.get('state')) in FAILED]
+        require(not failed, f'PR #{number} checks failed ({", ".join(failed)}); fix them, then resume')
+        pending = any(c.get('status', 'COMPLETED') != 'COMPLETED' or c.get('state') in ('PENDING', 'EXPECTED')
+                      for c in checks)
+        comments = json.loads(run('gh', 'api', f'repos/{repo}/pulls/{number}/comments'))
+        findings = [c for c in comments if c['user']['login'] == CODEX
+                    and c.get('original_commit_id') == head and not c.get('in_reply_to_id')]
+        require(not findings, f'Codex left {len(findings)} finding(s) on PR #{number}; address them, then resume')
+        reviews = json.loads(run('gh', 'api', f'repos/{repo}/pulls/{number}/reviews'))
+        reactions = json.loads(run('gh', 'api', f'repos/{repo}/issues/{number}/reactions'))
+        reviewed = (any(r['user']['login'] == CODEX and r.get('commit_id') == head for r in reviews)
+                    or any(r['user']['login'] == CODEX and r['content'] == '+1' for r in reactions))
+        if reviewed and not pending:
+            return head
+        elapsed = time.monotonic() - started
+        require(reviewed or elapsed < review_timeout,
+                f'No Codex review on PR #{number} within {review_timeout // 60} minutes; '
+                'request one with "@codex review", then resume')
+        require(elapsed < timeout, f'PR #{number} checks did not finish in time; resume once they pass')
+        print(f'Waiting for PR #{number} checks and Codex review…', file=sys.stderr, flush=True)
+        time.sleep(30)
+
+
 def check_source(root, version):
     """Check app, CLI, package and lock versions before any release uploads."""
     plist = plistlib.loads((root / 'Sources/Info.plist').read_bytes())
@@ -227,12 +267,13 @@ def verify_public(root, version, timeout):
 def main():
     """Expose focused checks to the local orchestrator and offline regression suite."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['source', 'item', 'splice', 'formula', 'wait', 'public'])
+    parser.add_argument('command', choices=['source', 'item', 'splice', 'formula', 'wait', 'pr', 'public'])
     parser.add_argument('value')
     parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument('--file', type=Path)
     parser.add_argument('--sha')
     parser.add_argument('--title')
+    parser.add_argument('--repo', default=REPO)
     parser.add_argument('--timeout', type=int, default=900)
     args = parser.parse_args()
     if args.command == 'source':
@@ -247,6 +288,8 @@ def main():
         validate_formula(args.file.read_text(), args.value)
     elif args.command == 'wait':
         print(wait_run(REPO, args.value, args.sha, args.title, args.timeout))
+    elif args.command == 'pr':
+        print(pr_ready(args.repo, args.value, args.timeout))
     else:
         verify_public(args.root, args.value, args.timeout)
 

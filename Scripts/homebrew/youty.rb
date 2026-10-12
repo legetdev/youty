@@ -31,8 +31,8 @@ class Youty < Formula
   # source tarball above doesn't contain them. Fetched here and laid into
   # Vendor/ before the build. This separate pin changes only with model weights.
   resource "models" do
-    url "https://github.com/legetdev/youty/releases/download/v1.1.0/youty-models-1.1.0.tar.gz"
-    sha256 "56e9da609720b5a598bb74d678bc33a41ba563b6742c6dee120e8e5236ab6a96"
+    url "https://github.com/legetdev/youty/releases/download/models-2.0.0/youty-models-2.0.0.tar.gz"
+    sha256 "d0fb8541138a0460a59eb869cdc4cb13563d31fb8bc30bbd1a69793c5b3340f4"
   end
 
   # macOS 26 Tahoe is required: the SpeechAnalyzer + SpeechTranscriber

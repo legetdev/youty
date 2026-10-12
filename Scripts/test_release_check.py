@@ -134,6 +134,23 @@ class ReleaseChecks(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 release.fetch('https://example.com/missing')
 
+    def test_release_pr_waits_for_codex_and_stops_on_findings(self):
+        """A release PR merges only after green checks and a clean Codex review of its head."""
+        pr = json.dumps({'state': 'OPEN', 'headRefOid': 'h2', 'statusCheckRollup': [
+            {'name': 'ci', 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]})
+        old_review = json.dumps([{'user': {'login': release.CODEX}, 'commit_id': 'h1'}])
+        clean = json.dumps([{'user': {'login': release.CODEX}, 'commit_id': 'h2'}])
+        finding = json.dumps([{'user': {'login': release.CODEX}, 'original_commit_id': 'h2'}])
+        with patch.object(release, 'run', side_effect=[pr, '[]', old_review, '[]', pr, '[]', clean, '[]']), \
+                patch.object(release.time, 'sleep') as sleep:
+            self.assertEqual(release.pr_ready('o/r', 7), 'h2')
+            sleep.assert_called_once()
+        with patch.object(release, 'run', side_effect=[pr, finding]), self.assertRaises(ValueError):
+            release.pr_ready('o/r', 7)
+        merged = json.dumps({'state': 'MERGED', 'headRefOid': 'h2', 'statusCheckRollup': []})
+        with patch.object(release, 'run', return_value=merged):
+            self.assertEqual(release.pr_ready('o/r', 7), 'merged')
+
 
 if __name__ == '__main__':
     unittest.main()

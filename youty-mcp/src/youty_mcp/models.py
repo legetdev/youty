@@ -31,10 +31,10 @@ TOKENIZER = "tokenizer.json"
 # Release asset carrying the models (the same tarball source builds fetch).
 # Stamped in lockstep with Scripts/fetch-models.sh by `Scripts/release.sh --models`.
 MODELS_VERSION = "2.0.0"
-MODELS_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
+MODELS_SHA256 = "d0fb8541138a0460a59eb869cdc4cb13563d31fb8bc30bbd1a69793c5b3340f4"
 MODELS_URL = (
     f"https://github.com/legetdev/youty/releases/download/"
-    f"v{MODELS_VERSION}/youty-models-{MODELS_VERSION}.tar.gz"
+    f"models-{MODELS_VERSION}/youty-models-{MODELS_VERSION}.tar.gz"
 )
 CACHE = Path("~/.cache/youty/models").expanduser() / MODELS_VERSION
 

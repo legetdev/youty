@@ -3,8 +3,14 @@
 A release is complete only when the same version is available from GitHub,
 Homebrew, PyPI, the website, and the app's signed automatic-update feed. The app
 and DMG must both be signed, accepted by Apple for notarization, and stapled.
-An approved release includes source commits and pushes, Apple uploads, publication
-on every channel, and verification of the public artifacts.
+An approved release includes source commits, Apple uploads, publication on every
+channel, and verification of the public artifacts.
+
+Every change to a default branch — this repository, the website, and the Homebrew
+tap — lands through a pull request that waits for its checks and the automatic
+Codex review, then squash-merges. Nothing is pushed to `main` directly. Codex
+findings stop the release; fix them on the open pull request and resume, which
+reuses it.
 
 The maintainer runs one local command, using signing credentials already in the
 macOS Keychain:
@@ -21,7 +27,9 @@ and a fresh installation of the PyPI package. CI tests these checks.
 
 All channels are mandatory, even if only one component's code changed. App, CLI,
 MCP, lockfile, website and Homebrew versions advance together; the app's integer
-build number also increases. Unchanged model weights retain their separate pin.
+build number also increases. Model weights live in their own `models-X.Y.Z`
+GitHub release (never marked latest), published before the version pull request
+so its CI can fetch them; unchanged weights retain their pin.
 
 The command waits for source CI, PyPI publishing, and the exact Homebrew bottle
 run. Bottle CI installs and runs the public bottle and checks its exact version.
