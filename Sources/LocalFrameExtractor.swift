@@ -49,7 +49,7 @@ enum LocalFrameExtractor {
         timestamps: [TimeInterval],
         maxLongEdge: Int = 1920,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
-    ) async throws -> [(timestamp: TimeInterval, image: NSImage)] {
+    ) async throws -> [FrameExtractor.Frame] {
 
         let asset = AVURLAsset(url: fileURL)
         // Confirm there's a video track so we error fast on audio-only inputs.
@@ -92,9 +92,9 @@ enum LocalFrameExtractor {
                 group.addTask {
                     for entry in times {
                         let (image, _) = try await genBox.value.image(at: entry.cm)
-                        let ns = NSImage(cgImage: image,
-                                          size: NSSize(width: image.width, height: image.height))
-                        results.set(slot: entry.idx, image: ns)
+                        // Compressed immediately: no full-size bitmap is kept.
+                        results.set(slot: entry.idx,
+                                    frame: FrameExtractor.Frame(timestamp: timestamps[entry.idx], cgImage: image))
                         progressBox.tick()
                     }
                 }
@@ -103,13 +103,13 @@ enum LocalFrameExtractor {
         }
 
         let captured = results.takeAll()
-        var out: [(TimeInterval, NSImage)] = []
+        var out: [FrameExtractor.Frame] = []
         out.reserveCapacity(timestamps.count)
         for (i, ts) in timestamps.enumerated() {
-            guard let img = captured[i] else {
+            guard let frame = captured[i], !frame.jpeg.isEmpty else {
                 throw LocalFrameExtractorError.noFrameAtTimestamp(ts)
             }
-            out.append((ts, img))
+            out.append(frame)
         }
         return out
     }
@@ -117,12 +117,12 @@ enum LocalFrameExtractor {
 
 private final class LocalExtractorResultsBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var images: [NSImage?]
+    private var images: [FrameExtractor.Frame?]
     init(slotCount: Int) { images = Array(repeating: nil, count: slotCount) }
-    func set(slot: Int, image: NSImage) {
-        lock.lock(); images[slot] = image; lock.unlock()
+    func set(slot: Int, frame: FrameExtractor.Frame) {
+        lock.lock(); images[slot] = frame; lock.unlock()
     }
-    func takeAll() -> [NSImage?] {
+    func takeAll() -> [FrameExtractor.Frame?] {
         lock.lock(); defer { lock.unlock() }
         return images
     }

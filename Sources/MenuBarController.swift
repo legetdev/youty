@@ -35,6 +35,9 @@ final class MenuBarController: ObservableObject {
     private var sentResetTimer: DispatchWorkItem?
     private var indexStatusObserver: AnyCancellable?
     private var isIndexingNow: Bool = false
+    private var pulseTimer: Timer?
+    private var pulsePhase = 0
+    private var readyReset: DispatchWorkItem?
 
     func apply(showing: Bool) {
         if showing {
@@ -65,7 +68,12 @@ final class MenuBarController: ObservableObject {
                 guard let self = self else { return }
                 let indexing = IndexStatusStore.shared.isAnyIndexing
                 if indexing != self.isIndexingNow {
+                    let finished = self.isIndexingNow && !indexing
                     self.applyIcon(indexing: indexing)
+                    // Sparkle only when the save that just finished is searchable.
+                    let latest = IndexStatusStore.shared.entries.values
+                        .filter { $0.finishedAt != nil }.max { $0.finishedAt! < $1.finishedAt! }
+                    if finished, latest?.state == .indexed { self.flashReady() }
                 }
             }
     }
@@ -80,50 +88,88 @@ final class MenuBarController: ObservableObject {
         clipboardWatcher = nil
         indexStatusObserver?.cancel()
         indexStatusObserver = nil
+        pulseTimer?.invalidate()
+        pulseTimer = nil
     }
 
-    // Swap the status item image between the plain Y mark and the
-    // Y-with-progress-dot composite. The dot is drawn in the accent
-    // color (non-template) so it survives the menu bar's template render
-    // pipeline — the user gets a calm "still working" signal without any
-    // animation or focus disruption.
+    // While a save is being made searchable, a small accent dot breathes in
+    // the corner of the Y; when it's done, a sparkle appears for a moment
+    // ("ready — ask your AI"), then the plain mark returns.
     private func applyIcon(indexing: Bool) {
         isIndexingNow = indexing
+        pulseTimer?.invalidate()
+        pulseTimer = nil
         guard let button = statusItem?.button else { return }
         if indexing {
-            button.image = Self.makeIndexingIcon()
-            button.toolTip = "Youty — indexing in background"
+            readyReset?.cancel()
+            button.toolTip = "Youty — making your new video searchable…"
+            pulse()
+            // A steady dot instead of a breathing one under Reduce Motion.
+            guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+            let timer = Timer(timeInterval: 0.18, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.pulse() }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            pulseTimer = timer
         } else {
-            let image = NSImage(named: "MenuBarY")
-            image?.isTemplate = true
-            button.image = image
-            button.toolTip = "Youty"
+            showPlainIcon()
         }
     }
 
-    // Builds an 18×18 composite: the template Y mark plus a small
-    // 5×5 accent dot in the bottom-right corner. Marked non-template so
-    // the dot keeps its accent color in both light + dark menu bars.
-    private static func makeIndexingIcon() -> NSImage {
+    private func pulse() {
+        guard let button = statusItem?.button else { return }
+        pulsePhase = (pulsePhase + 1) % 6
+        button.image = Self.makeIcon(badge: .dot(scale: [0.55, 0.75, 1.0, 1.0, 0.75, 0.55][pulsePhase]))
+    }
+
+    private func showPlainIcon() {
+        let image = NSImage(named: "MenuBarY")
+        image?.isTemplate = true
+        statusItem?.button?.image = image
+        statusItem?.button?.toolTip = "Youty"
+    }
+
+    private func flashReady() {
+        guard let button = statusItem?.button else { return }
+        button.image = Self.makeIcon(badge: .sparkle)
+        button.toolTip = "Youty — ready: your AI can find your new video"
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.isIndexingNow else { return }
+            self.showPlainIcon()
+        }
+        readyReset = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: work)
+    }
+
+    private enum Badge { case dot(scale: CGFloat), sparkle }
+
+    private static func makeIcon(badge: Badge) -> NSImage {
         let size = NSSize(width: 18, height: 18)
         let result = NSImage(size: size)
         result.lockFocus()
         // Base mark — render the template manually so we control color.
         if let base = NSImage(named: "MenuBarY") {
-            base.isTemplate = true
-            // Tint to the menu bar's text color so it reads correctly.
             let tinted = base.copy() as! NSImage
+            tinted.isTemplate = true
             tinted.lockFocus()
             NSColor.labelColor.set()
-            let rect = NSRect(origin: .zero, size: tinted.size)
-            rect.fill(using: .sourceIn)
+            NSRect(origin: .zero, size: tinted.size).fill(using: .sourceIn)
             tinted.unlockFocus()
             tinted.draw(in: NSRect(origin: .zero, size: size))
         }
-        // Accent dot, bottom-right.
-        NSColor.controlAccentColor.setFill()
-        let dotRect = NSRect(x: size.width - 6, y: 0, width: 5, height: 5)
-        NSBezierPath(ovalIn: dotRect).fill()
+        switch badge {
+        case .dot(let scale):
+            NSColor.controlAccentColor.withAlphaComponent(0.55 + 0.45 * scale).setFill()
+            let d = 6 * scale
+            NSBezierPath(ovalIn: NSRect(x: size.width - 3.5 - d / 2, y: 3.5 - d / 2, width: d, height: d)).fill()
+        case .sparkle:
+            let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+                .applying(.init(paletteColors: [.controlAccentColor]))
+            if let star = NSImage(systemSymbolName: "sparkle", accessibilityDescription: nil)?
+                .withSymbolConfiguration(config) {
+                star.draw(in: NSRect(x: size.width - 9, y: 0, width: 9, height: 9))
+            }
+        }
         result.unlockFocus()
         result.isTemplate = false
         return result

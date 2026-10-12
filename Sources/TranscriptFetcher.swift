@@ -52,7 +52,8 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 
     let webView: WKWebView
     private var continuation: CheckedContinuation<FetchResult, Error>?
-    private var jsInjected = false
+    private var currentVideoID: String?
+    private var stepTimer: Timer?
     private var currentURL: URL?
     private var currentNavigation: WKNavigation?
     private var retriedNoResponse = false
@@ -72,6 +73,8 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         webView.navigationDelegate = self
         controller.add(self, name: "youtyTranscript")
+        controller.addUserScript(WKUserScript(source: Self.scrapeScript, injectionTime: .atDocumentEnd,
+                                              forMainFrameOnly: true))
         let blockRules = """
         [
           {"trigger":{"url-filter":".*","resource-type":["image","media","font"]},"action":{"type":"block"}},
@@ -98,8 +101,8 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         guard let videoID = TranscriptFetcher.extractVideoID(from: urlString) else {
             throw FetchError.invalidURL
         }
-        jsInjected = false
         retriedNoResponse = false
+        currentVideoID = videoID
         let url = URL(string: "https://www.youtube.com/watch?v=\(videoID)")!
         currentURL = url
         return try await withCheckedThrowingContinuation { cont in
@@ -117,9 +120,22 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         guard let url = currentURL else { return }
         fetchGen += 1
         let gen = fetchGen
-        jsInjected = false
         currentNavigation = webView.load(URLRequest(url: url))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 35) { [weak self] in
+        // Drive the page script's steps from a native timer (WebKit throttles a
+        // hidden page's own timers to almost nothing).
+        stepTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.fetchGen == gen, self.continuation != nil else { return }
+                self.webView.evaluateJavaScript("window.__youtyStep && window.__youtyStep()", completionHandler: nil)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        stepTimer = timer
+        // Outlasts the page script's own bounded waits (≈32 s) even when YouTube
+        // reloads the page mid-fetch, so the script — not this timer — decides,
+        // and an empty transcript panel reaches the on-device fallback.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 55) { [weak self] in
             guard let self, self.fetchGen == gen, self.continuation != nil else { return }
             self.finish(throwing: FetchError.parseError)
         }
@@ -127,160 +143,123 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 
     // MARK: - WKNavigationDelegate
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        // A late completion from attachToWindow's home-page prewarm must not
-        // consume the one script injection reserved for this video's load.
-        guard Self.isActiveNavigation(navigation, active: currentNavigation),
-              continuation != nil, !jsInjected else { return }
-        jsInjected = true
-
-        let js = """
+    /// Reads the transcript from a watch page. Installed as a user script so it
+    /// starts as soon as the page's data exists (not after every image and ad
+    /// finishes) and runs again if YouTube reloads the page mid-fetch.
+    static let scrapeScript = """
         (function() {
-          (async function youtyFetch() {
-            function post(obj) {
-              window.webkit.messageHandlers.youtyTranscript.postMessage(obj);
-            }
-
-            // 1. Wait for ytInitialPlayerResponse
-            let ipr = null;
-            for (let i = 0; i < 80; i++) {
-              ipr = window.ytInitialPlayerResponse;
-              if (ipr && ipr.playabilityStatus && ipr.playabilityStatus.status
-                  && ipr.playabilityStatus.status !== 'OK') break;
-              if (ipr && ipr.videoDetails && ipr.videoDetails.title) break;
-              await new Promise(r => setTimeout(r, 150));
-            }
-            if (!ipr) return post({error: 'no_response'});
-
-            // A restricted or age-gated video can still expose videoDetails but
-            // omit captions. Report the access problem before classifying it as
-            // a genuine no-captions video, while preserving a separate message
-            // for other non-OK availability states.
-            const playability = ipr.playabilityStatus || {};
-            if (playability.status && playability.status !== 'OK') {
-              const reason = String(playability.reason || '').toLowerCase();
-              const requiresSignIn = playability.status === 'LOGIN_REQUIRED'
-                || reason.includes('sign in')
-                || reason.includes('age verification')
-                || reason.includes('confirm your age');
-              return post({error: requiresSignIn ? 'restricted_video' : 'unavailable_video'});
-            }
-            if (!ipr.videoDetails) return post({error: 'no_response'});
-            const vd = ipr.videoDetails;
-            const details = {
-              videoID:          vd.videoId || '',
-              title:            vd.title || '',
-              author:           vd.author || '',
-              lengthSeconds:    parseInt(vd.lengthSeconds || '0', 10),
-              keywords:         vd.keywords || [],
-              shortDescription: (vd.shortDescription || '').slice(0, 2000),
-              youtubeSummary:   ''
-            };
-
-            // 2. Verify captions exist
-            const tracks = (ipr.captions &&
-                            ipr.captions.playerCaptionsTracklistRenderer &&
-                            ipr.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
-            if (!tracks.length) return post({error: 'no_captions', videoDetails: details});
-
-            // 3. Find and click "Show transcript" button
-            let btn = null;
-            for (let i = 0; i < 30; i++) {
-              const all = Array.from(document.querySelectorAll('button, tp-yt-paper-button'));
-              btn = all.find(b => b.getAttribute('aria-label') === 'Show transcript')
-                 || all.find(b => /^show transcript$/i.test((b.textContent || '').trim()))
-                 || all.find(b => /show transcript/i.test(b.getAttribute('aria-label') || ''))
-                 || all.find(b => /^transcript$/i.test((b.textContent || '').trim()));
-              if (btn) break;
-              await new Promise(r => setTimeout(r, 200));
-            }
-            if (!btn) return post({error: 'no_btn', videoDetails: details});
-            btn.click();
-
-            // 4. Wait for segments — handles both legacy and modern YouTube UI.
-            //    Timestamp extraction uses a multi-selector + regex fallback so
-            //    DOM tweaks on YouTube's side don't silently produce empty `ts`.
-            function extractTimestamp(el) {
-              const sels = [
-                '.segment-timestamp',
-                '[class*="timestamp"]',
-                '[class*="Timestamp"]',
-                'button[aria-label]'
-              ];
-              for (const s of sels) {
-                const node = el.querySelector(s);
-                if (node) {
-                  const t = (node.textContent || '').trim();
-                  if (/^\\d+:\\d+(:\\d+)?$/.test(t)) return t;
-                }
+          if (location.pathname !== '/watch' || window.__youtyStep) return;
+          // A step machine instead of timer loops: WebKit throttles a hidden
+          // page's own timers to almost nothing, so the app calls
+          // window.__youtyStep() from a native timer and every wait is bounded
+          // by the clock. YouTube may reload the page; the new page starts over.
+          const st = { phase: 'ipr', start: Date.now(), phaseStart: Date.now(), done: false, details: null, btn: null };
+          // Every message names the page's video, so a page left over from an
+          // earlier request can never answer the current one.
+          const pageVideoID = new URLSearchParams(location.search).get('v') || '';
+          function post(obj) {
+            st.done = true;
+            if (!obj.videoID) obj.videoID = pageVideoID;
+            window.webkit.messageHandlers.youtyTranscript.postMessage(obj);
+          }
+          function next(phase) { st.phase = phase; st.phaseStart = Date.now(); }
+          function waited() { return Date.now() - st.phaseStart; }
+          function extractTimestamp(el) {
+            const sels = ['.segment-timestamp', '[class*="timestamp"]', '[class*="Timestamp"]', 'button[aria-label]'];
+            for (const s of sels) {
+              const node = el.querySelector(s);
+              if (node) {
+                const t = (node.textContent || '').trim();
+                if (/^\\d+:\\d+(:\\d+)?$/.test(t)) return t;
               }
-              // Last-resort: scan full element text for a leading time pattern
-              const m = (el.textContent || '').match(/(\\d+:\\d+(?::\\d+)?)/);
-              return m ? m[1] : '';
             }
-
+            const m = (el.textContent || '').match(/(\\d+:\\d+(?::\\d+)?)/);
+            return m ? m[1] : '';
+          }
+          function segments() {
             const segs = [];
-            for (let i = 0; i < 60; i++) {
-              await new Promise(r => setTimeout(r, 200));
-
-              // Legacy: ytd-transcript-segment-renderer
-              const legacyEls = document.querySelectorAll('ytd-transcript-segment-renderer');
-              if (legacyEls.length) {
-                Array.from(legacyEls).forEach(el => {
-                  const text = ((el.querySelector('yt-formatted-string.segment-text') || {}).textContent || '').trim();
-                  if (text.length > 0) segs.push({ text, ts: extractTimestamp(el) });
-                });
-                if (segs.length) break;
-              }
-
-              // Modern: transcript-segment-view-model
-              const modernEls = document.querySelectorAll('transcript-segment-view-model');
-              if (modernEls.length) {
-                Array.from(modernEls).forEach(el => {
-                  const text = ((el.querySelector('span.ytAttributedStringHost') || {}).textContent || '').trim();
-                  if (text.length > 0) segs.push({ text, ts: extractTimestamp(el) });
-                });
-                if (segs.length) break;
-              }
-            }
-            if (!segs.length) return post({error: 'panel_empty', videoDetails: details});
-
-            // 5. Opportunistically extract YouTube's AI summary
-            let youtubeSummary = '';
+            document.querySelectorAll('ytd-transcript-segment-renderer').forEach(el => {
+              const text = ((el.querySelector('yt-formatted-string.segment-text') || {}).textContent || '').trim();
+              if (text.length > 0) segs.push({ text, ts: extractTimestamp(el) });
+            });
+            if (segs.length) return segs;
+            document.querySelectorAll('transcript-segment-view-model').forEach(el => {
+              const text = ((el.querySelector('span.ytAttributedStringHost') || {}).textContent || '').trim();
+              if (text.length > 0) segs.push({ text, ts: extractTimestamp(el) });
+            });
+            return segs;
+          }
+          function summary(ipr) {
             try {
               for (const panel of (ipr.engagementPanels || [])) {
-                const content = panel.engagementPanelSectionListRenderer
-                                && panel.engagementPanelSectionListRenderer.content;
-                if (!content) continue;
-                const structured = content.structuredDescriptionContentRenderer;
-                if (!structured) continue;
-                for (const item of (structured.items || [])) {
-                  const runs = item.videoDescriptionHeaderRenderer
-                               && item.videoDescriptionHeaderRenderer.description
+                const content = panel.engagementPanelSectionListRenderer && panel.engagementPanelSectionListRenderer.content;
+                const structured = content && content.structuredDescriptionContentRenderer;
+                for (const item of ((structured && structured.items) || [])) {
+                  const runs = item.videoDescriptionHeaderRenderer && item.videoDescriptionHeaderRenderer.description
                                && item.videoDescriptionHeaderRenderer.description.runs;
-                  if (runs) { youtubeSummary = runs.map(r => r.text||'').join(''); break; }
+                  if (runs) return runs.map(r => r.text || '').join('');
                 }
-                if (youtubeSummary) break;
               }
-            } catch(e) {}
-
-            post({
-              title:   vd.title || '',
-              videoID: vd.videoId || '',
-              segments: segs,
-              videoDetails: Object.assign({}, details, {youtubeSummary: youtubeSummary.slice(0, 3000)})
-            });
-          })();
+            } catch (e) {}
+            return '';
+          }
+          window.__youtyStep = function() {
+            if (st.done) return;
+            try {
+              const ipr = window.ytInitialPlayerResponse;
+              if (st.phase === 'ipr') {
+                const ready = ipr && ((ipr.playabilityStatus && ipr.playabilityStatus.status
+                                       && ipr.playabilityStatus.status !== 'OK')
+                                      || (ipr.videoDetails && ipr.videoDetails.title));
+                if (!ready) { if (waited() > 12000) post({error: 'no_response'}); return; }
+                const playability = ipr.playabilityStatus || {};
+                if (playability.status && playability.status !== 'OK') {
+                  const reason = String(playability.reason || '').toLowerCase();
+                  const requiresSignIn = playability.status === 'LOGIN_REQUIRED' || reason.includes('sign in')
+                    || reason.includes('age verification') || reason.includes('confirm your age');
+                  return post({error: requiresSignIn ? 'restricted_video' : 'unavailable_video'});
+                }
+                const vd = ipr.videoDetails;
+                st.details = {
+                  videoID: vd.videoId || '', title: vd.title || '', author: vd.author || '',
+                  lengthSeconds: parseInt(vd.lengthSeconds || '0', 10), keywords: vd.keywords || [],
+                  shortDescription: (vd.shortDescription || '').slice(0, 2000), youtubeSummary: ''
+                };
+                const tracks = (ipr.captions && ipr.captions.playerCaptionsTracklistRenderer
+                                && ipr.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
+                if (!tracks.length) return post({error: 'no_captions', videoDetails: st.details});
+                next('btn');
+              }
+              if (st.phase === 'btn') {
+                const all = Array.from(document.querySelectorAll('button, tp-yt-paper-button'));
+                const btn = all.find(b => b.getAttribute('aria-label') === 'Show transcript')
+                         || all.find(b => /^show transcript$/i.test((b.textContent || '').trim()))
+                         || all.find(b => /show transcript/i.test(b.getAttribute('aria-label') || ''))
+                         || all.find(b => /^transcript$/i.test((b.textContent || '').trim()));
+                if (!btn) { if (waited() > 12000) post({error: 'no_btn', videoDetails: st.details}); return; }
+                btn.click();
+                next('segs');
+                return;
+              }
+              if (st.phase === 'segs') {
+                const segs = segments();
+                if (!segs.length) {
+                  // Some videos only load their transcript for YouTube's own
+                  // player; an empty panel falls back to on-device transcription.
+                  if (waited() > 8000) post({error: 'panel_empty', videoDetails: st.details});
+                  return;
+                }
+                const vd = ipr.videoDetails;
+                post({ title: vd.title || '', videoID: vd.videoId || '', segments: segs,
+                       videoDetails: Object.assign({}, st.details, {youtubeSummary: summary(ipr).slice(0, 3000)}) });
+              }
+            } catch (e) {
+              post({error: 'panel_empty', videoDetails: st.details || undefined});
+            }
+          };
+          window.__youtyStep();
         })();
         """
-
-        webView.evaluateJavaScript(js) { _, error in
-            if let error = error {
-                NSLog("[youty] JS error: %@", error.localizedDescription)
-            }
-        }
-        // Watchdog is armed per-attempt in startAttempt() (generation-guarded).
-    }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         guard Self.isActiveNavigation(navigation, active: currentNavigation) else { return }
@@ -300,11 +279,16 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     // MARK: - WKScriptMessageHandler
 
     func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "youtyTranscript",
-              let dict = message.body as? [String: Any] else {
+        guard message.name == "youtyTranscript", continuation != nil else { return }
+        guard let dict = message.body as? [String: Any] else {
             finish(throwing: FetchError.parseError)
             return
         }
+        // A page from an earlier request (or the home-page warm-up) can still
+        // report in; only the requested video may complete this fetch.
+        let reported = (dict["videoID"] as? String)
+            ?? ((dict["videoDetails"] as? [String: Any])?["videoID"] as? String)
+        guard let reported, reported == currentVideoID else { return }
 
         if let errKey = dict["error"] as? String {
             switch errKey {
@@ -415,9 +399,11 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     }
 
     private func finish(returning value: FetchResult) {
+        stepTimer?.invalidate(); stepTimer = nil
         continuation?.resume(returning: value); continuation = nil
     }
     private func finish(throwing error: Error) {
+        stepTimer?.invalidate(); stepTimer = nil
         continuation?.resume(throwing: error); continuation = nil
     }
 

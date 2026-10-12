@@ -96,28 +96,13 @@ final class VaultManager: NSObject, ObservableObject {
         // (covers ≤ 27 hours). AI consumers resolve [M:SS] timestamps by
         // parsing to ms and matching the numerically closest stem.
         //
-        // JPEG encoding is CPU-heavy at 1080p (~10 ms per frame). Encode all
-        // frames in parallel via a concurrent dispatch group, then write
-        // sequentially (file-system writes serialize anyway on a single SSD).
-        let queue = DispatchQueue(label: "youty.jpeg-encode", attributes: .concurrent)
-        let group = DispatchGroup()
-        let results = OSAllocatedUnfairLock(initialState: (encoded: [(name: String, data: Data)](), failures: 0))
-        for frame in frames {
-            group.enter()
-            queue.async {
-                // Round (not truncate) so float drift can't shift the ms-stem
-                // off the documented exact-millisecond contract.
-                let ms = Int((frame.timestamp * 1000).rounded())
-                let name = String(format: "%08d.jpg", ms)
-                let data = frame.image.jpegData(compressionQuality: 0.85)
-                results.withLock { state in
-                    if let data { state.encoded.append((name, data)) } else { state.failures += 1 }
-                }
-                group.leave()
-            }
+        // Frames arrive already JPEG-encoded (at capture), so this only names
+        // them. Round (not truncate) so float drift can't shift the ms-stem off
+        // the documented exact-millisecond contract.
+        let encoded: [(name: String, data: Data)] = frames.compactMap { frame in
+            frame.jpeg.isEmpty ? nil : (String(format: "%08d.jpg", Int((frame.timestamp * 1000).rounded())), frame.jpeg)
         }
-        group.wait()
-        let (encoded, encodeFailures) = results.withLock { ($0.encoded, $0.failures) }
+        let encodeFailures = frames.count - encoded.count
         // All-or-nothing (hard requirement: no partial / silently-padded bundle).
         // A failed encode aborts before any write; staging keeps write failures
         // from replacing the previous complete capture.

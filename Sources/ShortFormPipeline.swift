@@ -272,7 +272,7 @@ final class ShortFormPipeline {
         DebugLog.log("shortform: target=\(settings.targetResolution)p source=\(preview.width)x\(preview.height) → maxLongEdge=\(maxEdge)")
         let fileBox = SendableURL(tempFileURL)
 
-        async let framesTask: [(timestamp: TimeInterval, image: NSImage)] = {
+        async let framesTask: [FrameExtractor.Frame] = {
             do {
                 return try await LocalFrameExtractor.extract(
                     fileURL: fileBox.value,
@@ -302,7 +302,7 @@ final class ShortFormPipeline {
             }
         }()
 
-        let frames: [(timestamp: TimeInterval, image: NSImage)]
+        let frames: [FrameExtractor.Frame]
         let transcript: [TranscriptSegment]?
         do {
             frames = try await framesTask
@@ -329,7 +329,7 @@ final class ShortFormPipeline {
         // 5. Write JPEGs (parallel encode, sequential disk write — same as
         //    YouTube path). Filenames = timestamp_ms zero-padded to 8 digits.
         stage(.writing)
-        let extractorFrames = frames.map { FrameExtractor.Frame(timestamp: $0.timestamp, image: $0.image) }
+        let extractorFrames = frames
         do {
             try vault.writeFrames(extractorFrames, to: folderURL)
         } catch {

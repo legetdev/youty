@@ -23,7 +23,8 @@ enum PHashFilter {
         // sees a 1:1 mapping; embedder will fail downstream if truly unreadable.
 
         for i in 1..<jpegURLs.count {
-            guard let candidate = featurePrint(at: jpegURLs[i]) else {
+            // Drain each image's temporaries now; this loop runs as one long task.
+            guard let candidate = autoreleasepool(invoking: { featurePrint(at: jpegURLs[i]) }) else {
                 // Conservatively keep frames we can't fingerprint — better to
                 // embed a few extra than to silently drop content.
                 keep.append(i)

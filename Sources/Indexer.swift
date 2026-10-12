@@ -442,6 +442,27 @@ enum Indexer {
     /// Bundles with 0 8-digit-ms JPEGs (legacy 4-digit-seconds format)
     /// are silently skipped — they predate the millisecond convention and
     /// we don't break on real-world legacy data.
+    /// Embeds frames in order. One at a time by default: each frame in flight
+    /// holds roughly 0.5 GB of model working memory, so overlapping frames
+    /// (measured 1.6× faster) would push a save past 1.5 GB — not worth it.
+    static func embedFrames(_ urls: [URL], with embedder: EmbeddingGemma2, inFlight: Int = 1) async throws -> [[Float]] {
+        try await withThrowingTaskGroup(of: (Int, [Float]).self) { group in
+            var vectors = [[Float]](repeating: [], count: urls.count)
+            var next = 0
+            func add() {
+                let i = next, url = urls[i]
+                group.addTask { (i, try embedder.embedImage(at: url)) }
+                next += 1
+            }
+            while next < min(inFlight, urls.count) { add() }
+            while let (i, vector) = try await group.next() {
+                vectors[i] = vector
+                if next < urls.count { add() }
+            }
+            return vectors
+        }
+    }
+
     @discardableResult
     static func indexFrames(videoMdURL: URL,
                              vaultRoot: URL) async throws -> (kept: Int, dropped: Int) {
@@ -484,7 +505,7 @@ enum Indexer {
 
         // Embed kept frames into the same space as the transcript text.
         let embedder = try EmbeddingGemma2.shared()
-        let vectors = try keptInputs.map { try embedder.embedImage(at: $0.url) }
+        let vectors = try await embedFrames(keptInputs.map(\.url), with: embedder)
 
         // Build IndexFrameRow with phash (cheap second pass on kept frames).
         let rows: [IndexFrameRow] = zip(keptInputs, vectors).map { (k, v) in

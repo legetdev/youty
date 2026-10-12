@@ -98,15 +98,17 @@ enum FFmpegFrameExtractor {
         timestamps: [TimeInterval],
         maxLongEdge: Int32 = 1920,
         progress: @escaping @Sendable (Double) -> Void = { _ in }
-    ) async throws -> [(timestamp: TimeInterval, image: NSImage)] {
+    ) async throws -> [FrameExtractor.Frame] {
         // Production path: per-target seek loop with prefetch. Earlier
         // alternative extraction paths were tried, regressed, and removed.
-        return try await Task.detached(priority: .userInitiated) {
+        let work = Task.detached(priority: .userInitiated) {
             try doExtract(url: url, userAgent: userAgent,
                           timestamps: timestamps,
                           maxLongEdge: maxLongEdge,
                           progress: progress)
-        }.value
+        }
+        // A cancelled save (e.g. a superseded prefetch) stops decoding too.
+        return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
     }
 
     // MARK: - Implementation
@@ -117,7 +119,7 @@ enum FFmpegFrameExtractor {
         timestamps: [TimeInterval],
         maxLongEdge: Int32,
         progress: @Sendable (Double) -> Void
-    ) throws -> [(timestamp: TimeInterval, image: NSImage)] {
+    ) throws -> [FrameExtractor.Frame] {
 
         // ---- Custom AVIO via URLSession (HTTP Range, fast on googlevideo) ----
         let io = FFmpegURLSessionIO(url: url, userAgent: userAgent)
@@ -308,9 +310,14 @@ enum FFmpegFrameExtractor {
         // First pass: per-target seek loop captures CapturedFrames. HW path
         // produces .hardware(CVPixelBuffer) (no GPU readback yet); software
         // path produces .software(NSImage) (already converted by sws_scale).
-        var captures: [CapturedFrame?] = Array(repeating: nil, count: total)
+        // Each frame is compressed the moment it's captured, so no decoded
+        // picture is held (hardware-decoded ones live in the system's video
+        // decoder process) beyond the frame being worked on.
+        var frames: [FrameExtractor.Frame?] = Array(repeating: nil, count: total)
+        let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
         for (cursor, item) in sorted.enumerated() {
+            try Task.checkCancellation()
             let inputIndex = item.offset
             let ts = item.element
             let pts = sortedPtsList[cursor]
@@ -334,8 +341,9 @@ enum FFmpegFrameExtractor {
                     if receiveResult < 0 { throw FFmpegError.decodeFailed(receiveResult) }
                     let framePts = avFrame.pointee.best_effort_timestamp
                     if framePts == AV_NOPTS_VALUE_FFM || framePts >= pts {
-                        if let cap = captureFrame(from: avFrame, sws: swsCtx,
-                                                  outW: outW, outH: outH) {
+                        if let cap = autoreleasepool(invoking: {
+                            captureFrame(from: avFrame, sws: swsCtx, outW: outW, outH: outH)
+                        }) {
                             captured = cap
                             av_frame_unref(avFrame)
                             break seekLoop
@@ -345,13 +353,19 @@ enum FFmpegFrameExtractor {
                 }
             }
             guard let cap = captured else { throw FFmpegError.noFrameAtTimestamp(ts) }
-            captures[inputIndex] = cap
+            frames[inputIndex] = autoreleasepool { compress(cap, at: ts, ciContext: ciContext) }
             progress(Double(cursor + 1) / Double(total))
         }
 
-        // Convert (no-op pass-through for software captures).
-        let sortedTuples = sorted.map { (offset: $0.offset, element: $0.element) }
-        return try convertCaptures(captures, sorted: sortedTuples)
+        var final: [FrameExtractor.Frame] = []
+        final.reserveCapacity(total)
+        for frame in frames {
+            guard let frame, !frame.jpeg.isEmpty else {
+                throw FFmpegError.incompleteFrames(got: final.count, expected: total)
+            }
+            final.append(frame)
+        }
+        return final
     }
 
     // MARK: - Frame capture (called from the per-target loop)
@@ -381,75 +395,19 @@ enum FFmpegFrameExtractor {
         return nil
     }
 
-    // MARK: - Parallel CVPixelBuffer → NSImage conversion
+    // MARK: - Per-frame compression
 
-    private static func convertCaptures(_ captures: [CapturedFrame?],
-                                         sorted: [(offset: Int, element: TimeInterval)])
-        throws -> [(TimeInterval, NSImage)] {
-        let ciContext = CIContext(options: [.useSoftwareRenderer: false])
-
-        // Map slot → timestamp.
-        var slotToTs: [Int: TimeInterval] = [:]
-        for entry in sorted { slotToTs[entry.offset] = entry.element }
-
-        var out: [(TimeInterval, NSImage)?] = Array(repeating: nil, count: captures.count)
-        var hwTasks: [(slot: Int, ts: TimeInterval, pb: CVPixelBuffer)] = []
-
-        for (i, cap) in captures.enumerated() {
-            guard let cap else { continue }
-            let ts = slotToTs[i] ?? 0
-            switch cap {
-            case .software(let img):
-                out[i] = (ts, img)
-            case .hardware(let pb):
-                hwTasks.append((i, ts, pb))
-            }
+    private static func compress(_ cap: CapturedFrame, at ts: TimeInterval,
+                                 ciContext: CIContext) -> FrameExtractor.Frame? {
+        switch cap {
+        case .software(let image):
+            return FrameExtractor.Frame(timestamp: ts, image: image)
+        case .hardware(let buffer):
+            defer { Unmanaged.passUnretained(buffer).release() }   // the extra retain from captureFrame
+            let ci = CIImage(cvPixelBuffer: buffer)
+            guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return nil }
+            return FrameExtractor.Frame(timestamp: ts, cgImage: cg)
         }
-
-        if !hwTasks.isEmpty {
-            // CIContext is thread-safe for concurrent createCGImage. We run
-            // each readback on a concurrent dispatch queue; on Apple Silicon's
-            // unified memory architecture eight in-flight GPU dispatches +
-            // readbacks complete in roughly the same wall time as one would
-            // sequentially.
-            let queue = DispatchQueue(label: "ffmpeg.gpu-pull", attributes: .concurrent)
-            let group = DispatchGroup()
-            let converted = OSAllocatedUnfairLock(uncheckedState: [Int: NSImage]())
-            for task in hwTasks {
-                group.enter()
-                // Each buffer is owned by exactly one readback (released below),
-                // so handing it to the queue can't race.
-                nonisolated(unsafe) let buffer = task.pb
-                let slot = task.slot
-                queue.async {
-                    let ci = CIImage(cvPixelBuffer: buffer)
-                    let cg = ciContext.createCGImage(ci, from: ci.extent)
-                    // Release the extra CFRetain we added in captureFrame.
-                    Unmanaged.passUnretained(buffer).release()
-                    if let cg {
-                        let ns = NSImage(cgImage: cg,
-                                         size: NSSize(width: cg.width, height: cg.height))
-                        converted.withLockUnchecked { $0[slot] = ns }
-                    }
-                    group.leave()
-                }
-            }
-            group.wait()
-            for (slot, img) in converted.withLockUnchecked({ $0 }) {
-                let ts = slotToTs[slot] ?? 0
-                out[slot] = (ts, img)
-            }
-        }
-
-        var final: [(TimeInterval, NSImage)] = []
-        final.reserveCapacity(out.count)
-        for entry in out {
-            guard let e = entry else {
-                throw FFmpegError.incompleteFrames(got: final.count, expected: out.count)
-            }
-            final.append(e)
-        }
-        return final
     }
 
     // Software path: sws_scale → BGRA → CGImage → NSImage.
