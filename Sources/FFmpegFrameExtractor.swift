@@ -101,12 +101,14 @@ enum FFmpegFrameExtractor {
     ) async throws -> [FrameExtractor.Frame] {
         // Production path: per-target seek loop with prefetch. Earlier
         // alternative extraction paths were tried, regressed, and removed.
-        return try await Task.detached(priority: .userInitiated) {
+        let work = Task.detached(priority: .userInitiated) {
             try doExtract(url: url, userAgent: userAgent,
                           timestamps: timestamps,
                           maxLongEdge: maxLongEdge,
                           progress: progress)
-        }.value
+        }
+        // A cancelled save (e.g. a superseded prefetch) stops decoding too.
+        return try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
     }
 
     // MARK: - Implementation
@@ -315,6 +317,7 @@ enum FFmpegFrameExtractor {
         let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
         for (cursor, item) in sorted.enumerated() {
+            try Task.checkCancellation()
             let inputIndex = item.offset
             let ts = item.element
             let pts = sortedPtsList[cursor]

@@ -154,8 +154,12 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
           // window.__youtyStep() from a native timer and every wait is bounded
           // by the clock. YouTube may reload the page; the new page starts over.
           const st = { phase: 'ipr', start: Date.now(), phaseStart: Date.now(), done: false, details: null, btn: null };
+          // Every message names the page's video, so a page left over from an
+          // earlier request can never answer the current one.
+          const pageVideoID = new URLSearchParams(location.search).get('v') || '';
           function post(obj) {
             st.done = true;
+            if (!obj.videoID) obj.videoID = pageVideoID;
             window.webkit.messageHandlers.youtyTranscript.postMessage(obj);
           }
           function next(phase) { st.phase = phase; st.phaseStart = Date.now(); }
@@ -284,7 +288,7 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         // report in; only the requested video may complete this fetch.
         let reported = (dict["videoID"] as? String)
             ?? ((dict["videoDetails"] as? [String: Any])?["videoID"] as? String)
-        if let reported, !reported.isEmpty, reported != currentVideoID { return }
+        guard let reported, reported == currentVideoID else { return }
 
         if let errKey = dict["error"] as? String {
             switch errKey {

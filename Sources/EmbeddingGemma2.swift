@@ -50,6 +50,10 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
     private let textURL: URL
     private let visionURL: URL
     private let lock = NSLock()
+    // An MLModel instance must not run predictions on two threads at once;
+    // text and frame indexing share these models, so each gets its own lane.
+    private let textPrediction = NSLock()
+    private let visionPrediction = NSLock()
     private var textModels: [Int: MLModel] = [:]
     private var visionModel: MLModel?
 
@@ -213,7 +217,8 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
             for i in 0..<length { dst[i] = i < rows.count ? 1 : 0 }
         }
         let input = try MLDictionaryFeatureProvider(dictionary: ["inputs_embeds": embeds, "attention_mask": mask])
-        let output = try textModel(length).prediction(from: input)
+        let model = try textModel(length)
+        let output = try textPrediction.withLock { try model.prediction(from: input) }
         guard let vector = output.featureValue(for: "embedding")?.multiArrayValue else { throw EmbedError.noOutput }
         return Self.normalized(Self.floats(vector))
     }
@@ -295,7 +300,8 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
             "patches": patches, "positions": positions, "position_embeddings": positionEmbeddings,
             "valid": valid, "pool": pool,
         ])
-        let output = try visionModelLoaded().prediction(from: input)
+        let vision = try visionModelLoaded()
+        let output = try visionPrediction.withLock { try vision.prediction(from: input) }
         guard let soft = output.featureValue(for: "image_tokens")?.multiArrayValue,
               soft.dataType == .float16, soft.count >= tokens * Self.hidden else { throw EmbedError.noOutput }
         let rows: [Row] = [.token(Self.bos), .token(Self.imageStart)] + (0..<tokens).map(Row.soft)
