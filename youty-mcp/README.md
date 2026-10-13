@@ -52,9 +52,10 @@ restart always loads the newest server. To wire a client by hand, use
 
 Queries are embedded on your Mac with Google's **EmbeddingGemma 2** (Apache-2.0)
 — the same model the Youty app used to index transcripts, on-screen text, and
-frames, so one query vector compares against all three. It runs on the CPU
-(about 25–50 ms per query, ready about two seconds after a session starts) and
-is released after ten idle minutes. Keyword matching (SQLite FTS5) runs
+frames, so one query vector compares against all three. It runs on the CPU in
+a small helper process that starts with the first search (well under a second)
+and exits a minute after the last one, so an idle server holds no model in
+memory. Later searches take about 40 ms each. Keyword matching (SQLite FTS5) runs
 alongside it for exact names and terms. No key, no account, no remote
 embedding call.
 

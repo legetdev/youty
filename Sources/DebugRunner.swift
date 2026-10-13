@@ -56,6 +56,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--youtube-audio-probe")
             || CommandLine.arguments.contains("--ocr-probe")
             || CommandLine.arguments.contains("--ocr-backfill")
+            || CommandLine.arguments.contains("--model-lifecycle-probe")
     }
 
     // Entry point called from AppEntry.main when --extract is in argv.
@@ -100,6 +101,9 @@ enum DebugRunner {
         }
         if let folder = stringArg(args, key: "--frame-bench") {
             runFrameBench(folder: folder)
+        }
+        if args.contains("--model-lifecycle-probe") {
+            runModelLifecycleProbe(frameFolder: stringArg(args, key: "--model-lifecycle-probe"))
         }
         if args.contains("--embeddinggemma2-probe") {
             runEmbeddingGemma2Probe(referencePath: stringArg(args, key: "--embeddinggemma2-probe"))
@@ -1200,6 +1204,15 @@ enum DebugRunner {
                 let vm = VaultManager()
                 vm.vaultURL = vault
                 let pipeline = ShortFormPipeline(vault: vm, settings: SettingsStore())
+                // YOUTY_PROBE_INDEX=1 also indexes the save the way the app does:
+                // models leased at the start, released after indexing. It only
+                // runs against a throwaway index (YOUTY_INDEX_DB).
+                let indexToo = ProcessInfo.processInfo.environment["YOUTY_PROBE_INDEX"] == "1"
+                if indexToo && (ProcessInfo.processInfo.environment["YOUTY_INDEX_DB"] ?? "").isEmpty {
+                    print("ERROR=set YOUTY_INDEX_DB to a throwaway index"); code = 2; return
+                }
+                if indexToo { print("MEM_BEFORE_MB=\(DebugRunner.footprintMB())") }
+                let lease = indexToo ? ModelLease() : nil
                 let preview = try await pipeline.preview(url: url)
                 print("PREVIEW author=\(preview.author) duration=\(preview.duration)")
                 let stageHandler: @Sendable (FrameStage) -> Void = { stage in
@@ -1221,6 +1234,19 @@ enum DebugRunner {
                 let jpegs = (try? FileManager.default.contentsOfDirectory(atPath: result.folder.path))?
                     .filter { $0.hasSuffix(".jpg") }.count ?? 0
                 print("JPEGS_ON_DISK=\(jpegs)")
+                if indexToo {
+                    let videoMd = result.folder.appendingPathComponent("video.md")
+                    let t = Date()
+                    async let frames = Indexer.indexFrames(videoMdURL: videoMd, vaultRoot: vault)
+                    try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vault)
+                    let (kept, _) = try await frames
+                    print("INDEXED frames=\(kept) in \(Int(Date().timeIntervalSince(t) * 1000))ms MEM_LOADED_MB=\(DebugRunner.footprintMB())")
+                    lease?.end()
+                    for wait in [3, 10, 20] {
+                        try await Task.sleep(nanoseconds: UInt64(wait == 3 ? 3 : wait == 10 ? 7 : 10) * 1_000_000_000)
+                        print("MEM_\(wait)S_AFTER_MB=\(DebugRunner.footprintMB()) LOADED=\(EmbeddingGemma2.isLoaded) LIVE=\(EmbeddingGemma2.liveInstances)")
+                    }
+                }
                 code = 0
             } catch {
                 print("ERROR=\(error.localizedDescription)")
@@ -1260,7 +1286,7 @@ enum DebugRunner {
             defer { sem.signal() }
             do {
                 let started = Date()
-                let embedder = try EmbeddingGemma2.shared()
+                let embedder = try EmbeddingGemma2.acquire()
                 try embedder.warmUp()
                 print("MODEL_ID=\(embedder.modelIdentifier)")
                 print("MODEL_LOAD_MS=\(Int(Date().timeIntervalSince(started) * 1000))")
@@ -1356,13 +1382,83 @@ enum DebugRunner {
 
     /// Headless search upgrade: moves the index onto the current model exactly
     /// as the app does on launch (text first, then frames; resumable).
+    /// `--model-lifecycle-probe [framesFolder]` — verifies the models are
+    /// loaded only while in use: three load → embed → release cycles, then a
+    /// save-style lease. Prints this process's memory footprint at each step;
+    /// memory after release must return close to the baseline.
+    /// This process's memory footprint in MB, as Activity Monitor reports it.
+    fileprivate static func footprintMB() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? Int(info.phys_footprint / 1_048_576) : -1
+    }
+
+    private static func runModelLifecycleProbe(frameFolder: String?) -> Never {
+        let frame = frameFolder.flatMap { folder in
+            (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: folder), includingPropertiesForKeys: nil))?
+                .first { $0.pathExtension.lowercased() == "jpg" }
+        }
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            let baseline = footprintMB()
+            print("BASELINE_MB=\(baseline)")
+            var after: [Int] = []
+            for cycle in 1...3 {
+                do {
+                    let started = Date()
+                    let loaded = try await EmbeddingGemma2.using { model -> Int in
+                        try model.prepare()
+                        let loadMs = Int(Date().timeIntervalSince(started) * 1000)
+                        _ = try model.embedQuery("how do I build an app")
+                        if let frame { _ = try model.embedImage(at: frame) }
+                        print("CYCLE_\(cycle)_LOAD_MS=\(loadMs)")
+                        return footprintMB()
+                    }
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    after.append(footprintMB())
+                    print("CYCLE_\(cycle)_LOADED_MB=\(loaded) RELEASED_MB=\(after.last!) STILL_LOADED=\(EmbeddingGemma2.isLoaded)")
+                } catch {
+                    print("ERROR=\(error.localizedDescription)"); box.code = 2; return
+                }
+            }
+            var lease: ModelLease? = ModelLease()
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            print("LEASE_LOADED=\(EmbeddingGemma2.isLoaded) MB=\(footprintMB())")
+            lease = nil
+            _ = lease
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            print("LEASE_RELEASED_3S_MB=\(footprintMB()) LIVE=\(EmbeddingGemma2.liveInstances)")
+            try? await Task.sleep(nanoseconds: 17_000_000_000)
+            let final = footprintMB()
+            print("LEASE_RELEASED_LOADED=\(EmbeddingGemma2.isLoaded) LIVE=\(EmbeddingGemma2.liveInstances) MB=\(final) (20 s after release)")
+            // A save that ends at once must not leave the models behind.
+            ModelLease().end()
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            let quickClean = !EmbeddingGemma2.isLoaded && EmbeddingGemma2.liveInstances == 0
+            print("QUICK_END_CLEAN=\(quickClean)")
+            // Once released, memory must come back within 60 MB of the baseline.
+            let ok = !EmbeddingGemma2.isLoaded && final - baseline < 60 && quickClean
+            print(ok ? "MODEL_LIFECYCLE OK" : "MODEL_LIFECYCLE FAIL")
+            box.code = ok ? 0 : 1
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
     /// Frame-embedding throughput, one at a time vs. the indexer's overlapped
     /// path, and whether overlapping changes any vector (it must not).
     private static func runFrameBench(folder: String) -> Never {
         let urls = ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: folder),
                                                                    includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension.lowercased() == "jpg" }.sorted { $0.path < $1.path }.prefix(24).map { $0 }
-        guard !urls.isEmpty, let model = try? EmbeddingGemma2.shared() else { print("FRAME_BENCH=no frames or model"); exit(1) }
+        guard !urls.isEmpty, let model = try? EmbeddingGemma2.acquire() else { print("FRAME_BENCH=no frames or model"); exit(1) }
         let sem = DispatchSemaphore(value: 0)
         Task.detached {
             _ = try? model.embedImage(at: urls[0])   // load + compile outside the timing

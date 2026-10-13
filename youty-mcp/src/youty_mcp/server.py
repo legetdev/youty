@@ -33,7 +33,8 @@ from mcp.types import ToolAnnotations
 from . import __version__
 from . import db as _db
 from . import notes
-from .query_encoder import MODEL_ID, QueryEncoder
+from .query_encoder import MODEL_ID
+from .query_helper import QueryHelper
 from .retrieval import list_frame_jpgs, nearest_frame, resolve_vault_root, search as _search, vault_path
 
 _log = logging.getLogger("youty_mcp")
@@ -42,7 +43,7 @@ _MAX_STRING_ARG = 10_000          # defensive cap on free-form arguments
 _MAX_VIEW_FRAMES = 12             # each image costs real vision tokens
 _MAX_IMAGE_SIDE = 2000            # API limit once a request holds >20 images
 _TRANSCRIPT_PAGE_CHARS = 24_000   # ≈6K tokens per get_transcript page
-_IDLE_RELEASE_S = 600             # free the query model after 10 idle minutes
+_IDLE_RELEASE_S = 60              # stop the search model helper a minute after the last search
 _PLATFORMS = ("youtube", "instagram", "tiktok")
 
 INSTRUCTIONS = """\
@@ -90,7 +91,7 @@ def _clamp(s: str | None) -> str | None:
 
 
 class _State:
-    """Database connection and the lazily loaded, idle-released query model."""
+    """Database connection and the on-demand search model helper."""
 
     def __init__(self) -> None:
         # Tools run on worker threads; one re-entrant lock serializes them so the
@@ -98,15 +99,13 @@ class _State:
         self.lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
         self._path: Path | None = None
-        self._encoder: QueryEncoder | None = None
-        self._encoder_lock = threading.Lock()
-        self._release_timer: threading.Timer | None = None
+        self._query = QueryHelper(idle_s=_IDLE_RELEASE_S)
 
     def conn(self) -> sqlite3.Connection:
         path = _db.default_db_path()
         if self._conn is not None and path != self._path:
             # The app created its index after this server started: follow it.
-            self.close()
+            self._close_db()
         if self._conn is None:
             self._conn, self._path = _db.open_db(path), path
             try:
@@ -115,38 +114,20 @@ class _State:
                 _log.warning("vault-root probe failed (non-fatal): %s", exc)
         return self._conn
 
-    def encoder(self) -> QueryEncoder:
-        with self._encoder_lock:
-            if self._encoder is None:
-                self._encoder = QueryEncoder()
-            if self._release_timer is not None:
-                self._release_timer.cancel()
-            self._release_timer = threading.Timer(_IDLE_RELEASE_S, self._release)
-            self._release_timer.daemon = True
-            self._release_timer.start()
-            return self._encoder
-
-    def _release(self) -> None:
-        with self._encoder_lock:
-            self._encoder = None
-        _log.info("query model released after %ds idle", _IDLE_RELEASE_S)
-
     def embed(self, query: str):
         """Query vector, or None when the on-device model can't load (search
         then runs on keywords alone instead of failing)."""
         try:
-            return self.encoder().embed(query)
+            return self._query.embed(query)
         except Exception as exc:  # noqa: BLE001
             _log.warning("query embedding unavailable, keyword search only: %s", exc)
             return None
 
-    def warm(self) -> None:
-        try:
-            self.encoder().warm()
-        except Exception as exc:  # noqa: BLE001
-            _log.warning("query model warm-up failed (first search will retry): %s", exc)
-
     def close(self) -> None:
+        self._query.stop()
+        self._close_db()
+
+    def _close_db(self) -> None:
         if self._conn is not None:
             _db._VAULT_CACHE.pop(id(self._conn), None)
             self._conn.close()
@@ -730,10 +711,7 @@ def main() -> None:
     _log.info("youty-mcp %s starting (db=%s)", __version__,
               _db.default_db_path())
     _STATE.conn()
-    # Warm the query model in the background so the first search is fast; the
-    # model is released again after a stretch of inactivity.
-    if _STATE.conn().execute("SELECT 1 FROM chunks WHERE model_version = ? LIMIT 1", (MODEL_ID,)).fetchone():
-        threading.Thread(target=_STATE.warm, name="query-warm", daemon=True).start()
+    # No model is loaded at startup: the first search starts the helper.
     try:
         mcp.run(transport="stdio")
     finally:

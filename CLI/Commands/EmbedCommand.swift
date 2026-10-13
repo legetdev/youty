@@ -20,7 +20,7 @@ enum EmbedCommand {
         let asQuery = args.bool("query")
 
         do {
-            let embedder = try EmbeddingGemma2.shared()
+            let embedder = try EmbeddingGemma2.acquire()   // freed when the command exits
             let vec = asQuery ? try embedder.embedQuery(text)
                               : try embedder.embedFormatted(EmbeddingGemma2.documentInput(title: "", text: text))
             // Swift's Float description is the shortest round-trippable string,

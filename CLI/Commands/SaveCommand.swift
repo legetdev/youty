@@ -287,8 +287,7 @@ enum SaveCommand {
             catch { return error.localizedDescription }
         }()
         do {
-            let embedder = try Indexer.makeEmbedder()
-            try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultRoot, embedder: embedder)
+            try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultRoot)
         } catch {
             progress.stage("warning: text indexer skipped (\(error.localizedDescription))")
         }
