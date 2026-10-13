@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 2.0.1</title>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Tue, 13 Oct 2026 13:25:48 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 2.0.1</h3>
+                <p>Saves are much faster and memory use stays under 1 GB (a frame-extraction bug could use many gigabytes). YouTube transcripts no longer fail on videos whose transcript panel stays empty: Youty falls back to on-device transcription. Each saved video now shows when it is ready to ask your AI, in the app and the menu bar, plus a livelier, more polished interface.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v2.0.1/Youty-2.0.1.dmg"
+                sparkle:edSignature="EJYK54o8Ia+7REnHk6Nz3oa9OHuOeFuJnV87/HiZodrzFzwoM5XRQ0zq60ODIaepJhgLfcglD9e9JbHYl6y+Bw=="
+                length="673649572"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 2.0.0</title>
             <sparkle:version>17</sparkle:version>
             <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
