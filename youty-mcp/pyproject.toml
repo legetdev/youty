@@ -1,6 +1,6 @@
 [project]
 name = "youty-mcp"
-version = "2.0.1"
+version = "2.0.2"
 description = "Youty MCP server — lets AI assistants search, read, watch, and save videos in your local Youty vault."
 readme = "README.md"
 license = { text = "MIT" }
