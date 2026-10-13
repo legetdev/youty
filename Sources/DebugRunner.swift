@@ -467,7 +467,10 @@ enum DebugRunner {
             }
             exit(box.code)
         }
-        dispatchMain()
+        // WebKit delivers its callbacks through the main run loop, which
+        // dispatchMain() never runs (WebKit then traps); run it instead.
+        RunLoop.main.run()
+        exit(3)
     }
 
     private static func runShortFormSaveProbe(urlString: String, vaultPath: String?) -> Never {
@@ -487,14 +490,15 @@ enum DebugRunner {
             return tmp
         }()
 
-        // Use dispatchMain() to pump the main runloop so @MainActor work can
-        // dispatch. The Task exits the process when done.
+        // Run the main run loop, not dispatchMain(): WebKit delivers its callbacks
+        // through it and traps without it. The Task exits the process when done.
         Task { @MainActor in
             let box = ExitBox()
             await box.runShortFormSave(url: url, vault: vaultURL)
             exit(box.code)
         }
-        dispatchMain()
+        RunLoop.main.run()
+        exit(3)
     }
 
     // Headless Phase B smoke test. Walks every video.md under the given
