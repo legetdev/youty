@@ -28,7 +28,8 @@ FAKE_WORKER = textwrap.dedent("""
 
 @pytest.fixture()
 def helper():
-    h = QueryHelper(idle_s=1.0, timeout_s=10, command=[sys.executable, "-c", FAKE_WORKER])
+    h = QueryHelper(idle_s=1.0, timeout_s=10, command=[sys.executable, "-c", FAKE_WORKER],
+                    models_ready=lambda: True)
     yield h
     h.stop()
 
@@ -70,6 +71,52 @@ def test_errors_are_raised_and_a_crashed_helper_is_replaced(helper):
         helper.embed("crash")
     assert not helper.running
     assert helper.embed("again")[0] == 5
+
+
+def test_missing_model_downloads_once_in_the_background():
+    """Without an installed app or CLI the first search starts the one-time
+    download in the background and falls back to keywords until it is done."""
+    import threading
+
+    done = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def prepare():
+        calls.append(1)
+        release.wait(10)
+        done.set()
+
+    h = QueryHelper(idle_s=1.0, command=[sys.executable, "-c", FAKE_WORKER],
+                    models_ready=done.is_set, prepare_models=prepare)
+    try:
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="still downloading"):
+                h.embed("abc")
+        assert not h.running and calls == [1]   # one download, no helper yet
+        release.set()
+        assert done.wait(5)
+        assert h.embed("abc")[0] == 3           # AI search once it is ready
+    finally:
+        release.set()
+        h.stop()
+
+
+def test_worker_ignores_modules_in_the_working_directory(tmp_path, monkeypatch):
+    """A project folder that contains a `youty_mcp` package must never run."""
+    marker = tmp_path / "ran"
+    fake = tmp_path / "youty_mcp"
+    fake.mkdir()
+    (fake / "__init__.py").write_text("")
+    (fake / "query_worker.py").write_text(f"open({str(marker)!r}, 'w').write('x')\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    h = QueryHelper(models_ready=lambda: True)
+    with h._lock:
+        h._start_locked()
+    time.sleep(1.5)
+    h.stop()
+    assert not marker.exists()
 
 
 def test_real_model_matches_in_process_encoder():

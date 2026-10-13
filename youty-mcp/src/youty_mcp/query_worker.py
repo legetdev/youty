@@ -21,6 +21,8 @@ def main() -> None:
 
     encoder = QueryEncoder()
     for line in sys.stdin:
+        if not line.strip():
+            continue
         try:
             vector = encoder.embed(json.loads(line)["q"])
             reply = {"v": base64.b64encode(vector.astype("<f4").tobytes()).decode("ascii")}

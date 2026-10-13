@@ -86,28 +86,38 @@ def _installed_roots() -> list[Path]:
     return roots
 
 
-def locate() -> Assets:
-    """Resolve the query model files, downloading them once if needed."""
+class NotReady(RuntimeError):
+    """The model files still have to be downloaded or compiled."""
+
+
+def locate(prepare: bool = True) -> Assets:
+    """Resolve the query model files, downloading them once if needed.
+
+    With `prepare=False` it never downloads or compiles: it raises `NotReady`
+    when that work is still needed, so callers can do it in the background.
+    """
     override = os.environ.get("YOUTY_MODELS_DIR")
     if override:
         assets = _assets_in(Path(override).expanduser())
         if assets is None:
             raise RuntimeError(f"YOUTY_MODELS_DIR={override} does not contain the EmbeddingGemma 2 query files")
-        return _compiled(assets)
+        return _compiled(assets, prepare)
     for root in _installed_roots():
         assets = _assets_in(root)
         if assets is not None:
-            return _compiled(assets)
+            return _compiled(assets, prepare)
     assets = _assets_in(CACHE)
     if assets is None:
+        if not prepare:
+            raise NotReady("the search model has not been downloaded yet")
         _download()
         assets = _assets_in(CACHE)
     if assets is None:
         raise RuntimeError(f"the models asset did not contain {TEXT_MODEL}, {TOKEN_TABLE}, and {TOKENIZER}")
-    return _compiled(assets)
+    return _compiled(assets, prepare)
 
 
-def _compiled(assets: Assets) -> Assets:
+def _compiled(assets: Assets, prepare: bool = True) -> Assets:
     """Use a compiled `.mlmodelc`; compile an `.mlpackage` once into the cache."""
     if assets.text_model.suffix == ".mlmodelc":
         return assets
@@ -119,6 +129,8 @@ def _compiled(assets: Assets) -> Assets:
         key = hashlib.sha256(f"{source}:{newest}".encode()).hexdigest()[:16]
         target = CACHE / "compiled" / key / f"{TEXT_MODEL}.mlmodelc"
     if not target.exists():
+        if not prepare:
+            raise NotReady("the search model has not been compiled yet")
         import coremltools as ct
 
         _log.info("Compiling %s once …", assets.text_model.name)
