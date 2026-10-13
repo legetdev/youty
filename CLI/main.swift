@@ -12,7 +12,7 @@ import Foundation
 //   search     — keyword search across saved videos
 //   transcript — print a saved video's transcript
 
-let version = "2.0.0"
+let version = "2.0.1"
 
 let args = ArgsParser.parse(CommandLine.arguments)
 
