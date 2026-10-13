@@ -50,9 +50,9 @@ enum Indexer {
     /// bundle's `video.md`; `vaultRoot` is needed to compute `folder_path`
     /// (which is stored relative to vault root, not absolute).
     static func indexBundle(videoMdURL: URL, vaultRoot: URL) async throws {
-        try await indexBundle(videoMdURL: videoMdURL,
-                              vaultRoot: vaultRoot,
-                              embedder: try await makeDefaultEmbedder())
+        let embedder = try acquireEmbedder()
+        defer { releaseEmbedder() }
+        try await indexBundle(videoMdURL: videoMdURL, vaultRoot: vaultRoot, embedder: embedder)
     }
 
     /// Indexes every `video.md` under `vaultRoot`. Used by the Settings
@@ -68,7 +68,8 @@ enum Indexer {
                               embedderOverride: Embedder? = nil,
                               progress: ((String) -> Void)? = nil) async throws -> ReindexSummary {
         let kickoff = Date()
-        let embedder = try embedderOverride ?? makeEmbedderOrThrow()
+        let embedder = try acquireEmbedder(embedderOverride)
+        defer { releaseEmbedder(embedderOverride) }
         let bundles = try enumerateBundles(at: vaultRoot)
         var summary = ReindexSummary()
         var seenIDs = Set<String>()
@@ -157,7 +158,8 @@ enum Indexer {
                                      progress: ((String) -> Void)? = nil) async throws -> Int {
         let ocrEnabled = UserDefaults.standard.object(forKey: "ocrIndexingEnabled") as? Bool ?? true
         guard ocrEnabled else { return 0 }
-        let embedder = try embedderOverride ?? makeEmbedderOrThrow()
+        let embedder = try acquireEmbedder(embedderOverride)
+        defer { releaseEmbedder(embedderOverride) }
         var processed = 0
         for url in try enumerateBundles(at: vaultRoot) {
             // Skip a bundle only when its on-screen-text layer is truly done: the
@@ -227,7 +229,8 @@ enum Indexer {
         // 2. Real work — load the model once and index each pending bundle for
         //    both transcript and frames so it becomes fully searchable.
         progress?("RECONCILE_START pending=\(pending.count)")
-        let embedder = try makeEmbedderOrThrow()
+        let embedder = try acquireEmbedder()
+        defer { releaseEmbedder() }
         var healed = 0
         for url in pending {
             do {
@@ -260,7 +263,8 @@ enum Indexer {
                                       embedderOverride: Embedder? = nil,
                                       progress: ((String) -> Void)? = nil) async throws -> ReindexSummary {
         let kickoff = Date()
-        let embedder = try embedderOverride ?? makeEmbedderOrThrow()
+        let embedder = try acquireEmbedder(embedderOverride)
+        defer { releaseEmbedder(embedderOverride) }
         let bundles = try enumerateBundles(at: vaultRoot)
         var summary = ReindexSummary()
         for url in bundles {
@@ -294,7 +298,8 @@ enum Indexer {
     static func migrateToCurrentModel(vaultRoot: URL,
                                       progress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> ReindexSummary {
         let kickoff = Date()
-        let embedder = try makeEmbedder()
+        let embedder = try acquireEmbedder()
+        defer { releaseEmbedder() }
         let bundles = try enumerateBundles(at: vaultRoot)
         let total = bundles.count * 2
         var done = 0
@@ -504,7 +509,8 @@ enum Indexer {
         let droppedCount = jpegs.count - keptInputs.count
 
         // Embed kept frames into the same space as the transcript text.
-        let embedder = try EmbeddingGemma2.shared()
+        let embedder = try EmbeddingGemma2.acquire()
+        defer { EmbeddingGemma2.relinquish() }
         let vectors = try await embedFrames(keptInputs.map(\.url), with: embedder)
 
         // Build IndexFrameRow with phash (cheap second pass on kept frames).
@@ -572,27 +578,23 @@ enum Indexer {
 
     // MARK: - Embedder selection
 
-    /// Builds the on-device text embedder. Throws `localModelUnavailable` when
-    /// the bundled Core ML model / tokenizer can't be loaded. Youty embeds text
-    /// 100% on-device — there is no cloud path and never a silent substitute.
-    static func makeEmbedder() throws -> Embedder {
+    /// Loads the on-device embedder for one indexing run (or returns the test
+    /// override). Pair every call with `releaseEmbedder` using the same
+    /// override: the model stays in memory only while some run holds it.
+    /// Throws `localModelUnavailable` when the bundled Core ML model or
+    /// tokenizer can't be loaded. Youty embeds text 100% on-device — there is
+    /// no cloud path and never a silent substitute.
+    static func acquireEmbedder(_ override: Embedder? = nil) throws -> Embedder {
+        if let override { return override }
         do {
-            return try EmbeddingGemma2.shared()
+            return try EmbeddingGemma2.acquire()
         } catch {
             throw IndexerError.localModelUnavailable
         }
     }
 
-    /// The on-device embedder. `EmbeddingGemma2.shared()` keeps one instance
-    /// per process, so repeated saves reuse the loaded model.
-    private static func makeDefaultEmbedder() async throws -> Embedder {
-        try makeEmbedder()
-    }
-
-    /// Used by reindexVault — pre-flights the embedder once so the user
-    /// gets a single clear error instead of N failed per-bundle calls.
-    private static func makeEmbedderOrThrow() throws -> Embedder {
-        try makeEmbedder()
+    static func releaseEmbedder(_ override: Embedder? = nil) {
+        if override == nil { EmbeddingGemma2.relinquish() }
     }
 
     /// Cleaned tags as the JSON array stored in `videos.tags_json`.

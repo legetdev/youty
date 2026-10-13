@@ -40,6 +40,9 @@ struct ContentView: View {
     @State private var saveAfterLogin = false
     @State private var recents: [VaultLocalSearch.Match] = []
     @State private var framePrefetch: FramePrefetch?
+    /// Keeps the search models loaded from the start of a save until its
+    /// indexing finishes; nil whenever no save is in progress.
+    @State private var saveModelLease: ModelLease?
     @State private var justSaved: URL?
     @ObservedObject private var indexStatus = IndexStatusStore.shared
     @FocusState private var inputFocused: Bool
@@ -245,7 +248,14 @@ struct ContentView: View {
             // Refresh manifest.json so it reflects the notes as this version reads them.
             VaultManager.writeManifest(in: vaultURL)
             await MainActor.run { refreshRecents() }
-            try? EmbeddingGemma2.shared().warmUp()
+            // The first launch of a new version compiles the text model for the
+            // Neural Engine (about half a minute, then cached on disk). Do it now
+            // so no save waits for it, and free the model again afterwards.
+            let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            if UserDefaults.standard.string(forKey: "neuralEnginePreparedBuild") != build,
+               (try? await EmbeddingGemma2.using({ try $0.warmUp() })) != nil {
+                UserDefaults.standard.set(build, forKey: "neuralEnginePreparedBuild")
+            }
             let model = EmbeddingGemma2.modelIdentifier
             guard (try? await IndexStore.shared.needsModelMigration(activeModel: model)) == true else {
                 _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)
@@ -400,6 +410,7 @@ struct ContentView: View {
         savePending = true
         defer { savePending = false }
         let requested = urlInput
+        beginSaveModelLease()
         startFramePrefetch()
         await fetch()
         // Another link (Share Sheet, menu bar, AI) replaced this one meanwhile.
@@ -408,7 +419,7 @@ struct ContentView: View {
             return
         }
         // Instagram sign-in in progress: the login sheet continues the save.
-        if showInstagramLogin { saveAfterLogin = true; return }
+        if showInstagramLogin { saveAfterLogin = true; saveModelLease = nil; return }
         guard lastResult != nil || shortFormPreview != nil else {
             dropFramePrefetch()
             return
@@ -735,10 +746,11 @@ struct ContentView: View {
     /// flow may re-invoke this after the user signs in.
     private func runAutoIngest() async {
         let requested = urlInput
+        beginSaveModelLease()
         startFramePrefetch()
         await fetch()
         // Instagram login in progress — sheet handler will re-call us.
-        if showInstagramLogin { return }
+        if showInstagramLogin { saveModelLease = nil; return }
         // Fetch failed (no preview, no result) → tell the funnel we're done.
         if lastResult == nil && shortFormPreview == nil {
             dropFramePrefetch()
@@ -785,6 +797,7 @@ struct ContentView: View {
     @discardableResult
     private func saveToVault(allowVaultPrompt: Bool = true, for link: String? = nil) -> Task<Void, Never>? {
         vaultError = nil
+        beginSaveModelLease()
         // The link this save belongs to (captured by the caller before any
         // waiting), so finishing never clears a newer one.
         let savedURL = link ?? urlInput
@@ -829,6 +842,7 @@ struct ContentView: View {
                                  savedURL: savedURL)
                     triggerIndexer(bundleFolder: outcome.folder)
                 } catch {
+                    saveModelLease = nil
                     vaultError = error.localizedDescription
                     finishExternalIngest()
                 }
@@ -881,9 +895,18 @@ struct ContentView: View {
         framePrefetch = FramePrefetch(videoID: id, pipeline: pipeline, task: pipeline.prefetch(videoID: id))
     }
 
+    /// Every path that ends a save without indexing it comes through here.
     private func dropFramePrefetch() {
         framePrefetch?.task.cancel()
         framePrefetch = nil
+        saveModelLease = nil
+    }
+
+    /// Starts loading the search models in the background as a save begins,
+    /// so indexing can start the moment the video is on disk.
+    private func beginSaveModelLease() {
+        guard settings.indexerEnabled, saveModelLease == nil else { return }
+        saveModelLease = ModelLease()
     }
 
     private func runFramePipeline(videoID: String, folderURL: URL, savedURL: String) async {
@@ -916,6 +939,10 @@ struct ContentView: View {
     /// saved-video row + menu bar item can show an Indexing… / Indexed
     /// badge to the user.
     private func triggerIndexer(bundleFolder: URL) {
+        // Indexing takes over the save's lease and ends it when done; an early
+        // return below drops it, which frees the models.
+        let lease = saveModelLease
+        saveModelLease = nil
         guard settings.indexerEnabled else { return }
         guard let vaultURL = vault.vaultURL else { return }
         let videoMd = bundleFolder.appendingPathComponent("video.md")
@@ -926,6 +953,7 @@ struct ContentView: View {
         // after a save could kill it before it ran. The launch reconcile is the
         // durable safety net; this keeps in-session indexing reliable too.
         Task.detached(priority: .utility) {
+            defer { lease?.end() }
             let acquired = vaultURL.startAccessingSecurityScopedResource()
             defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
             // Text and frames index side by side (different chips). The video is
@@ -1008,6 +1036,7 @@ struct ContentView: View {
                 }
             }
         case .failed(let reason, let canFallback):
+            saveModelLease = nil
             if canFallback {
                 withAnimation {
                     vault.frameState = .idle

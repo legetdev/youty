@@ -73,17 +73,59 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
 
     // MARK: - Loading
 
-    /// Process-wide instance: the token table is memory-mapped and each Core ML
-    /// function loads once, so every save, re-index, and probe shares one copy.
-    static func shared() throws -> EmbeddingGemma2 {
+    /// The models are loaded only while something uses them: each save,
+    /// re-index, or upgrade holds a lease, concurrent users share one instance,
+    /// and when the last lease ends the instance is dropped, which unloads the
+    /// Core ML models and unmaps the tables. Loading again takes about a second.
+    static func acquire() throws -> EmbeddingGemma2 {
         try sharedLock.withLock {
-            if let instance = sharedInstance { return instance }
-            let made = try EmbeddingGemma2()
-            sharedInstance = made
-            return made
+            let instance = try sharedInstance ?? EmbeddingGemma2()
+            sharedInstance = instance
+            leases += 1
+            return instance
         }
     }
+
+    /// Ends one `acquire()`. After the last one the instance is dropped; it is
+    /// freed as soon as any frame or chunk still in flight finishes with it.
+    static func relinquish() {
+        let dropped = sharedLock.withLock { () -> EmbeddingGemma2? in
+            leases = max(0, leases - 1)
+            guard leases == 0 else { return nil }
+            defer { sharedInstance = nil }
+            return sharedInstance
+        }
+        // Freed here, outside the lock, if nothing else still uses it.
+        withExtendedLifetime(dropped) {}
+    }
+
+    /// Hands the memory the models used back to macOS. The allocator otherwise
+    /// keeps those pages (~150 MB) reserved for the app after they are freed.
+    /// Runs shortly after the instance is gone, once Core ML has released its
+    /// buffers.
+    deinit {
+        Self.liveLock.withLock { Self.live -= 1 }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+            malloc_zone_pressure_relief(nil, 0)
+        }
+    }
+
+    /// Runs `body` with the models available, then releases them.
+    static func using<T>(_ body: (EmbeddingGemma2) async throws -> T) async throws -> T {
+        let model = try acquire()
+        defer { relinquish() }
+        return try await body(model)
+    }
+
+    /// Whether an instance is currently loaded (for the lifecycle probe and tests).
+    static var isLoaded: Bool { sharedLock.withLock { sharedInstance != nil } }
+    /// Instances still alive, including ones finishing in-flight work.
+    static var liveInstances: Int { liveLock.withLock { live } }
+    nonisolated(unsafe) private static var live = 0
+    private static let liveLock = NSLock()
+
     nonisolated(unsafe) private static var sharedInstance: EmbeddingGemma2?
+    nonisolated(unsafe) private static var leases = 0
     private static let sharedLock = NSLock()
 
     convenience init() throws {
@@ -106,6 +148,7 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
               positionTable.count == 2 * 1024 * 768 * 2 else { throw EmbedError.resourcesMissing }
         self.textURL = try Self.compiled(textURL)
         self.visionURL = try Self.compiled(visionURL)
+        Self.liveLock.withLock { Self.live += 1 }
     }
 
     private static func resource(_ name: String, _ exts: [String]) -> URL? {
@@ -143,11 +186,17 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
         }
     }
 
-    /// Prepares the text model ahead of the first save, so its one-time
-    /// Neural Engine compilation happens in the background. The vision model
-    /// loads in seconds on first use and is left until a frame needs it.
+    /// Loads the text model. On the first run of a new app version this is
+    /// where Core ML compiles it for the Neural Engine; the result is cached
+    /// on disk, so later loads take about a second.
     func warmUp() throws {
         _ = try textModel(Self.maxTokens)
+    }
+
+    /// Loads both models, so a save's indexing starts without waiting.
+    func prepare() throws {
+        try warmUp()
+        _ = try visionModelLoaded()
     }
 
     /// The vision encoder runs on the GPU: its full attention over up to 2,520
@@ -352,4 +401,44 @@ final class EmbeddingGemma2: Embedder, @unchecked Sendable {
         let norm = v.reduce(0) { $0 + $1 * $1 }.squareRoot()
         return norm > 0 ? v.map { $0 / norm } : v
     }
+}
+
+/// Keeps the models loaded for one save: taken when the save starts, which
+/// loads them in the background while the video downloads, and ended once the
+/// video is indexed or the save fails. It also ends on its own after ten
+/// minutes, so an abandoned save can never keep the models in memory. All
+/// loading happens off the caller's thread, so starting a save never stalls
+/// the interface.
+final class ModelLease: @unchecked Sendable {
+    private let lock = NSLock()
+    private var held = false
+    private var ended = false
+
+    init() {
+        Task.detached(priority: .utility) { [weak self] in
+            guard let model = try? EmbeddingGemma2.acquire() else { return }
+            // The save may already be over (or this lease gone) by now.
+            guard self?.claim() == true else { EmbeddingGemma2.relinquish(); return }
+            try? model.prepare()
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 600) { [weak self] in self?.end() }
+    }
+
+    private func claim() -> Bool {
+        lock.withLock {
+            guard !ended else { return false }
+            held = true
+            return true
+        }
+    }
+
+    func end() {
+        let release = lock.withLock { () -> Bool in
+            defer { ended = true; held = false }
+            return held
+        }
+        if release { EmbeddingGemma2.relinquish() }
+    }
+
+    deinit { end() }
 }

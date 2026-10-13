@@ -30,17 +30,12 @@ enum ReindexCommand {
         Task.detached {
             defer { sem.signal() }
             do {
-                let embedder = try Indexer.makeEmbedder()
                 let progress: ((String) -> Void)? = quiet ? nil : { line in
                     FileHandle.standardError.write("  \(line)\n".data(using: .utf8)!)
                 }
                 let summary: ReindexSummary = textOnly
-                    ? try await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL,
-                                                              embedderOverride: embedder,
-                                                              progress: progress)
-                    : try await Indexer.reindexVault(vaultRoot: vaultURL,
-                                                     embedderOverride: embedder,
-                                                     progress: progress)
+                    ? try await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL, progress: progress)
+                    : try await Indexer.reindexVault(vaultRoot: vaultURL, progress: progress)
                 let scope = textOnly ? "text" : "text + frames"
                 Swift.print("Re-embedded \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks (\(scope)) in \(summary.totalMs)ms"
                     + (summary.framesKept > 0 ? " · \(summary.framesKept) frames" : "")
