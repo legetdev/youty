@@ -17,7 +17,7 @@ SAMPLES = [
 @pytest.fixture(scope="module")
 def tokenizers_pair():
     try:
-        directory = models.locate().tokenizer.parent
+        directory = models.locate(prepare=False).tokenizer.parent   # never download in tests
     except Exception:  # noqa: BLE001
         pytest.skip("EmbeddingGemma 2 tokenizer files not installed")
     if not all((directory / name).exists() for name in FILES):

@@ -124,8 +124,10 @@ def test_real_model_matches_in_process_encoder():
     from youty_mcp import models
     from youty_mcp.query_encoder import QueryEncoder
 
+    if sys.platform != "darwin":
+        pytest.skip("Core ML runs only on macOS")
     try:
-        models.locate()
+        models.locate(prepare=False)   # never download in tests
     except Exception:  # noqa: BLE001
         pytest.skip("EmbeddingGemma 2 model files not installed")
     real = QueryHelper(idle_s=5)
