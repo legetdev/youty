@@ -4,8 +4,9 @@ import AppKit
 // Small interactive touches for the main window. Each one is subtle, quick,
 // and switches off under Reduce Motion.
 
-/// The header logo: drifts gently, leans toward the pointer, and does a little
-/// hop when clicked.
+/// The header logo: leans toward the pointer and does a little hop when
+/// clicked. It stays still otherwise: a looping drift kept the window redrawing
+/// (about 20% of a CPU core) the whole time Youty was open.
 struct LogoView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var hovering = false
@@ -29,9 +30,6 @@ struct LogoView: View {
                     SpringKeyframe(0, duration: 0.45, spring: .bouncy)
                 }
             }
-            .phaseAnimator(reduceMotion ? [0] : [0, 1]) { content, phase in
-                content.offset(y: phase == 1 ? -2 : 1)
-            } animation: { _ in .easeInOut(duration: 2.4) }
             .animation(.spring(response: 0.35, dampingFraction: 0.6), value: hovering)
             .onHover { hovering = $0 }
             .onTapGesture { if !reduceMotion { hops += 1 } }
