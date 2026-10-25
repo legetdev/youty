@@ -65,14 +65,31 @@ def test_empty_server_does_not_start_model_download(tmp_path, monkeypatch):
     monkeypatch.setenv("YOUTY_LOG_DIR", str(tmp_path / "logs"))
     monkeypatch.setattr(db, "_FALLBACK_VAULT_PARENTS", [tmp_path])
     started = []
-    monkeypatch.setattr(server.threading, "Thread", lambda **kwargs: started.append(kwargs))
+
+    class Recorded:
+        """Records each thread; runs the index opening inline so it finishes."""
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            started.append(kwargs.get("name"))
+
+        def start(self):
+            if self.kwargs.get("name") == "open-index":
+                self.kwargs["target"]()
+
+        def join(self, timeout=None):
+            pass
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr(server.threading, "Thread", Recorded)
     monkeypatch.setattr(server.mcp, "run", lambda **kwargs: None)
     root = logging.getLogger()
     handlers = set(root.handlers)
     previous_level = root.level
     try:
         server.main()
-        assert started == []
+        assert started == ["open-index"]
     finally:
         for handler in set(root.handlers) - handlers:
             root.removeHandler(handler)

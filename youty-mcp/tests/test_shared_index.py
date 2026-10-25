@@ -16,8 +16,9 @@ from mcp.client.stdio import stdio_client
 from youty_mcp import db, server
 
 
-def publish(db_path: Path, vault: Path, index_id: str = "a" * 32) -> Path:
-    """Publish the base tables the way the Mac app does (IndexStore.writeSnapshot)."""
+def publish(db_path: Path, vault: Path, index_id: str = "a" * 32, legacy: bool = False) -> Path:
+    """Publish the base tables the way the Mac app does (IndexStore.writeSnapshot);
+    `legacy` writes the 2.0.3 format, without the id indexes."""
     target = vault / ".youty" / "index.db"
     target.parent.mkdir(exist_ok=True)
     partial = target.with_name("index.db.partial")
@@ -27,6 +28,10 @@ def publish(db_path: Path, vault: Path, index_id: str = "a" * 32) -> Path:
     src.execute("ATTACH DATABASE ? AS snapshot", (str(partial),))
     for table in ("videos", "chunks", "frames", "index_meta"):
         src.execute(f"CREATE TABLE snapshot.{table} AS SELECT * FROM main.{table}")
+    if not legacy:
+        src.execute("CREATE INDEX snapshot.snapshot_chunk_ids ON chunks(chunk_id)")
+        src.execute("CREATE INDEX snapshot.snapshot_frame_ids ON frames(frame_id)")
+        src.execute("PRAGMA snapshot.user_version = 1")
     src.commit()
     src.execute("DETACH DATABASE snapshot")
     src.close()
@@ -215,3 +220,111 @@ def test_stdio_server_answers_when_its_index_cannot_be_opened(tmp_path):
                 assert "Update the Youty app" in str(result.content)
 
     asyncio.run(asyncio.wait_for(run(), timeout=60))
+
+
+def resave(db_path: Path, video_id: str, text: str, frame_seed: int) -> None:
+    """Re-index one video the way the app does: its rows are replaced under new ids."""
+    from tests.conftest import vector
+
+    app = sqlite3.connect(db_path)
+    app.execute("DELETE FROM chunks WHERE video_id = ?", (video_id,))
+    app.execute("DELETE FROM frames WHERE video_id = ?", (video_id,))
+    app.execute("INSERT INTO chunks (video_id, chunk_type, chunk_index, chunk_text, chunk_start_ms, chunk_end_ms, "
+                "model_version, embedding_dim, embedding) VALUES (?, 'body', 0, ?, 0, 29000, ?, 768, ?)",
+                (video_id, text, server.MODEL_ID, vector(frame_seed).tobytes()))
+    app.execute("INSERT INTO frames (video_id, frame_ms, frame_path, phash, model_version, embedding_dim, embedding) "
+                "VALUES (?, 0, 'x.jpg', 0, ?, 768, ?)", (video_id, server.MODEL_ID, vector(frame_seed + 1).tobytes()))
+    app.commit()
+    app.close()
+
+
+def promoted(conn) -> tuple[set, set, set, set]:
+    ids = lambda sql: {r[0] for r in conn.execute(sql)}  # noqa: E731
+    return (ids("SELECT chunk_id FROM chunks"), ids("SELECT chunk_id FROM vec_chunks"),
+            ids("SELECT rowid FROM chunks_fts"), ids("SELECT frame_id FROM vec_frames"))
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["current", "2.0.3-copy"])
+def test_a_resave_updates_only_that_video(mac, seeded_db, monkeypatch, legacy):
+    db_path, vault = seeded_db
+    publish(db_path, vault, legacy=legacy)
+    monkeypatch.setenv("YOUTY_VAULT", str(vault))
+    assert "These are the top AI tools" in server.search("every day for content")
+    conn = server._STATE.conn()
+    marker = bytes(768 * 4)  # an untouched video's vectors must survive the update
+    conn.execute("UPDATE vec_chunks SET embedding = ? WHERE chunk_id = 1", (marker,))
+    conn.execute("UPDATE chunks SET chunk_index = 99 WHERE chunk_id = 1")  # proves the row isn't recopied
+    conn.commit()
+
+    resave(db_path, "tt:789xyz", "Quantum gardening explained", 300)
+    publish(db_path, vault, legacy=legacy)
+
+    assert "Quantum gardening" in server.search("quantum gardening")
+    assert "These are the top AI tools" not in server.search("every day for content")
+    chunks, vec, fts, frames = promoted(conn)
+    assert chunks == vec == fts and len(chunks) == 8
+    assert frames == {r[0] for r in conn.execute("SELECT frame_id FROM frames")} and len(frames) == 3
+    assert conn.execute("SELECT embedding FROM vec_chunks WHERE chunk_id = 1").fetchone()[0] == marker
+    assert conn.execute("SELECT chunk_index FROM chunks WHERE chunk_id = 1").fetchone()[0] == 99
+
+
+def test_a_restart_reuses_the_promoted_index(mac, seeded_db, monkeypatch):
+    db_path, vault = seeded_db
+    publish(db_path, vault)
+    monkeypatch.setenv("YOUTY_VAULT", str(vault))
+    server.list_videos()
+    conn = server._STATE.conn()
+    marker = bytes(768 * 4)
+    conn.execute("UPDATE vec_chunks SET embedding = ? WHERE chunk_id = 1", (marker,))
+    conn.commit()
+    server._STATE.close()
+
+    def no_work(_conn):
+        raise AssertionError("a restart over a promoted index must not re-promote it")
+
+    monkeypatch.setattr(db, "_sync_chunks", no_work)
+    monkeypatch.setattr(db, "_sync_frames", no_work)
+    reopened = db.open_db(db.working_db())
+    assert db.sync_index(reopened) is False
+    assert reopened.execute("SELECT embedding FROM vec_chunks WHERE chunk_id = 1").fetchone()[0] == marker
+    reopened.close()
+
+
+def test_upgrades_the_keyword_index_of_an_earlier_version(mac, seeded_db, monkeypatch):
+    db_path, vault = seeded_db
+    publish(db_path, vault)
+    monkeypatch.setenv("YOUTY_VAULT", str(vault))
+    server.list_videos()
+    server._STATE.close()
+    old = sqlite3.connect(db.working_db())  # the 2.0.3 shape: a mirror of `chunks`, rebuilt whole
+    old.execute("DROP TABLE chunks_fts")
+    old.execute("CREATE VIRTUAL TABLE chunks_fts USING fts5(chunk_text, content='chunks', "
+                "content_rowid='chunk_id', tokenize='unicode61 remove_diacritics 2')")
+    old.execute("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')")
+    old.commit()
+    old.close()
+    server._STATE.__init__()
+    monkeypatch.setattr(server._STATE, "embed", lambda query: None)
+
+    assert "HeyGen" in server.search("heygen avatar")
+    conn = server._STATE.conn()
+    sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'chunks_fts'").fetchone()[0]
+    assert "content=" not in sql.replace(" ", "")
+    chunks, vec, fts, _ = promoted(conn)
+    assert chunks == vec == fts
+
+    resave(db_path, "yt:abc123", "Completely different words now", 400)
+    publish(db_path, vault)
+    assert "The best tool I use daily" not in server.search("best tool I use daily")
+    assert "Completely different" in server.search("completely different words")
+
+
+def test_a_direct_index_follows_saves_incrementally(server_state, seeded_db):
+    """The CLI-only path: the server reads the CLI's own index, no shared copy."""
+    db_path, _ = seeded_db
+    assert "These are the top AI tools" in server.search("every day for content")
+    resave(db_path, "tt:789xyz", "Quantum gardening explained", 300)
+    assert "Quantum gardening" in server.search("quantum gardening")
+    assert "These are the top AI tools" not in server.search("every day for content")
+    chunks, vec, fts, _ = promoted(server._STATE.conn())
+    assert chunks == vec == fts

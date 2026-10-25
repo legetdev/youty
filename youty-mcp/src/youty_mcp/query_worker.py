@@ -1,6 +1,6 @@
 """Query-embedding helper process.
 
-The server starts this on the first search and stops it after a minute without
+The server starts this on the first search and stops it after ten minutes without
 one, so the model's memory is fully returned to macOS between uses (a model
 freed inside a long-running Python process mostly stays allocated).
 

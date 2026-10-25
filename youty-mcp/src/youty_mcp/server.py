@@ -43,7 +43,7 @@ _MAX_STRING_ARG = 10_000          # defensive cap on free-form arguments
 _MAX_VIEW_FRAMES = 12             # each image costs real vision tokens
 _MAX_IMAGE_SIDE = 2000            # API limit once a request holds >20 images
 _TRANSCRIPT_PAGE_CHARS = 24_000   # ≈6K tokens per get_transcript page
-_IDLE_RELEASE_S = 60              # stop the search model helper a minute after the last search
+_IDLE_RELEASE_S = 600             # stop the search model helper ten minutes after the last search
 _PLATFORMS = ("youtube", "instagram", "tiktok")
 
 INSTRUCTIONS = """\
@@ -678,7 +678,7 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        await anyio.sleep(3)
+        await anyio.sleep(1)
         try:
             with _STATE.lock:
                 row = _saved_row(_STATE.conn(), expected, started_ms)
@@ -745,8 +745,27 @@ def main() -> None:
         _log.warning("could not open log file (continuing stderr-only): %s", exc)
 
     _log.info("youty-mcp %s starting", __version__)
-    # Open the index now so the first search is fast, but never refuse to start:
-    # an unreachable index is explained by every tool and retried on each call.
+    # Open the index beside the handshake, so the client connects at once and
+    # the first search is fast; a first tool call simply waits for the lock.
+    # Never refuse to start: an unreachable index is explained by every tool
+    # and retried on each call.
+    opening = threading.Thread(target=_open_index, name="open-index", daemon=True)
+    opening.start()
+    # No model is loaded at startup: the first search starts the helper.
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        # A first promotion of a large library may still be running when the
+        # client quits; the process then exits mid-transaction, which SQLite
+        # rolls back safely on the next open.
+        opening.join(timeout=5)
+        if opening.is_alive():
+            _STATE._query.stop()
+        else:
+            _STATE.close()
+
+
+def _open_index() -> None:
     try:
         with _STATE.lock:
             _STATE.conn()
@@ -754,11 +773,6 @@ def main() -> None:
         pass
     except Exception:  # noqa: BLE001
         _log.exception("index setup failed; tools will retry")
-    # No model is loaded at startup: the first search starts the helper.
-    try:
-        mcp.run(transport="stdio")
-    finally:
-        _STATE.close()
 
 
 if __name__ == "__main__":

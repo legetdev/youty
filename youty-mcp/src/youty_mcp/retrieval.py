@@ -74,15 +74,33 @@ def _eligible(platform: str | None, since_ms: int | None, model: str | None, tab
             f"WHERE {where}"), params
 
 
+def _filters(conn, table: str, platform, since_ms, model) -> tuple[str, list]:
+    """Extra vec0 constraints for the filters. Platform is a partition key. A
+    list of eligible ids makes vec0 fetch every listed vector one by one (14 s
+    for 100K frames), so it is used only when it is needed: for a date filter,
+    or while an upgrade leaves rows of another model in the index."""
+    sql, params = "", []
+    if platform:
+        sql, params = " AND platform = ?", [platform]
+    mixed = model is not None and conn.execute(
+        f"SELECT 1 FROM {table} WHERE model_version != ? LIMIT 1", (model,)).fetchone() is not None
+    if since_ms is not None or mixed:
+        sub, sub_params = _eligible(None, since_ms, model if mixed else None, table)
+        key = "chunk_id" if table == "chunks" else "frame_id"
+        sql += f" AND {key} IN ({sub})"
+        params += sub_params
+    return sql, params
+
+
 def dense_chunks(conn, vector, *, types, platform=None, since_ms=None, model=None, k=POOL):
     """[(chunk_id, cosine)] nearest chunks of the given types, best first."""
     if not types:
         return []
-    sub, params = _eligible(platform, since_ms, model, "chunks")
+    extra, params = _filters(conn, "chunks", platform, since_ms, model)
     marks = ",".join("?" * len(types))
     rows = conn.execute(
         f"SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? "
-        f"AND chunk_type IN ({marks}) AND chunk_id IN ({sub}) ORDER BY distance",
+        f"AND chunk_type IN ({marks}){extra} ORDER BY distance",
         [_blob(vector), k, *types, *params],
     ).fetchall()
     # Unit vectors: cosine = 1 - squared euclidean distance / 2.
@@ -91,10 +109,10 @@ def dense_chunks(conn, vector, *, types, platform=None, since_ms=None, model=Non
 
 def dense_frames(conn, vector, *, platform=None, since_ms=None, model=None, k=POOL):
     """[(frame_id, cosine)] nearest frames, best first."""
-    sub, params = _eligible(platform, since_ms, model, "frames")
+    extra, params = _filters(conn, "frames", platform, since_ms, model)
     rows = conn.execute(
-        f"SELECT frame_id, distance FROM vec_frames WHERE embedding MATCH ? AND k = ? "
-        f"AND frame_id IN ({sub}) ORDER BY distance",
+        f"SELECT frame_id, distance FROM vec_frames WHERE embedding MATCH ? AND k = ?{extra} "
+        f"ORDER BY distance",
         [_blob(vector), k, *params],
     ).fetchall()
     return [(int(r[0]), 1.0 - float(r[1]) ** 2 / 2) for r in rows[:k]]

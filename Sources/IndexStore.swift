@@ -539,7 +539,11 @@ actor IndexStore {
         }
     }
 
-    /// Writes the published copy for whichever index this store holds.
+    /// Writes the published copy for whichever index this store holds. A save
+    /// changes one video, so the last copy is cloned (instant on APFS) and only
+    /// the rows that changed are written. The copy is written whole the first
+    /// time, when it is in an older format or comes from another index, and
+    /// once re-saves have left a quarter of it as free space.
     func writeSnapshot(toVault vaultRoot: URL) throws {
         try openIfNeeded()
         let dbURL = try databaseFileURL()
@@ -555,21 +559,13 @@ actor IndexStore {
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let partial = folder.appendingPathComponent("index.db.partial")
         try? fm.removeItem(at: partial)
-        try execBound("ATTACH DATABASE ? AS snapshot;", text: partial.path)
+        let cloned = fm.fileExists(atPath: target.path) && (try? fm.copyItem(at: target, to: partial)) != nil
         do {
-            // Base tables only: the MCP builds its search tables itself.
-            try exec("""
-            BEGIN;
-            CREATE TABLE snapshot.videos     AS SELECT * FROM main.videos;
-            CREATE TABLE snapshot.chunks     AS SELECT * FROM main.chunks;
-            CREATE TABLE snapshot.frames     AS SELECT * FROM main.frames;
-            CREATE TABLE snapshot.index_meta AS SELECT * FROM main.index_meta;
-            COMMIT;
-            """)
-            try exec("DETACH DATABASE snapshot;")
+            if try !(cloned && updateSnapshot(at: partial)) {
+                try? fm.removeItem(at: partial)
+                try fillSnapshot(at: partial, sql: fullSnapshotSQL())
+            }
         } catch {
-            try? exec("ROLLBACK;")
-            try? exec("DETACH DATABASE snapshot;")
             try? fm.removeItem(at: partial)
             throw error
         }
@@ -578,6 +574,109 @@ actor IndexStore {
             try? fm.removeItem(at: partial)
             throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: reason])
         }
+    }
+
+    /// Format of the published copy. 1 keys chunks and frames by their ids and
+    /// indexes them by video, so a publish can find the changed rows by reading
+    /// only ids, never the embeddings.
+    nonisolated static let snapshotFormat = 1
+
+    /// Base tables only: the MCP builds its search tables itself. Columns are
+    /// taken from the index, so the copy follows any future column.
+    private func fullSnapshotSQL() throws -> String {
+        func definition(_ table: String, key: String) throws -> String {
+            let sql = """
+            SELECT group_concat('"' || name || '" ' || type || \
+            CASE WHEN name = '\(key)' THEN ' PRIMARY KEY' ELSE '' END, ', ') \
+            FROM (SELECT name, type FROM pragma_table_info('\(table)', 'main') ORDER BY cid);
+            """
+            guard let columns = scalarText(sql), !columns.isEmpty else { throw IndexStoreError.schemaResourceMissing }
+            return "CREATE TABLE snapshot.\(table) (\(columns));"
+        }
+        return """
+        BEGIN;
+        \(try definition("videos", key: "video_id"))
+        \(try definition("chunks", key: "chunk_id"))
+        \(try definition("frames", key: "frame_id"))
+        \(try definition("index_meta", key: "key"))
+        CREATE INDEX snapshot.snapshot_chunks_video ON chunks(video_id);
+        CREATE INDEX snapshot.snapshot_frames_video ON frames(video_id);
+        INSERT INTO snapshot.videos     SELECT * FROM main.videos;
+        INSERT INTO snapshot.chunks     SELECT * FROM main.chunks;
+        INSERT INTO snapshot.frames     SELECT * FROM main.frames;
+        INSERT INTO snapshot.index_meta SELECT * FROM main.index_meta;
+        PRAGMA snapshot.user_version = \(Self.snapshotFormat);
+        COMMIT;
+        """
+    }
+
+    // The indexer never edits a chunk or frame row: re-indexing a video replaces
+    // its rows under new ids. So the id sets alone say which rows changed. Each
+    // id list is read from a video index, and `+ 0` makes SQLite collect it once
+    // instead of looking every id up in the other table, so a publish never
+    // reads the embeddings of rows that stayed the same.
+    private static let updateSnapshotSQL = """
+    BEGIN;
+    DELETE FROM snapshot.videos;
+    INSERT INTO snapshot.videos SELECT * FROM main.videos;
+    DELETE FROM snapshot.chunks WHERE chunk_id IN (SELECT chunk_id FROM snapshot.chunks
+        WHERE chunk_id NOT IN (SELECT chunk_id + 0 FROM main.chunks));
+    INSERT INTO snapshot.chunks SELECT * FROM main.chunks WHERE chunk_id IN (SELECT chunk_id FROM main.chunks
+        WHERE chunk_id NOT IN (SELECT chunk_id + 0 FROM snapshot.chunks));
+    DELETE FROM snapshot.frames WHERE frame_id IN (SELECT frame_id FROM snapshot.frames
+        WHERE frame_id NOT IN (SELECT frame_id + 0 FROM main.frames));
+    INSERT INTO snapshot.frames SELECT * FROM main.frames WHERE frame_id IN (SELECT frame_id FROM main.frames
+        WHERE frame_id NOT IN (SELECT frame_id + 0 FROM snapshot.frames));
+    DELETE FROM snapshot.index_meta;
+    INSERT INTO snapshot.index_meta SELECT * FROM main.index_meta;
+    COMMIT;
+    """
+
+    /// Runs `sql` against the database at `url`, attached as `snapshot`.
+    private func fillSnapshot(at url: URL, sql: String) throws {
+        try execBound("ATTACH DATABASE ? AS snapshot;", text: url.path)
+        do {
+            try exec(sql)
+            try exec("DETACH DATABASE snapshot;")
+        } catch {
+            try? exec("ROLLBACK;")
+            try? exec("DETACH DATABASE snapshot;")
+            throw error
+        }
+    }
+
+    /// Brings a clone of the last published copy up to date. False when the
+    /// clone can't be updated safely, so the caller writes it whole.
+    private func updateSnapshot(at url: URL) throws -> Bool {
+        // A damaged copy may refuse to attach at all.
+        guard (try? execBound("ATTACH DATABASE ? AS snapshot;", text: url.path)) != nil else { return false }
+        let updatable = snapshotIsUpdatable()
+        try exec("DETACH DATABASE snapshot;")
+        guard updatable else { return false }
+        do {
+            try fillSnapshot(at: url, sql: Self.updateSnapshotSQL)
+            return true
+        } catch {
+            NSLog("[youty] rewriting the shared search index whole: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// The attached `snapshot` is a copy of this same index, in the current
+    /// format, with the same columns, and without much free space.
+    private func snapshotIsUpdatable() -> Bool {
+        guard scalarText("PRAGMA snapshot.user_version;") == String(Self.snapshotFormat),
+              let id = scalarText("SELECT value FROM main.index_meta WHERE key = 'index_id';"),
+              scalarText("SELECT value FROM snapshot.index_meta WHERE key = 'index_id';") == id else { return false }
+        func columns(_ table: String, _ schema: String) -> String? {
+            scalarText("SELECT group_concat(name) FROM (SELECT name FROM pragma_table_info('\(table)', '\(schema)') ORDER BY cid);")
+        }
+        for table in ["videos", "chunks", "frames", "index_meta"] {
+            guard let current = columns(table, "main"), columns(table, "snapshot") == current else { return false }
+        }
+        guard let free = Int(scalarText("PRAGMA snapshot.freelist_count;") ?? ""),
+              let pages = Int(scalarText("PRAGMA snapshot.page_count;") ?? "") else { return false }
+        return free * 4 <= pages
     }
 
     nonisolated private static func modificationDate(_ url: URL) -> Date? {
