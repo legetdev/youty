@@ -1,5 +1,7 @@
-# The required check: runs the shared pipeline from legetdev/agent-config on every pull request.
-# Repository-specific checks go in ci/check.sh, which the shared pipeline then runs instead.
+# The required check. It runs this repository's own CI (build, app and CLI tests,
+# MCP tests, release checks) and reports the `checks` job once all of it passed.
+# The shared agent-config pipeline can't be used here: GitHub doesn't let a
+# public repository call a workflow from a private one.
 name: checks
 on: pull_request
 permissions:
@@ -8,5 +10,10 @@ concurrency:  # a new push cancels the run for the commit it replaces
   group: checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
   checks:
-    uses: legetdev/agent-config/.github/workflows/project-checks.yml@main
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Build, tests and release checks passed."

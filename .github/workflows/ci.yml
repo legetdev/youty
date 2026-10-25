@@ -1,6 +1,7 @@
 name: CI
 
-# Build + test gate. Runs on every push to main, on PRs, and on demand.
+# Build + test gate. Runs on every push to main, on demand, and on PRs through
+# checks.yml (which calls this workflow and reports the required `checks` job).
 # - macOS job: regenerates the Xcode project from project.yml, fetches the
 #   on-device models, and builds both the app and the CLI on a clean macOS 26
 #   runner (Debug, unsigned) so build breakage is caught before release, then
@@ -11,7 +12,7 @@ name: CI
 on:
   push:
     branches: [main]
-  pull_request:
+  workflow_call: {}
   workflow_dispatch: {}
 
 permissions:
