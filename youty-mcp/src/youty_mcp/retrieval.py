@@ -125,9 +125,9 @@ def keyword_chunks(conn, query, *, types, platform=None, since_ms=None, k=POOL):
         return []
     marks = ",".join("?" * len(types))
     sql = (
-        "SELECT f.rowid, bm25(chunks_fts) AS score FROM chunks_fts f "
+        "SELECT f.rowid, bm25(chunks_text) AS score FROM chunks_text f "
         "JOIN chunks c ON c.chunk_id = f.rowid JOIN videos v ON v.video_id = c.video_id "
-        f"WHERE chunks_fts MATCH ? AND c.chunk_type IN ({marks})"
+        f"WHERE chunks_text MATCH ? AND c.chunk_type IN ({marks})"
     )
     params: list = [terms, *types]
     if platform:

@@ -165,6 +165,17 @@ _STATE = _State()
 # ─────────────────── helpers ───────────────────
 
 
+def _sync(conn: sqlite3.Connection) -> None:
+    """Promote rows saved since the last call. Another server sharing the index
+    may hold its write lock for a moment; answer from what is promoted already
+    and let the next call catch up."""
+    try:
+        _db.sync_index(conn)
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        _log.warning("search index busy, answering from the last promotion: %s", exc)
+
+
 def _video_row(video_id: str) -> sqlite3.Row | None:
     return _STATE.conn().execute(
         "SELECT video_id, title, channel, platform, url, duration_ms, date_saved, folder_path, tags_json "
@@ -255,7 +266,7 @@ def _do_search(query: str, *, videos: int = 8, platform: str | None = None,
                since: str | None = None, kind: str | None = None) -> dict[str, Any]:
     """Search as structured data (also used by the evaluation harness)."""
     conn = _STATE.conn()
-    _db.sync_index(conn)
+    _sync(conn)
     started = time.perf_counter()
     vector = _STATE.embed(query)
     hits = _search(conn, query, vector, model=MODEL_ID, videos=max(1, min(int(videos), 25)),
@@ -573,7 +584,7 @@ def find_similar(video_id: str, k: int = 8) -> str:
     import numpy as np
 
     conn = _STATE.conn()
-    _db.sync_index(conn)
+    _sync(conn)
     rows = conn.execute("SELECT embedding FROM chunks WHERE video_id = ? AND chunk_type = 'body' "
                         "AND model_version = ?", (video_id, MODEL_ID)).fetchall()
     if not rows:
@@ -700,7 +711,7 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
 
 def _saved_row(conn, expected: str, started_ms: int):
     """The requested video once this request's save has been indexed."""
-    _db.sync_index(conn)
+    _sync(conn)
     return conn.execute(
         "SELECT v.video_id, v.title, COUNT(c.chunk_id) AS n FROM videos v "
         "LEFT JOIN chunks c ON c.video_id = v.video_id "
@@ -766,6 +777,10 @@ def main() -> None:
 
 
 def _open_index() -> None:
+    try:
+        _db.retire_old_working_copy()
+    except OSError as exc:
+        _log.warning("could not remove the earlier search cache: %s", exc)
     try:
         with _STATE.lock:
             _STATE.conn()

@@ -7,6 +7,7 @@ import asyncio
 import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -241,7 +242,7 @@ def resave(db_path: Path, video_id: str, text: str, frame_seed: int) -> None:
 def promoted(conn) -> tuple[set, set, set, set]:
     ids = lambda sql: {r[0] for r in conn.execute(sql)}  # noqa: E731
     return (ids("SELECT chunk_id FROM chunks"), ids("SELECT chunk_id FROM vec_chunks"),
-            ids("SELECT rowid FROM chunks_fts"), ids("SELECT frame_id FROM vec_frames"))
+            ids("SELECT rowid FROM chunks_text"), ids("SELECT frame_id FROM vec_frames"))
 
 
 @pytest.mark.parametrize("legacy", [False, True], ids=["current", "2.0.3-copy"])
@@ -290,33 +291,45 @@ def test_a_restart_reuses_the_promoted_index(mac, seeded_db, monkeypatch):
     reopened.close()
 
 
-def test_upgrades_the_keyword_index_of_an_earlier_version(mac, seeded_db, monkeypatch):
-    db_path, vault = seeded_db
-    publish(db_path, vault)
-    monkeypatch.setenv("YOUTY_VAULT", str(vault))
-    server.list_videos()
-    server._STATE.close()
-    old = sqlite3.connect(db.working_db())  # the 2.0.3 shape: a mirror of `chunks`, rebuilt whole
-    old.execute("DROP TABLE chunks_fts")
+def test_runs_beside_a_server_of_an_earlier_version(server_state, seeded_db):
+    """Up to 2.0.3 the server kept its keyword index in `chunks_fts`, mirroring
+    `chunks` and rebuilt whole. A current server reading the same index keeps
+    its own and leaves that one to the older server."""
+    db_path, _ = seeded_db
+    old = sqlite3.connect(db_path)
     old.execute("CREATE VIRTUAL TABLE chunks_fts USING fts5(chunk_text, content='chunks', "
                 "content_rowid='chunk_id', tokenize='unicode61 remove_diacritics 2')")
     old.execute("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')")
     old.commit()
+    before = old.execute("SELECT COUNT(*) FROM chunks_fts_docsize").fetchone()[0]
     old.close()
-    server._STATE.__init__()
-    monkeypatch.setattr(server._STATE, "embed", lambda query: None)
 
     assert "HeyGen" in server.search("heygen avatar")
-    conn = server._STATE.conn()
-    sql = conn.execute("SELECT sql FROM sqlite_master WHERE name = 'chunks_fts'").fetchone()[0]
-    assert "content=" not in sql.replace(" ", "")
-    chunks, vec, fts, _ = promoted(conn)
-    assert chunks == vec == fts
-
     resave(db_path, "yt:abc123", "Completely different words now", 400)
-    publish(db_path, vault)
     assert "The best tool I use daily" not in server.search("best tool I use daily")
     assert "Completely different" in server.search("completely different words")
+    conn = server._STATE.conn()
+    chunks, vec, fts, _ = promoted(conn)
+    assert chunks == vec == fts
+    # The older server's table is untouched; it rebuilds it itself.
+    assert conn.execute("SELECT COUNT(*) FROM chunks_fts_docsize").fetchone()[0] == before
+
+
+def test_retires_the_earlier_working_copy_once_unused(mac):
+    cache = db.working_db().parent
+    cache.mkdir(parents=True, exist_ok=True)
+    old = cache / "search-index.db"
+    old.write_bytes(b"x")
+    (cache / "search-index.db-wal").write_bytes(b"x")
+    db.retire_old_working_copy()
+    assert old.exists(), "an earlier server may still be using it"
+
+    month_ago = time.time() - 31 * 24 * 3600
+    for f in (old, cache / "search-index.db-wal"):
+        os.utime(f, (month_ago, month_ago))
+    db.retire_old_working_copy()
+    assert not old.exists() and not (cache / "search-index.db-wal").exists()
+    assert db.working_db().name != old.name
 
 
 def test_a_direct_index_follows_saves_incrementally(server_state, seeded_db):
