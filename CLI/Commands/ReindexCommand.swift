@@ -36,6 +36,7 @@ enum ReindexCommand {
                 let summary: ReindexSummary = textOnly
                     ? try await Indexer.reindexTextEmbeddings(vaultRoot: vaultURL, progress: progress)
                     : try await Indexer.reindexVault(vaultRoot: vaultURL, progress: progress)
+                await IndexStore.shared.publishSnapshot(toVault: vaultURL)
                 let scope = textOnly ? "text" : "text + frames"
                 Swift.print("Re-embedded \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks (\(scope)) in \(summary.totalMs)ms"
                     + (summary.framesKept > 0 ? " · \(summary.framesKept) frames" : "")

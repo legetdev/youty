@@ -294,6 +294,7 @@ enum SaveCommand {
         if let frameError = await frames {
             progress.stage("warning: frame indexer skipped (\(frameError))")
         }
+        await IndexStore.shared.publishSnapshot(toVault: vaultRoot)
     }
 
     // MARK: - Output helpers

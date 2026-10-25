@@ -5,6 +5,13 @@ import Foundation
 //   ~/Library/Application Support/Youty/index.db
 // outside the synced vault, exactly as the spec mandates.
 //
+// macOS blocks other programs from reading a sandboxed app's container unless
+// the user grants them "access data from other apps" or Full Disk Access. So
+// after indexing, the app publishes a read-only copy of the base tables to
+// `{vault}/.youty/index.db` (`publishSnapshot`), which the MCP server reads
+// without any extra permission. The copy is written to a temp file and renamed
+// into place, so readers and file-sync tools only ever see a complete file.
+//
 // Swift only writes the "base" tables (videos / chunks / frames /
 // index_meta). The Python MCP server promotes these into vec0 + FTS5
 // virtual tables on its own at startup, so the Swift binary stays free of
@@ -76,8 +83,16 @@ actor IndexStore {
 
     private var db: OpaquePointer?
     private var didBootstrap = false
+    private let databaseURL: URL?
 
-    private init() {}
+    /// `databaseURL` is for tests; the app and CLI use `shared`.
+    init(databaseURL: URL? = nil) {
+        self.databaseURL = databaseURL
+    }
+
+    private func databaseFileURL() throws -> URL {
+        try databaseURL ?? Self.defaultDatabaseURL()
+    }
 
     // MARK: - Lifecycle
 
@@ -85,7 +100,7 @@ actor IndexStore {
     /// Safe to call repeatedly; subsequent calls are no-ops.
     func openIfNeeded() throws {
         if db != nil { return }
-        let dbURL = try Self.defaultDatabaseURL()
+        let dbURL = try databaseFileURL()
         try FileManager.default.createDirectory(at: dbURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         var handle: OpaquePointer?
@@ -119,8 +134,11 @@ actor IndexStore {
         }
         try exec(sql)
         try migrateSchemaIfNeeded()
+        // Identifies this index across its published copies, so a reader can tell
+        // a newer copy of the same index from a different one (other Mac, reset).
+        try exec("INSERT OR IGNORE INTO index_meta(key, value) VALUES ('index_id', lower(hex(randomblob(16))));")
         try purgeOrphans()
-        Self.removeLegacySecrets(nextTo: try Self.defaultDatabaseURL())
+        Self.removeLegacySecrets(nextTo: try databaseFileURL())
         didBootstrap = true
     }
 
@@ -498,6 +516,74 @@ actor IndexStore {
         try step(stmt, sql: sql)
     }
 
+    // MARK: - Shared copy for the MCP server
+
+    /// Folder inside the vault that holds the published index copy.
+    nonisolated static let snapshotFolder = ".youty"
+
+    /// Publishes the base tables to `{vault}/.youty/index.db` so the MCP server
+    /// can search without reading the app's container. Skips the write when the
+    /// published copy is already newer than every index change. Only the app's
+    /// index is published: the CLI's private fallback index would otherwise
+    /// replace the app's fuller copy. Never throws: a failed publish keeps the
+    /// previous copy and is retried after the next index change or launch.
+    func publishSnapshot(toVault vaultRoot: URL) {
+        do {
+            // The app's index lives in its container; so does the CLI's when it
+            // can read the app's index. Test and probe copies are never published.
+            guard databaseURL == nil,
+                  try Self.defaultDatabaseURL().path.contains("/Containers/dev.leget.youty/") else { return }
+            try writeSnapshot(toVault: vaultRoot)
+        } catch {
+            NSLog("[youty] couldn't share the search index with AI apps: \(error.localizedDescription)")
+        }
+    }
+
+    /// Writes the published copy for whichever index this store holds.
+    func writeSnapshot(toVault vaultRoot: URL) throws {
+        try openIfNeeded()
+        let dbURL = try databaseFileURL()
+        let scoped = vaultRoot.startAccessingSecurityScopedResource()
+        defer { if scoped { vaultRoot.stopAccessingSecurityScopedResource() } }
+        let fm = FileManager.default
+        let folder = vaultRoot.appendingPathComponent(Self.snapshotFolder, isDirectory: true)
+        let target = folder.appendingPathComponent("index.db")
+        let lastChange = [dbURL, URL(fileURLWithPath: dbURL.path + "-wal")]
+            .compactMap(Self.modificationDate).max() ?? .distantFuture
+        if let published = Self.modificationDate(target), published >= lastChange { return }
+
+        try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+        let partial = folder.appendingPathComponent("index.db.partial")
+        try? fm.removeItem(at: partial)
+        try execBound("ATTACH DATABASE ? AS snapshot;", text: partial.path)
+        do {
+            // Base tables only: the MCP builds its search tables itself.
+            try exec("""
+            BEGIN;
+            CREATE TABLE snapshot.videos     AS SELECT * FROM main.videos;
+            CREATE TABLE snapshot.chunks     AS SELECT * FROM main.chunks;
+            CREATE TABLE snapshot.frames     AS SELECT * FROM main.frames;
+            CREATE TABLE snapshot.index_meta AS SELECT * FROM main.index_meta;
+            COMMIT;
+            """)
+            try exec("DETACH DATABASE snapshot;")
+        } catch {
+            try? exec("ROLLBACK;")
+            try? exec("DETACH DATABASE snapshot;")
+            try? fm.removeItem(at: partial)
+            throw error
+        }
+        guard rename(partial.path, target.path) == 0 else {
+            let reason = String(cString: strerror(errno))
+            try? fm.removeItem(at: partial)
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: reason])
+        }
+    }
+
+    nonisolated private static func modificationDate(_ url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    }
+
     /// Returns the absolute on-disk path of the index DB. Useful for the
     /// headless `--reindex` smoke test and for surfacing the location in
     /// Settings.
@@ -528,14 +614,15 @@ actor IndexStore {
         }
 
         // Non-sandboxed (the `youty` CLI): the canonical index the app
-        // writes and the MCP server reads lives in the app's container.
-        // Target it when present so app + CLI + MCP share ONE index. This
-        // mirrors the MCP's _resolve_default_db_path exactly (prefer the
-        // container index.db when it exists, else the plain path).
+        // writes lives in the app's container. Target it when this process may
+        // actually read it, so app + CLI share ONE index. macOS can block the
+        // container while still reporting that the file exists, so test with a
+        // real open; when blocked, fall back to the CLI's own index.
         let containerDB = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(
                 "Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db")
-        if FileManager.default.fileExists(atPath: containerDB.path) {
+        if let handle = FileHandle(forReadingAtPath: containerDB.path) {
+            try? handle.close()
             return containerDB
         }
         return resolved

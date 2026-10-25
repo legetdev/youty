@@ -8,37 +8,216 @@ so dense + sparse retrieval work without any Swift-side work.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import struct
+import subprocess
+import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import sqlite_vec
 
 
-def default_db_path() -> Path:
-    """The index to use: `YOUTY_INDEX_DB`, else the Mac app's container index
-    when it exists, else the unsandboxed (CLI) location.
+class IndexUnavailable(RuntimeError):
+    """The index can't be reached. The message is plain language for the user."""
 
-    The Mac app is App-Store sandboxed, so its writes land at
-    ~/Library/Containers/dev.leget.youty/Data/Library/Application Support/
-    Youty/index.db. The Python MCP server isn't sandboxed, so the plain
-    ~/Library/Application Support/Youty/index.db is a separate file. When
-    the container DB exists we point at it — that's where real writes go.
-    Resolved on every call: the app may create its index after the server starts.
+
+# Every message ends in an action the user can take; the server stays up and
+# picks the index up on the next tool call once it is reachable.
+BLOCKED = (
+    "Youty's search index is there, but macOS doesn't let this AI app read it. "
+    "Update the Youty app to the latest version and open it once: it then shares "
+    "its index in your vault folder, which needs no extra permission."
+)
+NOT_FOUND = (
+    "No Youty library was found on this Mac. Install Youty (youtyapp.vercel.app), "
+    "pick a vault folder, and save a video; it becomes searchable here right away."
+)
+
+SNAPSHOT = Path(".youty") / "index.db"   # the app's published copy, inside the vault
+_DISCOVERY_RETRY_S = 30.0
+
+
+def _container_db() -> Path:
+    return Path("~/Library/Containers/dev.leget.youty/Data/Library/"
+                "Application Support/Youty/index.db").expanduser()
+
+
+def _plain_db() -> Path:
+    return Path("~/Library/Application Support/Youty/index.db").expanduser()
+
+
+def working_db() -> Path:
+    """The server's own searchable copy of a published index."""
+    return Path(os.environ.get("YOUTY_CACHE_DIR", "~/Library/Caches/Youty")).expanduser() / "search-index.db"
+
+
+@dataclass(frozen=True)
+class IndexSource:
+    db: Path                       # database the server opens
+    snapshot: Path | None = None   # published copy `db` mirrors, if any
+
+
+def locate_index() -> IndexSource:
+    """Where to search: `YOUTY_INDEX_DB`, else the copy the Mac app publishes in
+    the vault, else an index this process may read directly (the app's container
+    when macOS allows it, or the CLI's own index). Raises `IndexUnavailable`.
+
+    The Mac app is sandboxed: macOS blocks other programs from its container
+    unless the user granted "access data from other apps" or Full Disk Access,
+    and the block can return after an update. The vault copy needs neither.
+    Resolved on every call, so a library created later is picked up live.
     """
     override = os.environ.get("YOUTY_INDEX_DB")
     if override:
-        return Path(override).expanduser()
-    container = Path(
-        "~/Library/Containers/dev.leget.youty/Data/Library/"
-        "Application Support/Youty/index.db"
-    ).expanduser()
-    if container.exists():
-        return container
-    return Path("~/Library/Application Support/Youty/index.db").expanduser()
+        return IndexSource(Path(override).expanduser())
+    snapshot = find_snapshot()
+    if snapshot is not None:
+        return IndexSource(working_db(), snapshot)
+    for direct in (_container_db(), _plain_db()):
+        if _readable(direct):
+            return IndexSource(direct)
+    if _container_db().exists():
+        raise IndexUnavailable(BLOCKED)
+    raise IndexUnavailable(NOT_FOUND)
 
+
+def _readable(path: Path) -> bool:
+    """True when this process may open the file. macOS privacy blocks still
+    report that the file exists, so test with a real read."""
+    try:
+        with path.open("rb") as handle:
+            handle.read(1)
+        return True
+    except OSError:
+        return False
+
+
+_discovered: dict[str, Any] = {"snapshot": None, "checked": float("-inf")}
+
+
+def find_snapshot() -> Path | None:
+    """The newest published index among the known vaults. Cheap sources first
+    (env, CLI config, the last vault found); Spotlight and a bounded folder
+    scan only when those find nothing, at most every `_DISCOVERY_RETRY_S`."""
+    found = _newest(_snapshot_in(v) for v in _known_vaults())
+    if found is not None:
+        return found
+    cached = _discovered["snapshot"]
+    if cached is not None and cached.is_file():
+        return cached
+    if time.monotonic() - _discovered["checked"] < _DISCOVERY_RETRY_S:
+        return None
+    _discovered["checked"] = time.monotonic()
+    candidates = [*_spotlight_vaults(), *(_scan_for_manifest(p, 0) for p in _FALLBACK_VAULT_PARENTS if p.exists())]
+    _discovered["snapshot"] = _newest(_snapshot_in(v) for v in candidates)
+    return _discovered["snapshot"]
+
+
+def _known_vaults() -> list[Path]:
+    vaults = []
+    if os.environ.get("YOUTY_VAULT"):
+        vaults.append(Path(os.environ["YOUTY_VAULT"]).expanduser())
+    try:
+        config = json.loads((_plain_db().parent / "cli-config.json").read_text(encoding="utf-8"))
+        if isinstance(config.get("vaultPath"), str) and config["vaultPath"]:
+            vaults.append(Path(config["vaultPath"]).expanduser())
+    except (OSError, ValueError, AttributeError):
+        pass
+    return vaults
+
+
+def _snapshot_in(vault: Path | None) -> Path | None:
+    if vault is None:
+        return None
+    path = vault / SNAPSHOT
+    return path if path.is_file() else None
+
+
+def _newest(paths: Iterable[Path | None]) -> Path | None:
+    existing = []
+    for path in paths:
+        try:
+            if path is not None:
+                existing.append((path.stat().st_mtime_ns, path))
+        except OSError:
+            continue
+    return max(existing)[1] if existing else None
+
+
+def _spotlight_vaults() -> list[Path]:
+    """Vault roots Spotlight knows of (any folder holding a Youty manifest)."""
+    try:
+        out = subprocess.run(["/usr/bin/mdfind", "-0", "kMDItemFSName == 'manifest.json'"],
+                             capture_output=True, timeout=5, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    vaults = []
+    for raw in out.split(b"\0"):
+        path = Path(os.fsdecode(raw)) if raw else None
+        if path is not None and (path.parent / SNAPSHOT).is_file():
+            vaults.append(path.parent)
+    return vaults
+
+
+def refresh_from_snapshot(conn: sqlite3.Connection, snapshot: Path) -> bool:
+    """Mirror a newly published copy into the working database, then promote
+    only what changed. Returns False when the copy is unchanged since last time.
+
+    Row ids are stable within one index, so the vectors already promoted stay
+    valid; a copy of a different index (another Mac, a reset) drops them first.
+    """
+    st = snapshot.stat()
+    signature = f"{st.st_ino}:{st.st_size}:{st.st_mtime_ns}"
+    if _meta(conn, "snapshot_signature") == signature:
+        return False
+    conn.commit()
+    # The copy is taken whole from the app's consistent index; checking its
+    # references row by row would only reject it over a stray orphan.
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("ATTACH DATABASE ? AS snap", (snapshot.as_uri() + "?mode=ro",))
+    try:
+        # fetchall, not fetchone: an unfinished read would keep `snap` locked
+        # and the DETACH below would fail.
+        snap_id = conn.execute("SELECT value FROM snap.index_meta WHERE key = 'index_id'").fetchall()
+        if _meta(conn, "index_id") != (snap_id[0][0] if snap_id else None):
+            conn.execute("DELETE FROM vec_chunks")
+            conn.execute("DELETE FROM vec_frames")
+        for table in ("videos", "chunks", "frames"):
+            cols = ", ".join(_common_columns(conn, table))
+            conn.execute(f"DELETE FROM main.{table}")
+            conn.execute(f"INSERT INTO main.{table} ({cols}) SELECT {cols} FROM snap.{table}")
+        own = ("fts_indexed_count", "snapshot_signature")
+        conn.execute(f"DELETE FROM main.index_meta WHERE key NOT IN {own}")
+        conn.execute(f"INSERT OR REPLACE INTO main.index_meta(key, value) "
+                     f"SELECT key, value FROM snap.index_meta WHERE key NOT IN {own}")
+        conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES ('vault_root', ?)",
+                     (str(snapshot.parent.parent),))
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("DETACH DATABASE snap")
+        conn.execute("PRAGMA foreign_keys = ON")
+    _VAULT_CACHE.pop(id(conn), None)
+    sync_index(conn, force=True)
+    conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES ('snapshot_signature', ?)", (signature,))
+    conn.commit()
+    return True
+
+
+def _meta(conn: sqlite3.Connection, key: str) -> str | None:
+    rows = conn.execute("SELECT value FROM index_meta WHERE key = ?", (key,)).fetchall()
+    return rows[0][0] if rows else None
+
+
+def _common_columns(conn: sqlite3.Connection, table: str) -> list[str]:
+    snap = {r[1] for r in conn.execute(f"PRAGMA snap.table_info({table})")}
+    return [r[1] for r in conn.execute(f"PRAGMA main.table_info({table})") if r[1] in snap]
 
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
@@ -79,14 +258,15 @@ _FALLBACK_VAULT_PARENTS = [
 ]
 
 
-def open_db(db_path: Path | str | None = None) -> sqlite3.Connection:
+def open_db(db_path: Path | str) -> sqlite3.Connection:
     """Open the index DB, load sqlite-vec, apply schema + promotion idempotently."""
-    path = Path(db_path) if db_path else default_db_path()
+    path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # MCP SDK 2 runs synchronous tools on worker threads; the server serializes
-    # every use of this connection with one lock (see server._State).
-    conn = sqlite3.connect(str(path), check_same_thread=False)
+    # every use of this connection with one lock (see server._State). `uri`
+    # lets `refresh_from_snapshot` attach the published copy read-only.
+    conn = sqlite3.connect(str(path), check_same_thread=False, uri=True)
     conn.row_factory = sqlite3.Row
     # The Swift app writes this same DB (WAL mode); wait briefly for its write
     # lock rather than failing when an incremental promotion lands during an
@@ -353,8 +533,9 @@ def _looks_like_youty_manifest(path: Path) -> bool:
         head = path.read_text(encoding="utf-8", errors="ignore")[:2048]
     except (OSError, UnicodeDecodeError):
         return False
-    # Youty manifests reference platforms + the "videos" array.
-    return '"videos"' in head and (
+    # The app writes an array of entries with `platform` and `folder` keys;
+    # older vaults wrapped them in a "videos" object.
+    return ('"folder"' in head or '"videos"' in head) and (
         '"youtube"' in head or '"instagram"' in head or '"tiktok"' in head
     )
 

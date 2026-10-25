@@ -361,6 +361,7 @@ struct SettingsView: View {
                         self.indexerProgress.lastStatus = line
                     }
                 }
+                await IndexStore.shared.publishSnapshot(toVault: vaultURL)
                 let line = "Indexed \(summary.videosIndexed) video(s), \(summary.chunksWritten) chunks in \(summary.totalMs)ms" +
                            (summary.framesKept > 0 ? " · \(summary.framesKept) frames" : "") +
                            (summary.videosDeleted > 0 ? " · \(summary.videosDeleted) removed" : "") +

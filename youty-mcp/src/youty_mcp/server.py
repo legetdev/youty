@@ -73,13 +73,17 @@ _READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 
 
 def _serialized(fn):
-    """Run a synchronous tool under the shared lock (see `_State.lock`)."""
+    """Run a synchronous tool under the shared lock (see `_State.lock`). When the
+    index can't be reached, answer with what the user can do instead of failing."""
     import functools
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         with _STATE.lock:
-            return fn(*args, **kwargs)
+            try:
+                return fn(*args, **kwargs)
+            except _db.IndexUnavailable as exc:
+                return str(exc)
     return wrapper
 
 
@@ -99,19 +103,40 @@ class _State:
         self.lock = threading.RLock()
         self._conn: sqlite3.Connection | None = None
         self._path: Path | None = None
+        self._problem: str | None = None
         self._query = QueryHelper(idle_s=_IDLE_RELEASE_S)
 
     def conn(self) -> sqlite3.Connection:
-        path = _db.default_db_path()
-        if self._conn is not None and path != self._path:
-            # The app created its index after this server started: follow it.
-            self._close_db()
-        if self._conn is None:
-            self._conn, self._path = _db.open_db(path), path
-            try:
-                _db.resolve_vault_root(self._conn)
-            except Exception as exc:  # noqa: BLE001
-                _log.warning("vault-root probe failed (non-fatal): %s", exc)
+        """The index connection, opened or switched as the source changes. Raises
+        `IndexUnavailable` (logged once per distinct problem) when unreachable."""
+        try:
+            source = _db.locate_index()
+            if self._conn is not None and source.db != self._path:
+                # The app created or moved its index after this server started: follow it.
+                self._close_db()
+            if self._conn is None:
+                try:
+                    self._conn, self._path = _db.open_db(source.db), source.db
+                except (sqlite3.Error, OSError) as exc:
+                    _log.error("can't open the index at %s: %s", source.db, exc)
+                    raise _db.IndexUnavailable(_db.BLOCKED) from exc
+                try:
+                    _db.resolve_vault_root(self._conn)
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning("vault-root probe failed (non-fatal): %s", exc)
+            if source.snapshot is not None:
+                try:
+                    if _db.refresh_from_snapshot(self._conn, source.snapshot):
+                        _log.info("search index updated from %s", source.snapshot)
+                except (sqlite3.Error, OSError) as exc:
+                    # Keep answering from the last good copy; the next call retries.
+                    _log.warning("couldn't read the shared index at %s: %s", source.snapshot, exc)
+        except _db.IndexUnavailable as exc:
+            if str(exc) != self._problem:
+                _log.error("index unavailable: %s", exc)
+                self._problem = str(exc)
+            raise
+        self._problem = None
         return self._conn
 
     def embed(self, query: str):
@@ -628,10 +653,15 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
         import anyio
 
         expected = await anyio.to_thread.run_sync(_expand_short_link, url)
-    with _STATE.lock:
-        conn = _STATE.conn()
-        existing = _video_row(expected) if expected else None
-        already = existing is not None and _note_exists(conn, existing)
+    problem = None
+    try:
+        with _STATE.lock:
+            conn = _STATE.conn()
+            existing = _video_row(expected) if expected else None
+            already = existing is not None and _note_exists(conn, existing)
+    except _db.IndexUnavailable as exc:
+        # The app saves regardless; its next shared index may fix the problem.
+        already, problem = False, str(exc)
     if already:
         return f"Already saved as `{expected}` — search it or read it with get_transcript(\"{expected}\")."
     started_ms = int(time.time() * 1000)
@@ -649,14 +679,20 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         await anyio.sleep(3)
-        with _STATE.lock:
-            row = _saved_row(_STATE.conn(), expected, started_ms)
+        try:
+            with _STATE.lock:
+                row = _saved_row(_STATE.conn(), expected, started_ms)
+            problem = None
+        except _db.IndexUnavailable as exc:
+            row, problem = None, str(exc)
         if row is not None and row["n"] > 0:
             return (f"Saved and searchable: `{row['video_id']}` — {row['title']}. Frames are indexed in "
                     f"the background. Read it with get_transcript(\"{row['video_id']}\") or search it.")
         if ctx is not None:
             await ctx.report_progress(time.monotonic() - (deadline - timeout_s), timeout_s,
                                       "Youty is saving the video…")
+    if problem:
+        return f"Sent to Youty, which saves the video in the user's vault. {problem}"
     return ("Youty is still working on this video (long videos, or a first save after an update, take "
             "longer). Check again shortly with list_videos. For Instagram, Youty may be asking the user "
             "to sign in.")
@@ -708,9 +744,16 @@ def main() -> None:
     except OSError as exc:
         _log.warning("could not open log file (continuing stderr-only): %s", exc)
 
-    _log.info("youty-mcp %s starting (db=%s)", __version__,
-              _db.default_db_path())
-    _STATE.conn()
+    _log.info("youty-mcp %s starting", __version__)
+    # Open the index now so the first search is fast, but never refuse to start:
+    # an unreachable index is explained by every tool and retried on each call.
+    try:
+        with _STATE.lock:
+            _STATE.conn()
+    except _db.IndexUnavailable:
+        pass
+    except Exception:  # noqa: BLE001
+        _log.exception("index setup failed; tools will retry")
     # No model is loaded at startup: the first search starts the helper.
     try:
         mcp.run(transport="stdio")

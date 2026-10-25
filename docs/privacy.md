@@ -34,7 +34,10 @@ to that service's synchronization settings.
 - The on-device embedding model — EmbeddingGemma 2 (text and frames),
   bundled as Core ML inside the app. Every embedding is computed on your Mac;
   nothing is uploaded to embed it.
-- The SQLite search index (`~/Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db`).
+- The SQLite search index (`~/Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db`),
+  plus a copy in the vault's hidden `.youty` folder that your AI apps search.
+  The copy holds the same transcripts and on-screen text as the vault's notes,
+  and syncs with the vault if you sync it.
 - Your stored Instagram session, in the Mac app's
   `WKWebsiteDataStore.default()`. Separate from Safari's cookies.
 
