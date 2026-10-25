@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 2.0.3</title>
+            <sparkle:version>20</sparkle:version>
+            <sparkle:shortVersionString>2.0.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sun, 25 Oct 2026 17:06:08 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 2.0.3</h3>
+                <p>AI apps can reach your Youty library again, and stay connected. macOS can block AI apps from reading the Youty app&#x27;s storage, which made the Youty connection fail silently. Youty now keeps a copy of its search index in your vault folder that AI apps can always read, with no extra permission. When something is wrong, the connection now explains what to do instead of failing, and recovers on its own. Also fixes search quietly falling back to keyword matching on the newest Python version.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v2.0.3/Youty-2.0.3.dmg"
+                sparkle:edSignature="F61uFmsMu0+8hOK4QanO6ld70hwVK2E0+GNCnIEzjnK11U3ZHX5tbFtkxpRA+qiISTcR7P7ZIt83xTEw0GuPAQ=="
+                length="673661136"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 2.0.2</title>
             <sparkle:version>19</sparkle:version>
             <sparkle:shortVersionString>2.0.2</sparkle:shortVersionString>
