@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 
 from youty_mcp import server
 
@@ -108,3 +109,14 @@ def test_large_searches_and_index_switch_stay_bounded(server_state, monkeypatch,
 
 def test_instructions_fit_client_limit():
     assert len(server.INSTRUCTIONS) < 2048
+
+
+def test_search_answers_while_another_server_holds_the_index(server_state, monkeypatch):
+    from youty_mcp import db
+
+    def locked(_conn, **_kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    server._STATE.conn()
+    monkeypatch.setattr(db, "sync_index", locked)
+    assert "HeyGen" in server.search("heygen avatar")

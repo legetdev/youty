@@ -61,3 +61,18 @@ def test_normalization_and_overlap_rules():
     assert _overlaps(a, Moment("v", "said", 1.0, 10_000, 70_000))
     assert not _overlaps(a, Moment("v", "said", 1.0, 50_000, 120_000))
     assert not _overlaps(a, Moment("v", "visual", 1.0, 0, 0))
+
+
+def test_plain_searches_never_list_eligible_ids(seeded_db):
+    """vec0 fetches each listed id one by one (seconds on a large library), so
+    only a date filter or a mixed-model index may restrict it by id."""
+    conn = _db.open_db(seeded_db[0])
+    sent = []
+    conn.set_trace_callback(sent.append)
+    search(conn, "tools", vector(8), model=MODEL_ID)
+    search(conn, "tools", vector(8), model=MODEL_ID, platform="tiktok")
+    vec_queries = [s for s in sent if "MATCH" in s and "vec_" in s]
+    assert len(vec_queries) == 4 and not any("_id IN (SELECT" in s for s in vec_queries)
+    sent.clear()
+    search(conn, "tools", vector(8), model=MODEL_ID, since_ms=0)
+    assert all("_id IN (SELECT" in s for s in sent if "MATCH" in s and "vec_" in s)

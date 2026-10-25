@@ -43,7 +43,7 @@ _MAX_STRING_ARG = 10_000          # defensive cap on free-form arguments
 _MAX_VIEW_FRAMES = 12             # each image costs real vision tokens
 _MAX_IMAGE_SIDE = 2000            # API limit once a request holds >20 images
 _TRANSCRIPT_PAGE_CHARS = 24_000   # ≈6K tokens per get_transcript page
-_IDLE_RELEASE_S = 60              # stop the search model helper a minute after the last search
+_IDLE_RELEASE_S = 600             # stop the search model helper ten minutes after the last search
 _PLATFORMS = ("youtube", "instagram", "tiktok")
 
 INSTRUCTIONS = """\
@@ -165,6 +165,17 @@ _STATE = _State()
 # ─────────────────── helpers ───────────────────
 
 
+def _sync(conn: sqlite3.Connection) -> None:
+    """Promote rows saved since the last call. Another server sharing the index
+    may hold its write lock for a moment; answer from what is promoted already
+    and let the next call catch up."""
+    try:
+        _db.sync_index(conn)
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        _log.warning("search index busy, answering from the last promotion: %s", exc)
+
+
 def _video_row(video_id: str) -> sqlite3.Row | None:
     return _STATE.conn().execute(
         "SELECT video_id, title, channel, platform, url, duration_ms, date_saved, folder_path, tags_json "
@@ -255,7 +266,7 @@ def _do_search(query: str, *, videos: int = 8, platform: str | None = None,
                since: str | None = None, kind: str | None = None) -> dict[str, Any]:
     """Search as structured data (also used by the evaluation harness)."""
     conn = _STATE.conn()
-    _db.sync_index(conn)
+    _sync(conn)
     started = time.perf_counter()
     vector = _STATE.embed(query)
     hits = _search(conn, query, vector, model=MODEL_ID, videos=max(1, min(int(videos), 25)),
@@ -573,7 +584,7 @@ def find_similar(video_id: str, k: int = 8) -> str:
     import numpy as np
 
     conn = _STATE.conn()
-    _db.sync_index(conn)
+    _sync(conn)
     rows = conn.execute("SELECT embedding FROM chunks WHERE video_id = ? AND chunk_type = 'body' "
                         "AND model_version = ?", (video_id, MODEL_ID)).fetchall()
     if not rows:
@@ -678,7 +689,7 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
 
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        await anyio.sleep(3)
+        await anyio.sleep(1)
         try:
             with _STATE.lock:
                 row = _saved_row(_STATE.conn(), expected, started_ms)
@@ -700,7 +711,7 @@ async def _do_save_video(url: str, ctx: Context | None = None, timeout_s: int = 
 
 def _saved_row(conn, expected: str, started_ms: int):
     """The requested video once this request's save has been indexed."""
-    _db.sync_index(conn)
+    _sync(conn)
     return conn.execute(
         "SELECT v.video_id, v.title, COUNT(c.chunk_id) AS n FROM videos v "
         "LEFT JOIN chunks c ON c.video_id = v.video_id "
@@ -745,8 +756,31 @@ def main() -> None:
         _log.warning("could not open log file (continuing stderr-only): %s", exc)
 
     _log.info("youty-mcp %s starting", __version__)
-    # Open the index now so the first search is fast, but never refuse to start:
-    # an unreachable index is explained by every tool and retried on each call.
+    # Open the index beside the handshake, so the client connects at once and
+    # the first search is fast; a first tool call simply waits for the lock.
+    # Never refuse to start: an unreachable index is explained by every tool
+    # and retried on each call.
+    opening = threading.Thread(target=_open_index, name="open-index", daemon=True)
+    opening.start()
+    # No model is loaded at startup: the first search starts the helper.
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        # A first promotion of a large library may still be running when the
+        # client quits; the process then exits mid-transaction, which SQLite
+        # rolls back safely on the next open.
+        opening.join(timeout=5)
+        if opening.is_alive():
+            _STATE._query.stop()
+        else:
+            _STATE.close()
+
+
+def _open_index() -> None:
+    try:
+        _db.retire_old_working_copy()
+    except OSError as exc:
+        _log.warning("could not remove the earlier search cache: %s", exc)
     try:
         with _STATE.lock:
             _STATE.conn()
@@ -754,11 +788,6 @@ def main() -> None:
         pass
     except Exception:  # noqa: BLE001
         _log.exception("index setup failed; tools will retry")
-    # No model is loaded at startup: the first search starts the helper.
-    try:
-        mcp.run(transport="stdio")
-    finally:
-        _STATE.close()
 
 
 if __name__ == "__main__":

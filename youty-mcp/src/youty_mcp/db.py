@@ -2,7 +2,7 @@
 
 The Swift indexer writes only the four base tables (videos, chunks, frames,
 index_meta). At startup the MCP server idempotently promotes the data into
-the vec0 virtual table `vec_chunks` and the FTS5 virtual table `chunks_fts`
+the vec0 virtual table `vec_chunks` and the FTS5 virtual table `chunks_text`
 so dense + sparse retrieval work without any Swift-side work.
 """
 
@@ -51,8 +51,38 @@ def _plain_db() -> Path:
 
 
 def working_db() -> Path:
-    """The server's own searchable copy of a published index."""
-    return Path(os.environ.get("YOUTY_CACHE_DIR", "~/Library/Caches/Youty")).expanduser() / "search-index.db"
+    """The server's own searchable copy of a published index.
+
+    Servers up to 2.0.3 keep theirs in `search-index.db` and maintain it
+    differently; a separate file lets both versions run side by side (an older
+    Claude Desktop extension next to a current `uvx` server) without either
+    corrupting the other's keyword index."""
+    return _cache_dir() / "search-index-2.db"
+
+
+def _cache_dir() -> Path:
+    return Path(os.environ.get("YOUTY_CACHE_DIR", "~/Library/Caches/Youty")).expanduser()
+
+
+_RETIRE_AFTER_S = 30 * 24 * 3600
+
+
+def retire_old_working_copy() -> None:
+    """Delete the pre-2.0.4 working copy once no older server has used it for a
+    month. It is a cache, rebuilt from the published index whenever needed."""
+    old = _cache_dir() / "search-index.db"
+    files = [old, old.with_name(old.name + "-wal"), old.with_name(old.name + "-shm")]
+    try:
+        newest = max(f.stat().st_mtime for f in files if f.exists())
+    except ValueError:  # nothing to retire
+        return
+    if time.time() - newest < _RETIRE_AFTER_S:
+        return
+    for f in files:
+        try:
+            f.unlink()
+        except FileNotFoundError:
+            pass
 
 
 @dataclass(frozen=True)
@@ -167,8 +197,11 @@ def refresh_from_snapshot(conn: sqlite3.Connection, snapshot: Path) -> bool:
     """Mirror a newly published copy into the working database, then promote
     only what changed. Returns False when the copy is unchanged since last time.
 
-    Row ids are stable within one index, so the vectors already promoted stay
-    valid; a copy of a different index (another Mac, a reset) drops them first.
+    The indexer never edits a chunk or frame row in place: re-indexing a video
+    deletes its rows and inserts new ones under fresh ids. So within one index
+    (same `index_id`) the id sets alone say what changed, and a save copies
+    just that video's rows instead of the whole library. A copy of a different
+    index (another Mac, a reset) replaces everything.
     """
     st = snapshot.stat()
     signature = f"{st.st_ino}:{st.st_size}:{st.st_mtime_ns}"
@@ -184,12 +217,22 @@ def refresh_from_snapshot(conn: sqlite3.Connection, snapshot: Path) -> bool:
         # and the DETACH below would fail.
         snap_id = conn.execute("SELECT value FROM snap.index_meta WHERE key = 'index_id'").fetchall()
         if _meta(conn, "index_id") != (snap_id[0][0] if snap_id else None):
-            conn.execute("DELETE FROM vec_chunks")
-            conn.execute("DELETE FROM vec_frames")
-        for table in ("videos", "chunks", "frames"):
+            for table in ("chunks", "frames", "vec_chunks", "vec_frames", "chunks_text"):
+                conn.execute(f"DELETE FROM main.{table}")
+        # Video rows are updated in place (title, folder), and there is one per video.
+        cols = ", ".join(_common_columns(conn, "videos"))
+        conn.execute("DELETE FROM main.videos")
+        conn.execute(f"INSERT INTO main.videos ({cols}) SELECT {cols} FROM snap.videos")
+        # Each id list is read from an index, and `+ 0` makes SQLite collect it
+        # once rather than look each id up in the other table, so rows that
+        # stayed the same are never read.
+        for table, key in (("chunks", "chunk_id"), ("frames", "frame_id")):
             cols = ", ".join(_common_columns(conn, table))
-            conn.execute(f"DELETE FROM main.{table}")
-            conn.execute(f"INSERT INTO main.{table} ({cols}) SELECT {cols} FROM snap.{table}")
+            conn.execute(f"DELETE FROM main.{table} WHERE {key} IN (SELECT {key} FROM main.{table} "
+                         f"WHERE {key} NOT IN (SELECT {key} + 0 FROM snap.{table}))")
+            conn.execute(f"INSERT INTO main.{table} ({cols}) SELECT {cols} FROM snap.{table} "
+                         f"WHERE {key} IN (SELECT {key} FROM snap.{table} "
+                         f"WHERE {key} NOT IN (SELECT {key} + 0 FROM main.{table}))")
         own = ("fts_indexed_count", "snapshot_signature")
         conn.execute(f"DELETE FROM main.index_meta WHERE key NOT IN {own}")
         conn.execute(f"INSERT OR REPLACE INTO main.index_meta(key, value) "
@@ -204,7 +247,7 @@ def refresh_from_snapshot(conn: sqlite3.Connection, snapshot: Path) -> bool:
         conn.execute("DETACH DATABASE snap")
         conn.execute("PRAGMA foreign_keys = ON")
     _VAULT_CACHE.pop(id(conn), None)
-    sync_index(conn, force=True)
+    sync_index(conn)
     conn.execute("INSERT OR REPLACE INTO index_meta(key, value) VALUES ('snapshot_signature', ?)", (signature,))
     conn.commit()
     return True
@@ -231,10 +274,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
     chunk_type TEXT PARTITION KEY
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_text USING fts5(
     chunk_text,
-    content='chunks',
-    content_rowid='chunk_id',
     tokenize='unicode61 remove_diacritics 2'
 );
 
@@ -282,124 +323,93 @@ def open_db(db_path: Path | str) -> sqlite3.Connection:
 
     # Drop any vec0 virtual table left at a stale vector width (e.g. a 512-d
     # vec_frames from the pre-R.0b MobileCLIP-S2 era) so the promotion DDL below
-    # recreates it at the current 768 width and the backfill repopulates it.
+    # recreates it at the current 768 width and the sync repopulates it.
     # vec0 tables are derived data — safe to rebuild from chunks/frames.
-    _migrate_stale_vec_tables(conn)
+    rebuilt = _migrate_stale_vec_tables(conn)
 
-    # Promote: vec0 + FTS5.
+    # Promote: vec0 + FTS5. Servers up to 2.0.3 keep their own keyword index,
+    # `chunks_fts`, which mirrors `chunks` and is rebuilt whole; it is left for
+    # them, so both versions can promote the same index (see `working_db`).
     conn.executescript(_PROMOTION_DDL)
 
-    # Populate the search tables from the base rows (force on startup). The same
-    # routine runs incrementally before each query (see `sync_index`), so a video
-    # saved while the server is running becomes searchable without a restart.
-    sync_index(conn, force=True)
+    # Promote whatever the search tables are missing. The same routine runs
+    # before each query (see `sync_index`), so a video saved while the server is
+    # running becomes searchable without a restart, and a restart over an index
+    # that is already promoted costs only a few probes.
+    sync_index(conn, force=rebuilt)
 
     return conn
 
 
-def _migrate_stale_vec_tables(conn: sqlite3.Connection) -> None:
+def _migrate_stale_vec_tables(conn: sqlite3.Connection) -> bool:
     """Drop vec_chunks / vec_frames if declared at a vector width other than the
     current one (so the CREATE … IF NOT EXISTS in the promotion DDL rebuilds them
-    correctly). vec0 tables are fully derivable from the base chunks/frames rows."""
+    correctly). vec0 tables are fully derivable from the base chunks/frames rows.
+    Returns True if any was dropped."""
+    dropped = False
     for name in ("vec_chunks", "vec_frames"):
         row = conn.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)
         ).fetchone()
         if row and row["sql"] and f"float[{_VEC_DIM}]" not in row["sql"]:
             conn.execute(f"DROP TABLE {name}")
+            dropped = True
+    return dropped
 
 
-def _prune_orphan_vectors(conn: sqlite3.Connection) -> None:
-    """Delete vec0 rows whose backing chunk/frame row is gone (deleted by a Swift
-    re-save/re-embed, which mints new ids). Computed in Python + deleted by primary
-    key so it works regardless of vec0's WHERE-clause support."""
-    for vec_table, base_table, id_col in (
-        ("vec_chunks", "chunks", "chunk_id"),
-        ("vec_frames", "frames", "frame_id"),
-    ):
-        try:
-            vec_ids = {r[0] for r in conn.execute(f"SELECT {id_col} FROM {vec_table}")}
-            live_ids = {r[0] for r in conn.execute(f"SELECT {id_col} FROM {base_table}")}
-        except sqlite3.OperationalError:
-            continue
-        for orphan in vec_ids - live_ids:
-            conn.execute(f"DELETE FROM {vec_table} WHERE {id_col} = ?", (orphan,))
+def _ids(conn: sqlite3.Connection, sql: str) -> set[int]:
+    return {r[0] for r in conn.execute(sql)}
 
 
-def _backfill_vec_chunks(conn: sqlite3.Connection) -> None:
-    """Insert any chunk rows whose chunk_id is missing from vec_chunks."""
-    rows = conn.execute(
-        """
-        SELECT c.chunk_id, c.embedding, c.embedding_dim, c.chunk_type, v.platform
-        FROM chunks c
-        JOIN videos v ON v.video_id = c.video_id
-        LEFT JOIN vec_chunks vc ON vc.chunk_id = c.chunk_id
-        WHERE vc.chunk_id IS NULL
-        """
-    ).fetchall()
-
-    if not rows:
-        return
-
-    for r in rows:
-        blob = r["embedding"]
-        dim = r["embedding_dim"]
-        # vec_chunks is declared float[768]; only insert vectors matching that width.
-        if dim != _VEC_DIM or not blob or len(blob) != dim * 4:
-            continue
-        conn.execute(
-            "INSERT INTO vec_chunks(chunk_id, embedding, platform, chunk_type) VALUES (?, ?, ?, ?)",
-            (r["chunk_id"], blob, r["platform"], r["chunk_type"]),
-        )
+def _each_batch(conn: sqlite3.Connection, ids: set[int], sql: str) -> None:
+    """Run `sql` (which reads `temp.batch`) for the ids, 2,000 at a time, so
+    promoting a whole library never holds more than a batch in memory."""
+    conn.execute("CREATE TEMP TABLE IF NOT EXISTS batch (id INTEGER PRIMARY KEY)")
+    ordered = sorted(ids)
+    for i in range(0, len(ordered), 2000):
+        conn.execute("DELETE FROM temp.batch")
+        conn.executemany("INSERT INTO temp.batch (id) VALUES (?)", [(x,) for x in ordered[i:i + 2000]])
+        conn.execute(sql)
+    conn.execute("DELETE FROM temp.batch")
 
 
-def _backfill_vec_frames(conn: sqlite3.Connection) -> None:
-    """Insert any frame rows whose frame_id is missing from vec_frames."""
-    rows = conn.execute(
-        """
-        SELECT f.frame_id, f.embedding, f.embedding_dim, v.platform
-        FROM frames f
-        JOIN videos v ON v.video_id = f.video_id
-        LEFT JOIN vec_frames vf ON vf.frame_id = f.frame_id
-        WHERE vf.frame_id IS NULL
-        """
-    ).fetchall()
-    if not rows:
-        return
-    for r in rows:
-        blob = r["embedding"]
-        dim = r["embedding_dim"]
-        # vec_frames is declared float[768]; only insert matching width.
-        if dim != _VEC_DIM or not blob or len(blob) != dim * 4:
-            continue
-        conn.execute(
-            "INSERT INTO vec_frames(frame_id, embedding, platform) VALUES (?, ?, ?)",
-            (r["frame_id"], blob, r["platform"]),
-        )
+# vec tables are declared float[768]; only vectors of that width fit.
+_USABLE = f"embedding_dim = {_VEC_DIM} AND length(embedding) = {_VEC_DIM * 4}"
 
 
-def _backfill_fts(conn: sqlite3.Connection) -> None:
-    """Keep `chunks_fts` in sync with the external `chunks` table.
+def _sync_chunks(conn: sqlite3.Connection) -> None:
+    """Bring `vec_chunks` and `chunks_text` to exactly the chunk ids in `chunks`.
 
-    `chunks_fts` is declared with `content='chunks'`, so the proper idiom for
-    rebuilding the index is the special `('rebuild')` command rather than
-    direct INSERTs (which create position-list rows but no index data).
-    The caller has already detected index changes. Rebuild even when the row
-    count is unchanged: re-saving a video replaces its chunks with new IDs.
-    """
-    n_chunks = int(
-        conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
-    )
-    conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES ('rebuild')")
-    conn.execute(
-        "INSERT OR REPLACE INTO index_meta(key, value) VALUES ('fts_indexed_count', ?)",
-        (str(n_chunks),),
-    )
+    Compares id sets in Python (a join against a vec0 table is slow) and
+    touches only the difference, so a save costs that video's rows."""
+    base = _ids(conn, "SELECT chunk_id FROM chunks")
+    vec = _ids(conn, "SELECT chunk_id FROM vec_chunks")
+    fts = _ids(conn, "SELECT id FROM chunks_text_docsize")
+    conn.executemany("DELETE FROM vec_chunks WHERE chunk_id = ?", [(i,) for i in vec - base])
+    conn.executemany("DELETE FROM chunks_text WHERE rowid = ?", [(i,) for i in fts - base])
+    _each_batch(conn, base - fts, "INSERT INTO chunks_text (rowid, chunk_text) "
+                                  "SELECT chunk_id, chunk_text FROM chunks WHERE chunk_id IN (SELECT id FROM temp.batch)")
+    # A chunk whose video row is gone stays out of vector search, as before.
+    _each_batch(conn, base - vec, "INSERT INTO vec_chunks (chunk_id, embedding, platform, chunk_type) "
+                                  "SELECT c.chunk_id, c.embedding, v.platform, c.chunk_type FROM chunks c "
+                                  "JOIN videos v ON v.video_id = c.video_id "
+                                  f"WHERE c.chunk_id IN (SELECT id FROM temp.batch) AND c.{_USABLE}")
+
+
+def _sync_frames(conn: sqlite3.Connection) -> None:
+    """Bring `vec_frames` to exactly the frame ids in `frames` (see `_sync_chunks`)."""
+    base = _ids(conn, "SELECT frame_id FROM frames")
+    vec = _ids(conn, "SELECT frame_id FROM vec_frames")
+    conn.executemany("DELETE FROM vec_frames WHERE frame_id = ?", [(i,) for i in vec - base])
+    _each_batch(conn, base - vec, "INSERT INTO vec_frames (frame_id, embedding, platform) "
+                                  "SELECT f.frame_id, f.embedding, v.platform FROM frames f "
+                                  "JOIN videos v ON v.video_id = f.video_id "
+                                  f"WHERE f.frame_id IN (SELECT id FROM temp.batch) AND f.{_USABLE}")
 
 
 def sync_index(conn: sqlite3.Connection, *, force: bool = False) -> bool:
     """Incrementally promote newly-saved base rows into the vec0 + FTS5 search
-    tables, and prune vectors for rows the Swift app deleted on a re-save.
+    tables, and drop the entries of rows the Swift app deleted on a re-save.
 
     Cheap + safe to call before every query: when nothing has changed it runs
     only a few indexed COUNT/MAX probes and returns False. When the Mac app or
@@ -410,12 +420,8 @@ def sync_index(conn: sqlite3.Connection, *, force: bool = False) -> bool:
     """
     if not force and not _index_changed(conn):
         return False
-    _backfill_vec_chunks(conn)
-    _backfill_vec_frames(conn)
-    # Swift re-saves DELETE+INSERT chunks (new AUTOINCREMENT ids); drop the dead
-    # vectors so they don't dilute the dense KNN pool.
-    _prune_orphan_vectors(conn)
-    _backfill_fts(conn)
+    _sync_chunks(conn)
+    _sync_frames(conn)
     conn.commit()
     return True
 
@@ -423,31 +429,27 @@ def sync_index(conn: sqlite3.Connection, *, force: bool = False) -> bool:
 def _index_changed(conn: sqlite3.Connection) -> bool:
     """Has the base index gained or lost rows since the search tables were last
     promoted? Compares base vs promoted by row COUNT (catches additions and
-    deletions) and MAX id (catches re-saves, which mint new AUTOINCREMENT ids),
-    plus the FTS5 count the keyword index tracks. On any error returns True, so
-    sync re-promotes defensively rather than serve a stale index."""
+    deletions) and MAX id (catches re-saves, which mint new AUTOINCREMENT ids).
+    Runs before every tool call, so each probe is an index-only count or a
+    single-row max: the keyword index is read through its row-size table and
+    the vector tables through their id tables (sqlite-vec's `_rowids`), which
+    takes about a millisecond even for 100K frames. On any error returns True,
+    so sync re-promotes defensively rather than serve a stale index."""
     try:
-        def _agg(sql: str) -> int:
-            return int(conn.execute(sql).fetchone()[0])
-        # New or re-saved rows mint ids beyond what's already promoted.
-        if _agg("SELECT COALESCE(MAX(chunk_id), 0) FROM chunks") > \
-           _agg("SELECT COALESCE(MAX(chunk_id), 0) FROM vec_chunks"):
+        def _agg(table: str, key: str) -> tuple[int, int]:
+            count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            top = conn.execute(f"SELECT MAX({key}) FROM {table}").fetchone()[0]
+            return int(count), int(top or 0)
+        chunks = _agg("chunks", "chunk_id")
+        if chunks != _agg("chunks_text_docsize", "id"):
             return True
-        if _agg("SELECT COALESCE(MAX(frame_id), 0) FROM frames") > \
-           _agg("SELECT COALESCE(MAX(frame_id), 0) FROM vec_frames"):
-            return True
-        # Deletions leave more promoted rows than base rows (orphans to prune).
-        if _agg("SELECT COUNT(*) FROM chunks") < _agg("SELECT COUNT(*) FROM vec_chunks"):
-            return True
-        if _agg("SELECT COUNT(*) FROM frames") < _agg("SELECT COUNT(*) FROM vec_frames"):
-            return True
-        # Keyword index (FTS5) divergence — tracked via index_meta.
-        n_chunks = _agg("SELECT COUNT(*) FROM chunks")
-        row = conn.execute(
-            "SELECT value FROM index_meta WHERE key='fts_indexed_count'"
-        ).fetchone()
-        last_fts = int(row["value"]) if row and row["value"] else -1
-        return last_fts != n_chunks
+        vec_chunks = _agg("vec_chunks_rowids", "rowid")
+        frames = _agg("frames", "frame_id")
+        vec_frames = _agg("vec_frames_rowids", "rowid")
+        # New or re-saved rows mint ids beyond what's already promoted;
+        # deletions leave more promoted rows than base rows.
+        return (chunks[1] > vec_chunks[1] or chunks[0] < vec_chunks[0]
+                or frames[1] > vec_frames[1] or frames[0] < vec_frames[0])
     except sqlite3.Error:
         return True
 
