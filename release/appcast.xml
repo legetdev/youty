@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 2.0.4</title>
+            <sparkle:version>21</sparkle:version>
+            <sparkle:shortVersionString>2.0.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sun, 25 Oct 2026 23:48:57 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 2.0.4</h3>
+                <p>AI apps can search a video you just saved within about a second, and searches stay fast as your library grows. Youty now shares only what changed with your AI apps instead of copying your whole library after every save, restarting an AI app no longer rebuilds its search data, and visual search on large libraries is many times faster. The search model also stays ready for ten minutes between questions.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v2.0.4/Youty-2.0.4.dmg"
+                sparkle:edSignature="7A8SDJcNU9kAg5ZWs+0Mw8DvotJASYBs1XqAH5pa8HRKquY6c+4XBB1zxIPt7qmgOECnSjbSutWvVNgrHipvAg=="
+                length="673676991"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 2.0.3</title>
             <sparkle:version>20</sparkle:version>
             <sparkle:shortVersionString>2.0.3</sparkle:shortVersionString>
