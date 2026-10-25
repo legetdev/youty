@@ -226,6 +226,7 @@ struct ContentView: View {
             defer { if acquired { vaultURL.stopAccessingSecurityScopedResource() } }
             do {
                 _ = try await Indexer.backfillOnScreenText(vaultRoot: vaultURL)
+                await IndexStore.shared.publishSnapshot(toVault: vaultURL)
                 await MainActor.run { settings.ocrBackfillVersion = Self.ocrBackfillTargetVersion }
             } catch {
                 // Leave the flag unset → retried next launch (resumable).
@@ -259,6 +260,9 @@ struct ContentView: View {
             let model = EmbeddingGemma2.modelIdentifier
             guard (try? await IndexStore.shared.needsModelMigration(activeModel: model)) == true else {
                 _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)
+                // Also covers the first launch after an update: share the index
+                // with AI apps even when nothing needed healing.
+                await IndexStore.shared.publishSnapshot(toVault: vaultURL)
                 return
             }
             await MainActor.run {
@@ -270,6 +274,7 @@ struct ContentView: View {
                     IndexStatusStore.shared.upgrade = .init(done: done, total: total)
                 }
             }
+            await IndexStore.shared.publishSnapshot(toVault: vaultURL)
             await MainActor.run {
                 withAnimation {
                     IndexStatusStore.shared.upgrade = nil
@@ -966,12 +971,15 @@ struct ContentView: View {
             var textError: String?
             do {
                 try await Indexer.indexBundle(videoMdURL: videoMd, vaultRoot: vaultURL)
+                // Share it with AI apps now; frames follow in a second publish.
+                await IndexStore.shared.publishSnapshot(toVault: vaultURL)
                 await MainActor.run { IndexStatusStore.shared.markIndexed(folder: bundleFolder) }
             } catch {
                 NSLog("[youty] indexer skipped/failed: \(error.localizedDescription)")
                 textError = error.localizedDescription
             }
             let frameError = await frames
+            await IndexStore.shared.publishSnapshot(toVault: vaultURL)
             guard let textError else { return }
             await MainActor.run {
                 if frameError == nil {

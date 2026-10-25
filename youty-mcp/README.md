@@ -68,11 +68,20 @@ provider under its own privacy settings.
 
 ## Index location
 
-The Mac app's index:
-`~/Library/Containers/dev.leget.youty/Data/Library/Application Support/Youty/index.db`
-(falls back to `~/Library/Application Support/Youty/index.db`). Override with
-`YOUTY_INDEX_DB=/abs/path`. The index is rebuildable from the vault's
-`video.md` files and frames: *Settings → Re-index entire vault* in the app.
+The Mac app is sandboxed, and macOS blocks other programs from its storage
+unless you grant them extra permissions. So after every save the app shares a
+copy of its index in the vault, at `{vault}/.youty/index.db`, and the server
+searches that copy. No permission prompt is involved, and updates show up
+without restarting the server.
+
+The server finds the vault through `YOUTY_VAULT`, the CLI's saved vault,
+Spotlight, or a short scan of Documents, Desktop and iCloud Drive. Set
+`YOUTY_VAULT=/abs/path` if your vault lives somewhere Spotlight doesn't index.
+Without a shared copy it reads the app's index directly when macOS allows it,
+then the CLI's own index (`~/Library/Application Support/Youty/index.db`).
+`YOUTY_INDEX_DB=/abs/path` points it at one specific index. The index is
+rebuildable from the vault's `video.md` files and frames: *Settings → Re-index
+entire vault* in the app.
 
 ## Develop
 
@@ -90,4 +99,11 @@ uv run pytest -q
   update the Youty app, or let the one-time model download finish.
 - **Just updated Youty** — the app upgrades existing saves to the new search
   model in the background on first launch; keyword search works meanwhile.
+- **"macOS doesn't let this AI app read it"** — the Youty app is older than
+  2.0.3 and doesn't share its index yet. Update Youty and open it once.
+- **"No Youty library was found"** — open the app once after saving a video.
+  If your vault is outside Spotlight's reach (for example on an external
+  drive), set `YOUTY_VAULT` in your AI app's Youty entry.
+- The server never refuses to start: when something is wrong, every tool
+  answers with what to do, and it recovers on its own once that's fixed.
 - Logs: `~/Library/Logs/Youty/youty-mcp.log`.

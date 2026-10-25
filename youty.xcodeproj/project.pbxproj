@@ -27,6 +27,7 @@
 		20271FEEE82FB4331C0417FA /* tokenizer.json in Resources */ = {isa = PBXBuildFile; fileRef = EE57A10146E376C5A6DC03D8 /* tokenizer.json */; };
 		20693B65CBBC3B960A95A6C6 /* FFmpegFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD24184554CE6FFF9B2F5E0D /* FFmpegFrameExtractor.swift */; };
 		21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */; };
+		221C4B147DD91E20FB5B6B1D /* IndexSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A003211B8427BA152E237EDB /* IndexSnapshotTests.swift */; };
 		26EC15015337957E94B79D59 /* FastFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73525BB1298A12906490472 /* FastFramePipeline.swift */; };
 		27FD2A368CC924DD960BF205 /* COPYING.LGPLv3 in Resources */ = {isa = PBXBuildFile; fileRef = AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */; };
 		2B3293CD694D61AA1B68AFAD /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
@@ -236,6 +237,7 @@
 		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
 		99DAA432B550C3B593BF3522 /* ReindexCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReindexCommand.swift; sourceTree = "<group>"; };
 		9B44CDFC7E9189A06603B843 /* youtyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = youtyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A003211B8427BA152E237EDB /* IndexSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexSnapshotTests.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
 		ACE013EEAFE8327D3554AB53 /* GemmaTokenizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GemmaTokenizer.swift; sourceTree = "<group>"; };
 		AF09B301A0004D3FBB55EB79 /* IndexBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexBadgeView.swift; sourceTree = "<group>"; };
@@ -387,6 +389,7 @@
 			children = (
 				738463C2870FCC27DD05AFEB /* FormattingTests.swift */,
 				BF62FD77C76CB313B5CD10B7 /* IndexingTests.swift */,
+				A003211B8427BA152E237EDB /* IndexSnapshotTests.swift */,
 				28D83CDE465B210AB90863F4 /* URLParsingTests.swift */,
 			);
 			path = Tests;
@@ -793,6 +796,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0D13CEBFB541789B2D889BBC /* FormattingTests.swift in Sources */,
+				221C4B147DD91E20FB5B6B1D /* IndexSnapshotTests.swift in Sources */,
 				D4F2750A662DBAA6EA4A1B3B /* IndexingTests.swift in Sources */,
 				FB1508B9245CEFE397C8693F /* URLParsingTests.swift in Sources */,
 			);
