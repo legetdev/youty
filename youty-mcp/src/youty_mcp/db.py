@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import plistlib
 import sqlite3
 import struct
 import subprocess
@@ -31,6 +32,10 @@ BLOCKED = (
     "Youty's search index is there, but macOS doesn't let this AI app read it. "
     "Update the Youty app to the latest version and open it once: it then shares "
     "its index in your vault folder, which needs no extra permission."
+)
+PREPARING = (
+    "Youty is getting its search index ready for AI apps. Open the Youty app if "
+    "it isn't running, then try again in a minute."
 )
 NOT_FOUND = (
     "No Youty library was found on this Mac. Install Youty (youtyapp.vercel.app), "
@@ -111,8 +116,52 @@ def locate_index() -> IndexSource:
         if _readable(direct):
             return IndexSource(direct)
     if _container_db().exists():
-        raise IndexUnavailable(BLOCKED)
+        # A current app shares its index on launch; until it has, say so rather
+        # than asking for an update the user has already installed.
+        raise IndexUnavailable(PREPARING if _app_shares_index() else BLOCKED)
     raise IndexUnavailable(NOT_FOUND)
+
+
+_APP_BUNDLE_ID = "dev.leget.youty"
+_SHARES_INDEX_SINCE = (2, 0, 3)
+
+
+def _app_shares_index() -> bool:
+    """True when an installed Youty app is new enough to publish its index to
+    the vault. Only asked while the index is unreachable, so the Spotlight
+    lookup for an app outside the Applications folders stays off the hot path."""
+    fixed = [b for b in _app_locations() if b.is_dir()]
+    return any(_app_version(b) >= _SHARES_INDEX_SINCE for b in fixed or _spotlight_apps())
+
+
+def _app_locations() -> list[Path]:
+    return [Path("/Applications/Youty.app"), Path("~/Applications/Youty.app").expanduser()]
+
+
+def _spotlight_apps() -> list[Path]:
+    try:
+        out = subprocess.run(["/usr/bin/mdfind", "-0", f"kMDItemCFBundleIdentifier == '{_APP_BUNDLE_ID}'"],
+                             capture_output=True, timeout=5, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [Path(os.fsdecode(raw)) for raw in out.split(b"\0") if raw]
+
+
+def _app_version(bundle: Path) -> tuple[int, ...]:
+    """The app's version as numbers, or () when the bundle isn't Youty's."""
+    try:
+        with (bundle / "Contents" / "Info.plist").open("rb") as handle:
+            info = plistlib.load(handle)
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return ()
+    if info.get("CFBundleIdentifier") != _APP_BUNDLE_ID:
+        return ()
+    parts = []
+    for part in str(info.get("CFBundleShortVersionString", "")).split("."):
+        if not part.isdigit():
+            break
+        parts.append(int(part))
+    return tuple(parts)
 
 
 def _readable(path: Path) -> bool:
@@ -126,25 +175,24 @@ def _readable(path: Path) -> bool:
         return False
 
 
-_discovered: dict[str, Any] = {"snapshot": None, "checked": float("-inf")}
+_discovered: dict[str, Any] = {"vaults": [], "checked": float("-inf")}
 
 
 def find_snapshot() -> Path | None:
     """The newest published index among the known vaults. Cheap sources first
-    (env, CLI config, the last vault found); Spotlight and a bounded folder
-    scan only when those find nothing, at most every `_DISCOVERY_RETRY_S`."""
-    found = _newest(_snapshot_in(v) for v in _known_vaults())
+    (env, CLI config, the vaults found earlier, checked on every call so an
+    index the app publishes after this server started is picked up at once);
+    Spotlight and a bounded folder scan only when those find nothing, at most
+    every `_DISCOVERY_RETRY_S`."""
+    found = _newest(_snapshot_in(v) for v in [*_known_vaults(), *_discovered["vaults"]])
     if found is not None:
         return found
-    cached = _discovered["snapshot"]
-    if cached is not None and cached.is_file():
-        return cached
     if time.monotonic() - _discovered["checked"] < _DISCOVERY_RETRY_S:
         return None
     _discovered["checked"] = time.monotonic()
     candidates = [*_spotlight_vaults(), *(_scan_for_manifest(p, 0) for p in _FALLBACK_VAULT_PARENTS if p.exists())]
-    _discovered["snapshot"] = _newest(_snapshot_in(v) for v in candidates)
-    return _discovered["snapshot"]
+    _discovered["vaults"] = [v for v in candidates if v is not None]
+    return _newest(_snapshot_in(v) for v in _discovered["vaults"])
 
 
 def _known_vaults() -> list[Path]:
@@ -179,7 +227,9 @@ def _newest(paths: Iterable[Path | None]) -> Path | None:
 
 
 def _spotlight_vaults() -> list[Path]:
-    """Vault roots Spotlight knows of (any folder holding a Youty manifest)."""
+    """Vault roots Spotlight knows of: folders holding a manifest beside a
+    shared index or a platform folder, so a vault the app hasn't shared yet is
+    remembered and checked again on the next call."""
     try:
         out = subprocess.run(["/usr/bin/mdfind", "-0", "kMDItemFSName == 'manifest.json'"],
                              capture_output=True, timeout=5, check=False).stdout
@@ -188,9 +238,14 @@ def _spotlight_vaults() -> list[Path]:
     vaults = []
     for raw in out.split(b"\0"):
         path = Path(os.fsdecode(raw)) if raw else None
-        if path is not None and (path.parent / SNAPSHOT).is_file():
+        if path is not None and _looks_like_vault(path.parent):
             vaults.append(path.parent)
     return vaults
+
+
+def _looks_like_vault(folder: Path) -> bool:
+    return (folder / SNAPSHOT).is_file() or any(
+        (folder / platform).is_dir() for platform in ("youtube", "instagram", "tiktok"))
 
 
 def refresh_from_snapshot(conn: sqlite3.Connection, snapshot: Path) -> bool:

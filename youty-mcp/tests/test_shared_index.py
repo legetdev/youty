@@ -51,7 +51,9 @@ def mac(tmp_path, monkeypatch):
     monkeypatch.delenv("YOUTY_VAULT", raising=False)
     monkeypatch.setattr(db, "_spotlight_vaults", lambda: [])
     monkeypatch.setattr(db, "_FALLBACK_VAULT_PARENTS", [])
-    monkeypatch.setattr(db, "_discovered", {"snapshot": None, "checked": float("-inf")})
+    monkeypatch.setattr(db, "_discovered", {"vaults": [], "checked": float("-inf")})
+    monkeypatch.setattr(db, "_app_locations", lambda: [])
+    monkeypatch.setattr(db, "_spotlight_apps", lambda: [])
     server._STATE.close()
     server._STATE.__init__()
     monkeypatch.setattr(server._STATE, "embed", lambda query: None)
@@ -162,6 +164,75 @@ def test_blocked_index_is_explained_then_recovers(mac, seeded_db, monkeypatch):
 
     publish(db_path, vault)  # the updated app shares its index
     assert "abc123" in server.list_videos()
+
+
+def fake_app(bundle: Path, version: str, bundle_id: str = "dev.leget.youty") -> Path:
+    import plistlib
+
+    (bundle / "Contents").mkdir(parents=True)
+    with (bundle / "Contents" / "Info.plist").open("wb") as handle:
+        plistlib.dump({"CFBundleIdentifier": bundle_id, "CFBundleShortVersionString": version}, handle)
+    return bundle
+
+
+def test_a_current_app_that_has_not_shared_yet_is_not_told_to_update(mac, seeded_db, monkeypatch):
+    db_path, vault = seeded_db
+    blocked_container(mac)
+    monkeypatch.setenv("YOUTY_VAULT", str(vault))
+    app = fake_app(mac / "Applications/Youty.app", "2.0.4")
+    monkeypatch.setattr(db, "_app_locations", lambda: [mac / "Missing/Youty.app", app])
+
+    assert server.list_videos() == db.PREPARING
+    publish(db_path, vault)  # the app finishes its first launch
+    assert "abc123" in server.list_videos()
+
+
+@pytest.mark.parametrize(("version", "bundle_id"), [("2.0.2", "dev.leget.youty"),
+                                                    ("2.0.4", "com.example.other"),
+                                                    ("garbage", "dev.leget.youty")])
+def test_an_app_too_old_to_share_is_told_to_update(mac, version, bundle_id, monkeypatch):
+    blocked_container(mac)
+    app = fake_app(mac / "Applications/Youty.app", version, bundle_id)
+    monkeypatch.setattr(db, "_app_locations", lambda: [app])
+
+    assert server.list_videos() == db.BLOCKED
+
+
+def test_finds_a_current_app_outside_the_applications_folders(mac, monkeypatch):
+    blocked_container(mac)
+    app = fake_app(mac / "Downloads/Youty.app", "2.1")
+    monkeypatch.setattr(db, "_spotlight_apps", lambda: [app])
+
+    assert server.list_videos() == db.PREPARING
+
+
+def test_a_vault_found_before_its_first_share_is_picked_up_at_once(mac, seeded_db, monkeypatch):
+    db_path, vault = seeded_db
+    blocked_container(mac)
+    (vault / "youtube").mkdir(exist_ok=True)
+    (vault / "manifest.json").write_text("[]")
+    lookups = []
+    monkeypatch.setattr(db, "_spotlight_vaults", lambda: lookups.append(1) or [vault])
+
+    assert server.list_videos() == db.BLOCKED
+    publish(db_path, vault)  # well within the 30 s before Spotlight is asked again
+    assert "abc123" in server.list_videos()
+    assert len(lookups) == 1
+
+
+def test_spotlight_ignores_manifests_of_other_apps(tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "manifest.json").write_text("{}")
+    vault = tmp_path / "vault"
+    (vault / "tiktok").mkdir(parents=True)
+    (vault / "manifest.json").write_text("[]")
+    listing = b"\0".join(str(f / "manifest.json").encode() for f in (other, vault))
+
+    class Done:
+        stdout = listing
+    monkeypatch.setattr(db.subprocess, "run", lambda *args, **kwargs: Done)
+    assert db._spotlight_vaults() == [vault]
 
 
 def test_no_library_is_explained(mac):
