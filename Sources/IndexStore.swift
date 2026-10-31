@@ -259,8 +259,7 @@ actor IndexStore {
             duration_ms  = excluded.duration_ms,
             date_saved   = excluded.date_saved,
             folder_path  = excluded.folder_path,
-            tags_json    = excluded.tags_json,
-            indexed_at   = excluded.indexed_at;
+            tags_json    = excluded.tags_json;
         """
         let stmt = try prepare(sql)
         defer { sqlite3_finalize(stmt) }
@@ -307,6 +306,15 @@ actor IndexStore {
                 bindBlob(stmt, 9, blob)
                 try step(stmt, sql: insertSQL)
             }
+            // indexed_at means "transcript chunks written", so only this sets it:
+            // refreshing a video's metadata (upsertVideo, frame indexing) must not
+            // make a note edited since its chunks were written look current.
+            let stampSQL = "UPDATE videos SET indexed_at = ? WHERE video_id = ?;"
+            let stamp = try prepare(stampSQL)
+            defer { sqlite3_finalize(stamp) }
+            bindInt(stamp, 1, Int(Date().timeIntervalSince1970 * 1000))
+            bindText(stamp, 2, videoID)
+            try step(stamp, sql: stampSQL)
             try exec("COMMIT;")
         } catch {
             try? exec("ROLLBACK;")

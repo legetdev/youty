@@ -207,7 +207,6 @@ enum Indexer {
     @discardableResult
     static func reconcileMissing(vaultRoot: URL,
                                  progress: ((String) -> Void)? = nil) async throws -> Int {
-        let fm = FileManager.default
         // 1. Cheap diff — NO model load. Collect bundles missing from / stale in
         //    the index. `videoIndexState` is a single indexed sqlite lookup.
         var pending: [URL] = []
@@ -215,13 +214,7 @@ enum Indexer {
             guard let md = try? String(contentsOf: url, encoding: .utf8),
                   let vid = (try? Chunker.parse(text: md))?.qualifiedID, !vid.isEmpty
             else { continue }
-            if let state = try? await IndexStore.shared.videoIndexState(videoID: vid),
-               state.chunkCount > 0 {
-                let attrs = try? fm.attributesOfItem(atPath: url.path)
-                let mtimeMs = (attrs?[.modificationDate] as? Date)
-                    .map { Int($0.timeIntervalSince1970 * 1000) } ?? 0
-                if mtimeMs <= state.indexedAt { continue }   // already current → skip
-            }
+            if await isIndexed(url, videoID: vid) { continue }   // already current → skip
             pending.append(url)
         }
         guard !pending.isEmpty else { return 0 }   // common case: nothing to heal
@@ -246,6 +239,13 @@ enum Indexer {
         }
         if healed > 0 { _ = VaultManager.rebuildManifest(at: vaultRoot) }
         return healed
+    }
+
+    /// True when the note's transcript chunks were written after its last change.
+    static func isIndexed(_ videoMdURL: URL, videoID: String, store: IndexStore = .shared) async -> Bool {
+        guard let state = try? await store.videoIndexState(videoID: videoID), state.chunkCount > 0 else { return false }
+        let modified = (try? FileManager.default.attributesOfItem(atPath: videoMdURL.path))?[.modificationDate] as? Date
+        return Int((modified ?? .distantFuture).timeIntervalSince1970 * 1000) <= state.indexedAt
     }
 
     /// Re-embeds the TEXT index with the on-device model (Phase S.4),
@@ -353,7 +353,8 @@ enum Indexer {
     static func indexBundle(videoMdURL: URL,
                              vaultRoot: URL,
                              embedder: Embedder,
-                             force: Bool = false) async throws -> Int {
+                             force: Bool = false,
+                             store: IndexStore = .shared) async throws -> Int {
         let started = Date()
         let fm = FileManager.default
         guard fm.fileExists(atPath: videoMdURL.path) else {
@@ -395,11 +396,11 @@ enum Indexer {
             folderPath:  folderPath,
             tagsJSON:    tagsJSON
         )
-        try await IndexStore.shared.upsertVideo(videoRow)
+        try await store.upsertVideo(videoRow)
 
         // Idempotent skip — don't burn quota on already-indexed videos.
         if !force,
-           let state = try await IndexStore.shared.videoIndexState(videoID: parsed.qualifiedID),
+           let state = try await store.videoIndexState(videoID: parsed.qualifiedID),
            state.chunkCount > 0,
            state.modelVersion == embedder.modelIdentifier {
             let attrs = try? fm.attributesOfItem(atPath: videoMdURL.path)
@@ -420,7 +421,6 @@ enum Indexer {
             IndexChunkRow(chunk: c, embedding: v, modelVersion: embedder.modelIdentifier)
         }
 
-        let store = IndexStore.shared
         try await store.replaceChunks(videoID: videoRow.videoID, rows: chunkRows)
         // Only advertise this model as the index's query model when the WHOLE
         // (disk-backed) index is now on it. A routine save into an index built
