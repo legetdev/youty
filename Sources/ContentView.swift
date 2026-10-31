@@ -267,6 +267,12 @@ struct ContentView: View {
             // transcripts for them once they exist. Reconciling below then
             // re-indexes the rewritten notes.
             await TranscriptUpgrade.run(vaultRoot: vaultURL)
+            // Once: notes edited after indexing before 2.0.8 can still hold an
+            // outdated transcript in search; mark them so reconciling fixes them.
+            if !UserDefaults.standard.bool(forKey: "staleTranscriptRepairDone") {
+                await Indexer.markStaleTranscripts(vaultRoot: vaultURL)
+                UserDefaults.standard.set(true, forKey: "staleTranscriptRepairDone")
+            }
             let model = EmbeddingGemma2.modelIdentifier
             guard (try? await IndexStore.shared.needsModelMigration(activeModel: model)) == true else {
                 _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)

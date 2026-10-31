@@ -90,4 +90,28 @@ final class ReindexTests: XCTestCase {
         XCTAssertTrue(text.contains("Opus is incredible"))
         XCTAssertFalse(text.contains("yong"))
     }
+
+    func testStaleTranscriptsFromBeforeTheFixAreMarkedOnce() async throws {
+        let vault = root.appendingPathComponent("vault")
+        let file = vault.appendingPathComponent("youtube/Ali - Video/video.md")
+        try note("[4:16.440] AI, yong, sang, sang, sang.").write(to: file, atomically: true, encoding: .utf8)
+        _ = try await Indexer.indexBundle(videoMdURL: file, vaultRoot: vault, embedder: FakeEmbedder(), store: store)
+        let current = await Indexer.markStaleTranscripts(vaultRoot: vault, store: store)
+        XCTAssertEqual(current, 0, "a note that matches its index is left alone")
+
+        // What earlier versions left behind: a rewritten note that looks indexed.
+        try note("[0:00] Oh my god, Opus is incredible at making launch videos.").write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: file.path)
+        let looksIndexed = await Indexer.isIndexed(file, videoID: "yt:C0jOKDJtK9s", store: store)
+        XCTAssertTrue(looksIndexed)
+
+        let marked = await Indexer.markStaleTranscripts(vaultRoot: vault, store: store)
+        XCTAssertEqual(marked, 1)
+        let pending = await Indexer.isIndexed(file, videoID: "yt:C0jOKDJtK9s", store: store)
+        XCTAssertFalse(pending, "reconciling must now re-index it")
+        _ = try await Indexer.indexBundle(videoMdURL: file, vaultRoot: vault, embedder: FakeEmbedder(), store: store)
+        XCTAssertTrue(try bodyText().contains("Opus is incredible"))
+        let after = await Indexer.markStaleTranscripts(vaultRoot: vault, store: store)
+        XCTAssertEqual(after, 0)
+    }
 }
