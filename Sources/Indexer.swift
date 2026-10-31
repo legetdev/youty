@@ -241,6 +241,29 @@ enum Indexer {
         return healed
     }
 
+    /// Marks notes whose indexed transcript no longer matches the note as
+    /// changed, so reconciling re-indexes them. Before 2.0.8 a note edited after
+    /// indexing could look current (see `IndexStore.replaceChunks`) and keep an
+    /// outdated transcript in search. A note's first transcript line always
+    /// opens its first transcript chunk, so comparing the two needs no model.
+    /// Returns how many notes it marked.
+    @discardableResult
+    static func markStaleTranscripts(vaultRoot: URL, store: IndexStore = .shared) async -> Int {
+        func words(_ text: String) -> String { text.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        var marked = 0
+        for url in (try? enumerateBundles(at: vaultRoot)) ?? [] {
+            guard let note = try? String(contentsOf: url, encoding: .utf8),
+                  let parsed = try? Chunker.parse(text: note), !parsed.qualifiedID.isEmpty,
+                  let first = parsed.segments.first.map({ words($0.text) }), !first.isEmpty,
+                  let indexed = try? await store.firstBodyChunkText(videoID: parsed.qualifiedID),
+                  !words(indexed).hasPrefix(first) else { continue }
+            if (try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)) != nil {
+                marked += 1
+            }
+        }
+        return marked
+    }
+
     /// True when the note's transcript chunks were written after its last change.
     static func isIndexed(_ videoMdURL: URL, videoID: String, store: IndexStore = .shared) async -> Bool {
         guard let state = try? await store.videoIndexState(videoID: videoID), state.chunkCount > 0 else { return false }

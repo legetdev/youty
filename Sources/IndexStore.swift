@@ -224,6 +224,16 @@ actor IndexStore {
         return sqlite3_step(stmt) == SQLITE_ROW
     }
 
+    /// The first spoken-transcript chunk's text, or nil when the video has none.
+    func firstBodyChunkText(videoID: String) throws -> String? {
+        try openIfNeeded()
+        let stmt = try prepare("SELECT chunk_text FROM chunks WHERE video_id = ? AND chunk_type = 'body' ORDER BY chunk_index LIMIT 1;")
+        defer { sqlite3_finalize(stmt) }
+        bindText(stmt, 1, videoID)
+        guard sqlite3_step(stmt) == SQLITE_ROW, let c = sqlite3_column_text(stmt, 0) else { return nil }
+        return String(cString: c)
+    }
+
     /// Reads a single text value from a no-arg query (nil if no row/NULL).
     private func scalarText(_ sql: String) -> String? {
         guard let db else { return nil }
