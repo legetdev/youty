@@ -151,6 +151,7 @@
 		F0B819C034DE76D8AA23C9E4 /* FastFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B6E4BF02144D82957F5C812 /* FastFrameExtractor.swift */; };
 		F16D38842CD9A198F1B8924C /* MetadataEnricher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB6708940A3424B502A6232E /* MetadataEnricher.swift */; };
 		F40545FAC6341ABA6C1E24AD /* SearchCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CBC4195B74D4BA5F1BE31BE /* SearchCommand.swift */; };
+		F7D1CEBBD1EF2F6D7BCFD37C /* ReindexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AF79E0C6871C6171804ACBD /* ReindexTests.swift */; };
 		FAAD514A1B9ECDA2B1D27F88 /* CLIConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE828BE532445B11DAFDF7C /* CLIConfig.swift */; };
 		FB1508B9245CEFE397C8693F /* URLParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28D83CDE465B210AB90863F4 /* URLParsingTests.swift */; };
 		FC7BFDBA194EC1BDB91AD089 /* DebugRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12465B44FC685B0D846EA0E /* DebugRunner.swift */; };
@@ -224,6 +225,7 @@
 		5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedResourceLocator.swift; sourceTree = "<group>"; };
 		61F403150ACD28D7C5A9F18C /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortFormPipeline.swift; sourceTree = "<group>"; };
+		6AF79E0C6871C6171804ACBD /* ReindexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReindexTests.swift; sourceTree = "<group>"; };
 		6B4CA4AEF25DAF7A379921CE /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		6C21ECB07C9DC2F79D80010E /* CLIHostWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIHostWindow.swift; sourceTree = "<group>"; };
 		7009AA6A6668D4D93B0A165A /* IndexSchema.sql */ = {isa = PBXFileReference; path = IndexSchema.sql; sourceTree = "<group>"; };
@@ -398,6 +400,7 @@
 				738463C2870FCC27DD05AFEB /* FormattingTests.swift */,
 				BF62FD77C76CB313B5CD10B7 /* IndexingTests.swift */,
 				A003211B8427BA152E237EDB /* IndexSnapshotTests.swift */,
+				6AF79E0C6871C6171804ACBD /* ReindexTests.swift */,
 				28D83CDE465B210AB90863F4 /* URLParsingTests.swift */,
 				9A4355A6C2B5283886E73F49 /* YouTubeCaptionTests.swift */,
 			);
@@ -813,6 +816,7 @@
 				0D13CEBFB541789B2D889BBC /* FormattingTests.swift in Sources */,
 				221C4B147DD91E20FB5B6B1D /* IndexSnapshotTests.swift in Sources */,
 				D4F2750A662DBAA6EA4A1B3B /* IndexingTests.swift in Sources */,
+				F7D1CEBBD1EF2F6D7BCFD37C /* ReindexTests.swift in Sources */,
 				FB1508B9245CEFE397C8693F /* URLParsingTests.swift in Sources */,
 				65722050C39F125FB09ED4D0 /* YouTubeCaptionTests.swift in Sources */,
 			);
