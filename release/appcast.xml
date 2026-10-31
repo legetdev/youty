@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 2.0.7</title>
+            <sparkle:version>24</sparkle:version>
+            <sparkle:shortVersionString>2.0.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sat, 31 Oct 2026 19:42:57 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 2.0.7</h3>
+                <p>YouTube saves now always keep YouTube&#x27;s own transcript when one exists, even when its transcript panel won&#x27;t load, and videos saved before YouTube added captions get them automatically. Videos without captions are transcribed from their original audio, never from an AI-dubbed track.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v2.0.7/Youty-2.0.7.dmg"
+                sparkle:edSignature="EoAx+wJbFrS++r/jPs8N/e1ZRa/RWh1m33qpyAUQ4rfAxAqI6c+Ehcvyf3qa+qZwO2XArIa00olUVrgBgIrsDw=="
+                length="673671555"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 2.0.6</title>
             <sparkle:version>23</sparkle:version>
             <sparkle:shortVersionString>2.0.6</sparkle:shortVersionString>
