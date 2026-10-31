@@ -26,6 +26,23 @@
         <description>Auto-update feed for Youty — macOS YouTube/Instagram/TikTok to-vault tool.</description>
         <language>en</language>
         <item>
+            <title>Youty 2.0.6</title>
+            <sparkle:version>23</sparkle:version>
+            <sparkle:shortVersionString>2.0.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <pubDate>Sat, 31 Oct 2026 18:36:32 +0000</pubDate>
+            <description><![CDATA[
+                <h3>Youty 2.0.6</h3>
+                <p>AI search keeps its full on-device model on Macs where the newest Python is 3.14, and setups made with earlier versions repair themselves on their next start. The AI connection installer also no longer changes settings when asked for help, and a dependency with known security issues is updated.</p>
+            ]]></description>
+            <enclosure
+                url="https://github.com/legetdev/youty/releases/download/v2.0.6/Youty-2.0.6.dmg"
+                sparkle:edSignature="/2VGyzQNVbHbFHl3dM/a9aD0OVpCW6nccCXw/6dieeqKg+hDz6noSSbdDrdIemJNmva173H2XxqxSUTp/JQMBQ=="
+                length="673664076"
+                type="application/octet-stream"/>
+        </item>
+
+        <item>
             <title>Youty 2.0.5</title>
             <sparkle:version>22</sparkle:version>
             <sparkle:shortVersionString>2.0.5</sparkle:shortVersionString>
