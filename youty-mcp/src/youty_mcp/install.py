@@ -18,6 +18,8 @@ from . import clients
 def dispatch(args: list[str]) -> None:
     """Route a `youty-mcp <subcommand>` invocation. Called by cli.main."""
     cmd, rest = args[0], args[1:]
+    if cmd in ("install", "uninstall") and _wants_help(cmd, rest):
+        return
     if cmd == "install":
         _install(rest)
     elif cmd == "uninstall":
@@ -32,6 +34,24 @@ def dispatch(args: list[str]) -> None:
         print(f"Unknown command: {cmd}", file=sys.stderr)
         _help()
         sys.exit(1)
+
+
+_FLAGS = {"install": {"--list", "--all"}, "uninstall": set()}
+
+
+def _wants_help(cmd: str, rest: list[str]) -> bool:
+    """Show help instead of changing configs for `--help` or a flag the command
+    doesn't know: a typo or a guessed option like `--dry-run` must never quietly
+    edit every AI app's settings."""
+    if any(a in ("--help", "-h", "help") for a in rest):
+        _help()
+        return True
+    unknown = [a for a in rest if a.startswith("-") and a not in _FLAGS[cmd]]
+    if unknown:
+        print(f"Unknown option for {cmd}: {' '.join(unknown)}\n", file=sys.stderr)
+        _help()
+        sys.exit(2)
+    return False
 
 
 def _pkg_version() -> str:

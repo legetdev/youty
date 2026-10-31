@@ -67,3 +67,27 @@ def test_installer_skips_clients_that_already_have_youty(tmp_path, monkeypatch):
     extensions = tmp_path / "Library/Application Support/Claude/Claude Extensions"
     (extensions / "local.mcpb.bent-eisheuer.youty").mkdir(parents=True)
     assert "extension" in clients.plugin_provides(desktop)
+
+
+@pytest.mark.parametrize("args", [["install", "--help"], ["install", "-h"], ["uninstall", "--help"],
+                                  ["install", "cursor", "--help"]])
+def test_help_never_changes_a_config(tmp_path, monkeypatch, capsys, args):
+    from youty_mcp import install
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(clients, "write_entry", lambda *a, **k: pytest.fail("wrote a config"))
+    monkeypatch.setattr(clients, "remove_entry", lambda *a, **k: pytest.fail("removed a config"))
+    install.dispatch(args)
+    assert "Usage:" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("args", [["install", "--dry-run"], ["uninstall", "--all"]])
+def test_unknown_options_are_refused(tmp_path, monkeypatch, capsys, args):
+    from youty_mcp import install
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(clients, "write_entry", lambda *a, **k: pytest.fail("wrote a config"))
+    monkeypatch.setattr(clients, "remove_entry", lambda *a, **k: pytest.fail("removed a config"))
+    with pytest.raises(SystemExit) as exit_:
+        install.dispatch(args)
+    assert exit_.value.code == 2 and "Unknown option" in capsys.readouterr().err
