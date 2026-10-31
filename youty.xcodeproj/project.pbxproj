@@ -30,6 +30,7 @@
 		221C4B147DD91E20FB5B6B1D /* IndexSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A003211B8427BA152E237EDB /* IndexSnapshotTests.swift */; };
 		26EC15015337957E94B79D59 /* FastFramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73525BB1298A12906490472 /* FastFramePipeline.swift */; };
 		27FD2A368CC924DD960BF205 /* COPYING.LGPLv3 in Resources */ = {isa = PBXBuildFile; fileRef = AFBAD0495B4470D5C70DE95A /* COPYING.LGPLv3 */; };
+		2ACBFFA06B230FE583DE60E7 /* TranscriptUpgrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AF65BBAF9A28F88A2AD3B55 /* TranscriptUpgrade.swift */; };
 		2B3293CD694D61AA1B68AFAD /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		2BFE4C012A3D481BFA2B24A6 /* LoginCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3DFEC917B99551FA24B633 /* LoginCommand.swift */; };
 		2E457377C0845ACCAB71F901 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61F403150ACD28D7C5A9F18C /* SettingsStore.swift */; };
@@ -61,8 +62,11 @@
 		62DCC093DEC97543E737D4D5 /* SidxParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C8C64BEE7581B939A220E62 /* SidxParser.swift */; };
 		6379D83C95B3F278435879B6 /* EmbedderProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8FD828F68229C565B5E4528 /* EmbedderProtocol.swift */; };
 		64DED8695B174C6A50F37A7A /* vocab.bin in Resources */ = {isa = PBXBuildFile; fileRef = FB0AE693701E1D33D3074EAC /* vocab.bin */; };
+		65722050C39F125FB09ED4D0 /* YouTubeCaptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A4355A6C2B5283886E73F49 /* YouTubeCaptionTests.swift */; };
+		66436574BADBB4B0BF719696 /* TranscriptUpgrade.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AF65BBAF9A28F88A2AD3B55 /* TranscriptUpgrade.swift */; };
 		674CF57AC4E8B460F93ED637 /* MediaDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB4DB273A82F354414E993F7 /* MediaDownloader.swift */; };
 		67673D0D6A6B0FAB75F1F4EC /* ArgsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9633A2907501CF5C01A910E3 /* ArgsParser.swift */; };
+		69205B157F51589FD4911832 /* YouTubeCaptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5791DB29E119FC270E1557CF /* YouTubeCaptions.swift */; };
 		6B202C3C04B44EE291A46C88 /* added_tokens.bin in Resources */ = {isa = PBXBuildFile; fileRef = 06260360B94CB43DE470BA5F /* added_tokens.bin */; };
 		6B98FDF1B15D0CB512955DA2 /* EmbeddingGemma2-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = C70B497C1B59C901C4A56C6C /* EmbeddingGemma2-NOTICE.txt */; };
 		73B0BABFF6BDC626DCFE37C5 /* FramePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFDA211A9D8C81B0872B4723 /* FramePipeline.swift */; };
@@ -92,6 +96,7 @@
 		9822115B2DC6682688B599D4 /* EmbeddingGemma2Vision.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = B56A837060686D852C0A1DAD /* EmbeddingGemma2Vision.mlpackage */; };
 		98739D06255647380C8B1388 /* DebugLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7071A2233262A50751C78C /* DebugLog.swift */; };
 		98ACF1E3196E5C8B2673B389 /* OnScreenText.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00E9FA7D3F31196FE8C11CC /* OnScreenText.swift */; };
+		98F4F6587904153FF1A66916 /* YouTubeCaptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5791DB29E119FC270E1557CF /* YouTubeCaptions.swift */; };
 		9BCB91F0597B2E43F2852D1C /* PhaseIFrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F050E70A7CD0EE1B73D573ED /* PhaseIFrameExtractor.swift */; };
 		9E2E9FC65B8CBC9F2E767152 /* FrameExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED226C2BCBEFE52EC6EA8D82 /* FrameExtractor.swift */; };
 		9FED5126F04AFE7567104F16 /* PlayerFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8676656A57F9DE94D3DEBC /* PlayerFetcher.swift */; };
@@ -211,9 +216,11 @@
 		4BB446E58CBBADED63AFD0D2 /* youty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = youty.entitlements; sourceTree = "<group>"; };
 		515E8EFE5E8A6A8F88FC79CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		52C24CDA3E0B37271B63C03A /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		5791DB29E119FC270E1557CF /* YouTubeCaptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeCaptions.swift; sourceTree = "<group>"; };
 		57D40876068DF7189CEDA17C /* SpeechTranscriptionPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptionPipeline.swift; sourceTree = "<group>"; };
 		58B78E0BC198C3AE4ACB68FD /* CREDITS */ = {isa = PBXFileReference; path = CREDITS; sourceTree = "<group>"; };
 		59F29960905AA7DA5135528E /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		5AF65BBAF9A28F88A2AD3B55 /* TranscriptUpgrade.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptUpgrade.swift; sourceTree = "<group>"; };
 		5F4AE55996AE9ADB6F7C7C34 /* SharedResourceLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedResourceLocator.swift; sourceTree = "<group>"; };
 		61F403150ACD28D7C5A9F18C /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		637A3E47DA879D66A8DCC5F6 /* ShortFormPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortFormPipeline.swift; sourceTree = "<group>"; };
@@ -236,6 +243,7 @@
 		9633A2907501CF5C01A910E3 /* ArgsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArgsParser.swift; sourceTree = "<group>"; };
 		98AF6C6C447D9216143D47E6 /* Chunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Chunker.swift; sourceTree = "<group>"; };
 		99DAA432B550C3B593BF3522 /* ReindexCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReindexCommand.swift; sourceTree = "<group>"; };
+		9A4355A6C2B5283886E73F49 /* YouTubeCaptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YouTubeCaptionTests.swift; sourceTree = "<group>"; };
 		9B44CDFC7E9189A06603B843 /* youtyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = youtyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A003211B8427BA152E237EDB /* IndexSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexSnapshotTests.swift; sourceTree = "<group>"; };
 		A12465B44FC685B0D846EA0E /* DebugRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugRunner.swift; sourceTree = "<group>"; };
@@ -391,6 +399,7 @@
 				BF62FD77C76CB313B5CD10B7 /* IndexingTests.swift */,
 				A003211B8427BA152E237EDB /* IndexSnapshotTests.swift */,
 				28D83CDE465B210AB90863F4 /* URLParsingTests.swift */,
+				9A4355A6C2B5283886E73F49 /* YouTubeCaptionTests.swift */,
 			);
 			path = Tests;
 			sourceTree = "<group>";
@@ -451,10 +460,12 @@
 				E3EC781EE801A7A2940BB873 /* StreamFetcher.swift */,
 				27FEE1BFFC1CB8BA12710709 /* TikTokExtractor.swift */,
 				2C0ACBBDF82CC681F56CE794 /* TranscriptFetcher.swift */,
+				5AF65BBAF9A28F88A2AD3B55 /* TranscriptUpgrade.swift */,
 				176A5F09E31CE82BF4A1E29C /* VaultLocalSearch.swift */,
 				3BE94CFD3AB3A49D24E053CB /* VaultManager.swift */,
 				D07EACD9853587F324A75FFB /* VideoExtractor.swift */,
 				FF3B5F9DC6BCBF3A8793A92C /* YouTubeAudioTranscript.swift */,
+				5791DB29E119FC270E1557CF /* YouTubeCaptions.swift */,
 				4BB446E58CBBADED63AFD0D2 /* youty.entitlements */,
 				C545F7BCFF902C572868C547 /* Youty.mcpb */,
 				E533613734AEB3CF1ABED12B /* youtyApp.swift */,
@@ -721,11 +732,13 @@
 				38606B475C50BB1F3C555BE0 /* TikTokExtractor.swift in Sources */,
 				094AA0F3BD47B61830E40854 /* TranscriptCommand.swift in Sources */,
 				DFFD3299B503FD9D00C246D2 /* TranscriptFetcher.swift in Sources */,
+				2ACBFFA06B230FE583DE60E7 /* TranscriptUpgrade.swift in Sources */,
 				86D1580BFF32100B5515B247 /* VaultLocalSearch.swift in Sources */,
 				106CC435AB211CC8443288B3 /* VaultManager.swift in Sources */,
 				9417C71FA609B112D97E513F /* VaultResolver.swift in Sources */,
 				C419EA26BAE82522134CB0AD /* VideoExtractor.swift in Sources */,
 				BE4CBFC3EAC392C1A694425F /* YouTubeAudioTranscript.swift in Sources */,
+				98F4F6587904153FF1A66916 /* YouTubeCaptions.swift in Sources */,
 				975E616FFF3737C01A2CE49C /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -782,10 +795,12 @@
 				9784AFE016B0CACE8A9F8A1A /* StreamFetcher.swift in Sources */,
 				A4F0355643FA24A3941F6A58 /* TikTokExtractor.swift in Sources */,
 				21E0784C86AC814FE8079B0D /* TranscriptFetcher.swift in Sources */,
+				66436574BADBB4B0BF719696 /* TranscriptUpgrade.swift in Sources */,
 				192546E42F1AF0C86D0CBDEB /* VaultLocalSearch.swift in Sources */,
 				C964210FA50B15DE55CEE037 /* VaultManager.swift in Sources */,
 				C8B9333704250B395669467E /* VideoExtractor.swift in Sources */,
 				B3B9D6AA081CA2D2AECDE731 /* YouTubeAudioTranscript.swift in Sources */,
+				69205B157F51589FD4911832 /* YouTubeCaptions.swift in Sources */,
 				CF1301A8C4F5FAEE3CB8761E /* YoutyAppIntents.swift in Sources */,
 				AC49D46B8D4644D32C42C5DC /* youtyApp.swift in Sources */,
 			);
@@ -799,6 +814,7 @@
 				221C4B147DD91E20FB5B6B1D /* IndexSnapshotTests.swift in Sources */,
 				D4F2750A662DBAA6EA4A1B3B /* IndexingTests.swift in Sources */,
 				FB1508B9245CEFE397C8693F /* URLParsingTests.swift in Sources */,
+				65722050C39F125FB09ED4D0 /* YouTubeCaptionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

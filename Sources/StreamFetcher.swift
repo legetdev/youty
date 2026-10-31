@@ -111,6 +111,18 @@ enum StreamFetcher {
         // this value for DASH-fragmented streams; this is the ground truth.
         let lengthSeconds: TimeInterval
         var userAgent: String = StreamFetcher.androidVRUA
+        // captions.playerCaptionsTracklistRenderer.captionTracks (YouTubeCaptions)
+        var captionTracks: [[String: Any]] = []
+    }
+
+    /// `fetchFormats` with the cached visitor data, refreshed once when YouTube rejects it.
+    static func fetchFormats(videoID: String) async throws -> FormatList {
+        do {
+            return try await fetchFormats(videoID: videoID, visitorData: try await getVisitorData())
+        } catch StreamFetchError.visitorDataInvalid {
+            invalidateVisitorData()
+            return try await fetchFormats(videoID: videoID, visitorData: try await getVisitorData())
+        }
     }
 
     static func fetchFormats(videoID: String,
@@ -175,9 +187,11 @@ enum StreamFetcher {
         }()
         let length = lengthFromDetails > 0 ? lengthFromDetails : lengthFromFormats
 
+        let captions = (json["captions"] as? [String: Any])?["playerCaptionsTracklistRenderer"] as? [String: Any]
         return FormatList(formats: progressive + adaptive,
                           progressiveCount: progressive.count,
-                          lengthSeconds: length, userAgent: visionOSUA)
+                          lengthSeconds: length, userAgent: visionOSUA,
+                          captionTracks: captions?["captionTracks"] as? [[String: Any]] ?? [])
     }
 
     // MARK: - Format selection

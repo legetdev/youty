@@ -42,10 +42,12 @@ struct FetchResult: Sendable {
 //   Chrome UA causes YouTube to include the full response, which lets us verify
 //   captions exist before proceeding.
 //
-// Why DOM scraping (not baseUrl fetch):
-//   Fetching track.baseUrl from JS or URLSession returns empty XML regardless.
+// Why DOM scraping first:
+//   The web page's track.baseUrl returns empty XML from JS or URLSession.
 //   Clicking "Show transcript" triggers YouTube's internal get_transcript API,
-//   which renders segments in the DOM. We scrape that rendered DOM.
+//   which renders segments in the DOM, and the page also carries YouTube's
+//   summary. When the panel stays empty, YouTubeCaptions downloads the caption
+//   file from the player API (its URLs work), before any on-device fallback.
 
 @MainActor
 class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -297,15 +299,16 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
             case "unavailable_video":
                 finish(throwing: FetchError.unavailableVideo)
             case "no_captions", "no_btn", "panel_empty":
-                // Missing captions, or a transcript panel YouTube changed: fall
-                // back to on-device transcription of the audio instead of failing.
+                // The panel didn't give us the transcript (it can time out on long
+                // videos): download YouTube's caption file, and transcribe the
+                // audio on-device only when YouTube has no captions at all.
                 guard let details = (dict["videoDetails"] as? [String: Any]).flatMap(Self.videoDetails),
                       !details.videoID.isEmpty else {
                     finish(throwing: FetchError.noTranscript)
                     return
                 }
-                NSLog("[youty] %@ — transcribing audio on-device", errKey)
-                transcribeAudio(details: details)
+                NSLog("[youty] %@ — reading YouTube's caption file", errKey)
+                transcribeWithoutPanel(details: details)
             case "no_response" where !retriedNoResponse:
                 // ytInitialPlayerResponse wasn't ready in time — almost always a
                 // transient first-load race (e.g. the first fetch right after
@@ -372,13 +375,25 @@ class TranscriptLoader: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         )
     }
 
-    /// Completes the pending fetch with an on-device transcript of the audio.
-    private func transcribeAudio(details: VideoDetails) {
+    /// Completes the pending fetch with YouTube's caption file, or else an
+    /// on-device transcript of the original audio.
+    private func transcribeWithoutPanel(details: VideoDetails) {
         fetchGen += 1   // the page's watchdog no longer applies; transcription takes longer
         let gen = fetchGen
         let locale = SettingsStore.transcriptionLocale(hint: "\(details.title)\n\(details.shortDescription)")
         Task {
             do {
+                if let captions = try? await YouTubeCaptions.transcript(videoID: details.videoID) {
+                    guard fetchGen == gen else { return }
+                    finish(returning: FetchResult(
+                        videoID: details.videoID,
+                        title: details.title,
+                        markdown: TranscriptFetcher.formatMarkdown(title: details.title, segments: captions.map(\.text)),
+                        segments: captions,
+                        videoDetails: details))
+                    return
+                }
+                NSLog("[youty] no YouTube captions — transcribing audio on-device")
                 let segments = try await YouTubeAudioTranscript.transcribe(videoID: details.videoID, locale: locale)
                 // A newer fetch replaced this one while transcribing: never answer it with this video.
                 guard fetchGen == gen else { return }
