@@ -10,15 +10,11 @@
 class Youty < Formula
   desc "Save YouTube, Instagram, and TikTok videos to a local AI-readable knowledge base"
   homepage "https://github.com/legetdev/youty"
-  url "https://github.com/legetdev/youty/archive/refs/tags/v2.0.4.tar.gz"
-  sha256 "4d4e0ae5f6b63ec286cd4d71add69d7435ad9f1f0fa44028f7fa7f513c56deba"
+  url "https://github.com/legetdev/youty/archive/refs/tags/v2.0.5.tar.gz"
+  sha256 "629575c2393132577b52e548f74eabc0d665af8fa1d7c917a48040ec4aaccfc1"
   license "MIT"
   head "https://github.com/legetdev/youty.git", branch: "main"
 
-  bottle do
-    root_url "https://github.com/legetdev/youty/releases/download/v2.0.4"
-    sha256 cellar: :any_skip_relocation, arm64_tahoe: "ad6071714efa8f6989a2ee7e066a381dc26be2e5b8cea8c4c421b6294f624137"
-  end
 
 
 
