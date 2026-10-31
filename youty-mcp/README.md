@@ -101,6 +101,9 @@ uv run pytest -q
   model in the background on first launch; keyword search works meanwhile.
 - **"macOS doesn't let this AI app read it"** — the Youty app is older than
   2.0.3 and doesn't share its index yet. Update Youty and open it once.
+- **"getting its search index ready"** — a current Youty app hasn't shared
+  its index yet. Open the app: it shares the index within seconds of launch,
+  and the next search here picks it up.
 - **"No Youty library was found"** — open the app once after saving a video.
   If your vault is outside Spotlight's reach (for example on an external
   drive), set `YOUTY_VAULT` in your AI app's Youty entry.

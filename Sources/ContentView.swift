@@ -249,6 +249,12 @@ struct ContentView: View {
             // Refresh manifest.json so it reflects the notes as this version reads them.
             VaultManager.writeManifest(in: vaultURL)
             await MainActor.run { refreshRecents() }
+            // Share the index with AI apps before the slower work below, so the
+            // first launch after an update doesn't leave them waiting for the
+            // model to compile or an upgrade to finish. They search only rows of
+            // the current model, so a half-upgraded copy is safe; the publishes
+            // below then send just what changed.
+            await IndexStore.shared.publishSnapshot(toVault: vaultURL)
             // The first launch of a new version compiles the text model for the
             // Neural Engine (about half a minute, then cached on disk). Do it now
             // so no save waits for it, and free the model again afterwards.
@@ -260,8 +266,7 @@ struct ContentView: View {
             let model = EmbeddingGemma2.modelIdentifier
             guard (try? await IndexStore.shared.needsModelMigration(activeModel: model)) == true else {
                 _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)
-                // Also covers the first launch after an update: share the index
-                // with AI apps even when nothing needed healing.
+                // Share whatever healing changed (a no-op when nothing did).
                 await IndexStore.shared.publishSnapshot(toVault: vaultURL)
                 return
             }
