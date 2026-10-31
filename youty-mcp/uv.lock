@@ -948,7 +948,7 @@ wheels = [
 
 [[package]]
 name = "youty-mcp"
-version = "2.0.4"
+version = "2.0.5"
 source = { editable = "." }
 dependencies = [
     { name = "coremltools", marker = "sys_platform == 'darwin'" },
