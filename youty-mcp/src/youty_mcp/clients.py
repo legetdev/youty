@@ -5,11 +5,14 @@ Claude Code. Supporting a new client = ONE entry in CLIENTS — the same stdio
 launch entry is reused everywhere; only the config-file location and on-disk
 shape differ.
 
-The launch entry is `uvx youty-mcp@latest`, NOT a fixed interpreter path: every
+The launch entry is `uvx --python <range> youty-mcp@latest`, NOT a fixed interpreter path: every
 client then fetches + runs the newest published server on each launch, so users
 never manually upgrade the MCP. (This is why we don't write `sys.executable` the
 way a pip-pinned tool would — that would freeze the client to one version, and
 break entirely when install itself runs from uvx's ephemeral environment.)
+uvx ignores a package's Requires-Python when it picks an interpreter, so the
+range is passed explicitly: on the newest Python, coremltools has no wheel and
+installs without its native parts, leaving search on keywords alone.
 
 Two on-disk shapes are handled:
   - "json" : a JSON file with a top-level `mcpServers` map (Claude Code, Claude
@@ -29,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import tempfile
@@ -54,12 +58,27 @@ def _uvx_command() -> str:
     return shutil.which("uvx") or "uvx"
 
 
+# Pythons with coremltools wheels; keep equal to pyproject's requires-python.
+SUPPORTED_PYTHON = ((3, 11), (3, 14))  # from, up to but excluding
+PYTHON_RANGE = ">={}.{},<{}.{}".format(*SUPPORTED_PYTHON[0], *SUPPORTED_PYTHON[1])
+
 # The canonical stdio launch entry — identical for every MCP client. `uvx
 # youty-mcp@latest` resolves + runs the newest server on each client launch.
 LAUNCH_ENTRY = {
     "command": _uvx_command(),
-    "args": ["youty-mcp@latest"],
+    "args": ["--python", PYTHON_RANGE, "youty-mcp@latest"],
 }
+# What installers before 2.0.6 wrote. Such an entry is ours, so it is upgraded
+# without asking; anything else may be hand-edited and is never replaced silently.
+_EARLIER_ARGS = (["youty-mcp@latest"],)
+
+
+def is_earlier_entry(entry) -> bool:
+    """True for a launch entry an earlier Youty installer wrote."""
+    return (isinstance(entry, dict)
+            and set(entry) <= {"command", "args", "type", "name", "transport"}
+            and Path(str(entry.get("command", ""))).name == "uvx"
+            and entry.get("args") in _EARLIER_ARGS)
 # Claude Code tags the transport type in its config; mirror what `claude mcp
 # add` writes so re-runs stay idempotent against an existing CLI-made entry.
 _CLAUDE_ENTRY = {"type": "stdio", **LAUNCH_ENTRY}
@@ -265,6 +284,8 @@ def _write_toml(client: Client) -> str:
     if existing is not None:
         if existing.get("command") == client.entry["command"] and existing.get("args") == want_args:
             return "unchanged"
+        if is_earlier_entry(existing) and _replace_toml_entry(client):
+            return "updated"
         raise ManualEditRequired(
             f"{client.path} already has a different [mcp_servers.{SERVER_KEY}] entry; "
             "edit it by hand to avoid clobbering your TOML.",
@@ -279,6 +300,31 @@ def _write_toml(client: Client) -> str:
     else:
         _atomic_write(client.path, block)
     return "added"
+
+
+def _replace_toml_entry(client: Client) -> bool:
+    """Swap Youty's table for the current one, leaving every other byte as it
+    was. Returns False (nothing written) unless the result parses to exactly
+    the old settings with only Youty's entry changed."""
+    text = client.path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    header = re.compile(r'^\s*\[\s*mcp_servers\s*\.\s*"?' + SERVER_KEY + r'"?\s*\]\s*(#.*)?$')
+    start = next((i for i, line in enumerate(lines) if header.match(line)), None)
+    if start is None:
+        return False
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith("[")), len(lines))
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1  # keep the blank lines that separate the next table
+    updated = "".join([*lines[:start], snippet(client), *lines[end:]])
+    want = tomllib.loads(text)
+    want["mcp_servers"][SERVER_KEY] = {"command": client.entry["command"], "args": client.entry["args"]}
+    try:
+        if tomllib.loads(updated) != want:
+            return False
+    except tomllib.TOMLDecodeError:
+        return False
+    _atomic_write(client.path, updated)
+    return True
 
 
 def remove_entry(client: Client) -> bool:

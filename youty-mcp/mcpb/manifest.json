@@ -22,7 +22,7 @@
     "entry_point": "pyproject.toml",
     "mcp_config": {
       "command": "uv",
-      "args": ["tool", "run", "youty-mcp@latest"]
+      "args": ["tool", "run", "--python", ">=3.11,<3.14", "youty-mcp@latest"]
     }
   },
   "tools": [
