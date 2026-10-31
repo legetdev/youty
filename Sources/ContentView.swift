@@ -263,6 +263,10 @@ struct ContentView: View {
                (try? await EmbeddingGemma2.using({ try $0.warmUp() })) != nil {
                 UserDefaults.standard.set(build, forKey: "neuralEnginePreparedBuild")
             }
+            // YouTube adds captions hours after an upload: swap on-device
+            // transcripts for them once they exist. Reconciling below then
+            // re-indexes the rewritten notes.
+            await TranscriptUpgrade.run(vaultRoot: vaultURL)
             let model = EmbeddingGemma2.modelIdentifier
             guard (try? await IndexStore.shared.needsModelMigration(activeModel: model)) == true else {
                 _ = try? await Indexer.reconcileMissing(vaultRoot: vaultURL)

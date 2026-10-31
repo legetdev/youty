@@ -23,7 +23,7 @@ enum YouTubeAudioTranscript {
     private static let maxBytes = 260 << 20
 
     static func transcribe(videoID: String, locale: Locale) async throws -> [TranscriptSegment] {
-        let formats = try await fetchFormats(videoID: videoID)
+        let formats = try await StreamFetcher.fetchFormats(videoID: videoID)
         guard let audio = smallestAudio(in: formats.formats) else { throw Failure.noAudioStream }
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("youty-audio-\(UUID().uuidString).m4a")
@@ -33,21 +33,15 @@ enum YouTubeAudioTranscript {
             .map { TranscriptSegment(text: $0.text, timestamp: $0.timestamp) }
     }
 
-    private static func fetchFormats(videoID: String) async throws -> StreamFetcher.FormatList {
-        do {
-            return try await StreamFetcher.fetchFormats(videoID: videoID,
-                                                        visitorData: try await StreamFetcher.getVisitorData())
-        } catch StreamFetchError.visitorDataInvalid {
-            StreamFetcher.invalidateVisitorData()
-            return try await StreamFetcher.fetchFormats(videoID: videoID,
-                                                        visitorData: try await StreamFetcher.getVisitorData())
-        }
-    }
-
-    /// The lowest-bitrate AAC (`audio/mp4`) stream with a direct URL and size.
+    /// The lowest-bitrate AAC (`audio/mp4`) stream of the original audio with a
+    /// direct URL and size. Videos with AI-dubbed audio offer one stream per
+    /// language, and a dub is often the smallest; only the original is spoken
+    /// in the language the transcriber listens for.
     static func smallestAudio(in formats: [[String: Any]]) -> (url: URL, length: Int)? {
         formats.compactMap { format -> (url: URL, length: Int, bitrate: Int)? in
-            guard (format["mimeType"] as? String)?.hasPrefix("audio/mp4") == true,
+            let track = format["audioTrack"] as? [String: Any]
+            guard track == nil || track?["audioIsDefault"] as? Bool == true,
+                  (format["mimeType"] as? String)?.hasPrefix("audio/mp4") == true,
                   let raw = format["url"] as? String, let url = URL(string: raw),
                   let length = Int(format["contentLength"] as? String ?? ""),
                   length > 0, length <= maxBytes else { return nil }
