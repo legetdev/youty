@@ -44,9 +44,10 @@ uvx youty-mcp@latest uninstall         # remove Youty again
 
 The installer merges a `youty` entry into each client's config, preserves your
 other settings, is safe to re-run, and skips clients that already have Youty
-through the plugin or extension. Clients launch `uvx youty-mcp@latest`, so a
-restart always loads the newest server. To wire a client by hand, use
-`{"command": "uvx", "args": ["youty-mcp@latest"]}`.
+through the plugin or extension. Clients launch `uvx youty-mcp@latest` on a
+Python that has Core ML wheels (uvx ignores the package's own range), so a
+restart always loads the newest server with full on-device search. To wire a client by hand, use
+`{"command": "uvx", "args": ["--python", ">=3.11,<3.14", "youty-mcp@latest"]}`.
 
 ## On-device search
 

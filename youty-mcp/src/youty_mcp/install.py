@@ -134,7 +134,7 @@ def _configure_client(client) -> bool:
         print(_indent(clients.snippet(client)))
         return False
 
-    if existing is not None and existing != client.entry:
+    if existing is not None and existing != client.entry and not clients.is_earlier_entry(existing):
         print(f"  Found a different youty entry in {client.path}.")
         try:
             ans = input("  Replace it with the canonical uvx entry? [y/N] ").strip().lower()

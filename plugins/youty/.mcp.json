@@ -2,7 +2,7 @@
   "mcpServers": {
     "youty": {
       "command": "uvx",
-      "args": ["youty-mcp@latest"]
+      "args": ["--python", ">=3.11,<3.14", "youty-mcp@latest"]
     }
   }
 }

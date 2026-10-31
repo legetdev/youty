@@ -398,8 +398,9 @@ struct OnboardingView: View {
 /// AI apps Onboarding connects in one click. Claude Desktop installs the
 /// bundled extension (it ships its own uv, so nothing else is needed); Cursor
 /// and VS Code accept install links; Claude Code installs the Youty plugin
-/// from this repository's marketplace. All of them run `uvx youty-mcp@latest`,
-/// so a client restart always loads the newest server.
+/// from this repository's marketplace. All of them run `uvx youty-mcp@latest`
+/// on a Python that has Core ML wheels (`--python`, since uvx ignores the
+/// package's own range), so a client restart always loads the newest server.
 enum AIClient: String, Identifiable {
     case claudeDesktop, claudeCode, cursor, vsCode, otherApps
 
@@ -441,11 +442,11 @@ enum AIClient: String, Identifiable {
         case .claudeCode, .otherApps:
             return .copy(Self.claudeCodeCommand)
         case .cursor:
-            let config = Data(#"{"command":"uvx","args":["youty-mcp@latest"]}"#.utf8).base64EncodedString()
+            let config = Data(#"{"command":"uvx","args":["--python",">=3.11,<3.14","youty-mcp@latest"]}"#.utf8).base64EncodedString()
             let query = config.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? config
             return .open(URL(string: "cursor://anysphere.cursor-deeplink/mcp/install?name=youty&config=\(query)")!)
         case .vsCode:
-            let json = #"{"name":"youty","command":"uvx","args":["youty-mcp@latest"]}"#
+            let json = #"{"name":"youty","command":"uvx","args":["--python",">=3.11,<3.14","youty-mcp@latest"]}"#
             let encoded = json.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? json
             return .open(URL(string: "vscode:mcp/install?\(encoded)")!)
         }
