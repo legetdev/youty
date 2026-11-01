@@ -118,6 +118,12 @@ run "Gangnam Style (4 min, 1080p)" \
     'FRAMES_DISTINCT_SHA=' \
     "$BIN" --extract "https://www.youtube.com/watch?v=9bZkp7q19f0" --count 50 --mode auto
 
+# Panel-timeout fallback: YouTube's captions as a file, in the spoken language
+# of a video with AI dubs, starting from a visitor ID YouTube rejects.
+run "YouTube captions via the player API (dubbed video, stale visitor ID)" \
+    'SEGMENTS=[0-9]{3,}' \
+    "$BIN" --youtube-captions-probe C0jOKDJtK9s --stale-visitor-data
+
 # No-captions fallback: the audio-only stream is downloaded and transcribed
 # on-device (forced here on a captioned video so the path stays exercised).
 run "On-device transcription fallback (audio stream + SpeechAnalyzer)" \
