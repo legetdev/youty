@@ -15,6 +15,11 @@ class Youty < Formula
   license "MIT"
   head "https://github.com/legetdev/youty.git", branch: "main"
 
+  bottle do
+    root_url "https://github.com/legetdev/youty/releases/download/v2.0.9"
+    sha256 cellar: :any_skip_relocation, arm64_tahoe: "4ed3f450c15fbd3e4c42762edaea63b75ec25a533901e5dda59c5459b86fe3ac"
+  end
+
 
 
 
