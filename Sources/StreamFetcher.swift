@@ -4,7 +4,7 @@ import Foundation
 // The older ANDROID_VR client can return playable metadata but reject ranges
 // beyond the opening bytes. Keep its user agent only for PlayerFetcher's
 // cookied legacy response; every FormatList carries the matching user agent.
-// Visitor data is cached for seven days and refreshed on player API 401/403.
+// Visitor data is cached for seven days and refreshed once when YouTube rejects it.
 
 struct VideoStream {
     let url: URL
@@ -17,7 +17,7 @@ struct VideoStream {
 enum StreamFetchError: LocalizedError {
     case noFastPathAvailable           // no H.264 720p+ stream
     case restrictedVideo               // playabilityStatus != "OK"
-    case visitorDataInvalid            // 401/403 — caller should refresh and retry
+    case visitorDataInvalid            // 401/403: refresh the visitor data and retry
     case networkError(Int)             // HTTP error from InnerTube call
     case parseError                    // malformed JSON response
 
@@ -79,15 +79,7 @@ enum StreamFetcher {
         UserDefaults.standard.removeObject(forKey: cacheTimestampKey)
     }
 
-    // Returns cached value when fresh; otherwise scrapes the homepage.
-    static func getVisitorData() async throws -> String {
-        if let cached = cachedVisitorData() { return cached }
-        let fresh = try await fetchVisitorData()
-        cacheVisitorData(fresh)
-        return fresh
-    }
-
-    private static func fetchVisitorData() async throws -> String {
+    static func fetchVisitorData() async throws -> String {
         var req = URLRequest(url: URL(string: "https://www.youtube.com/")!)
         req.setValue(webUA, forHTTPHeaderField: "User-Agent")
         req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
@@ -98,7 +90,7 @@ enum StreamFetcher {
            let end = html[range.upperBound...].firstIndex(of: "\"") {
             return String(html[range.upperBound..<end])
         }
-        return ""  // empty visitor data still works for most videos
+        return ""  // the player API answers this with its bot check
     }
 
     // MARK: - InnerTube format fetch
@@ -117,12 +109,31 @@ enum StreamFetcher {
 
     /// `fetchFormats` with the cached visitor data, refreshed once when YouTube rejects it.
     static func fetchFormats(videoID: String) async throws -> FormatList {
-        do {
-            return try await fetchFormats(videoID: videoID, visitorData: try await getVisitorData())
-        } catch StreamFetchError.visitorDataInvalid {
+        try await withVisitorData { try await fetchFormats(videoID: videoID, visitorData: $0) }
+    }
+
+    /// Runs `attempt` with the cached visitor data, and once more with fresh
+    /// visitor data when YouTube rejects it. A rejected ID comes back as
+    /// 401/403, or as a 200 whose LOGIN_REQUIRED status ("confirm you're not a
+    /// bot") looks like a restricted video, so a cached ID is refreshed on that
+    /// too. Otherwise a stale ID blocks captions and audio for up to a week.
+    static func withVisitorData<T>(fetchFresh: () async throws -> String = fetchVisitorData,
+                                   _ attempt: (String) async throws -> T) async throws -> T {
+        func refreshed() async throws -> String {
             invalidateVisitorData()
-            return try await fetchFormats(videoID: videoID, visitorData: try await getVisitorData())
+            let fresh = try await fetchFresh()
+            cacheVisitorData(fresh)
+            return fresh
         }
+        let cached = cachedVisitorData()
+        do {
+            if let cached { return try await attempt(cached) }
+            return try await attempt(try await refreshed())
+        } catch StreamFetchError.visitorDataInvalid {
+        } catch StreamFetchError.restrictedVideo where cached != nil {
+        }
+        DebugLog.log("visitor data rejected → refresh + retry")
+        return try await attempt(try await refreshed())
     }
 
     static func fetchFormats(videoID: String,

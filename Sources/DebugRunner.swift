@@ -54,6 +54,7 @@ enum DebugRunner {
             || CommandLine.arguments.contains("--frame-bench")
             || CommandLine.arguments.contains("--migrate")
             || CommandLine.arguments.contains("--youtube-audio-probe")
+            || CommandLine.arguments.contains("--youtube-captions-probe")
             || CommandLine.arguments.contains("--ocr-probe")
             || CommandLine.arguments.contains("--ocr-backfill")
             || CommandLine.arguments.contains("--model-lifecycle-probe")
@@ -113,6 +114,9 @@ enum DebugRunner {
         }
         if let videoID = stringArg(args, key: "--youtube-audio-probe") {
             runYouTubeAudioProbe(videoID: videoID, locale: stringArg(args, key: "--locale"))
+        }
+        if let videoID = stringArg(args, key: "--youtube-captions-probe") {
+            runYouTubeCaptionsProbe(videoID: videoID, staleVisitorData: args.contains("--stale-visitor-data"))
         }
         if let folder = stringArg(args, key: "--ocr-probe") {
             runOCRProbe(folder: folder)
@@ -212,8 +216,7 @@ enum DebugRunner {
 
         // Stage 1: formats.
         let formatsStart = Date()
-        let visitor = try await StreamFetcher.getVisitorData()
-        let formatList = try await StreamFetcher.fetchFormats(videoID: videoID, visitorData: visitor)
+        let formatList = try await StreamFetcher.fetchFormats(videoID: videoID)
         let formatsMs = Int(Date().timeIntervalSince(formatsStart) * 1000)
         let duration = formatList.lengthSeconds
         guard duration > 0 else {
@@ -1374,6 +1377,33 @@ enum DebugRunner {
                 print("SEGMENTS=\(segments.count)")
                 print("TOTAL_MS=\(Int(Date().timeIntervalSince(started) * 1000))")
                 for segment in segments.prefix(5) { print("[\(segment.timestamp)] \(segment.text)") }
+                box.code = segments.isEmpty ? 1 : 0
+            } catch {
+                print("ERROR=\(error.localizedDescription)")
+                box.code = 2
+            }
+        }
+        sem.wait()
+        exit(box.code)
+    }
+
+    /// `--youtube-captions-probe <id> [--stale-visitor-data]` — downloads
+    /// YouTube's captions through the player API, the route a save takes when
+    /// the transcript panel fails. `--stale-visitor-data` first caches a
+    /// visitor ID YouTube rejects, so the refresh is exercised too.
+    private static func runYouTubeCaptionsProbe(videoID: String, staleVisitorData: Bool) -> Never {
+        if staleVisitorData { StreamFetcher.cacheVisitorData("stale-visitor-id") }
+        let sem = DispatchSemaphore(value: 0)
+        let box = ExitBox()
+        Task.detached {
+            defer { sem.signal() }
+            let started = Date()
+            do {
+                let segments = try await YouTubeCaptions.transcript(videoID: videoID) ?? []
+                print("SEGMENTS=\(segments.count)")
+                print("LAST=\(segments.last?.timestamp ?? "-")")
+                print("TOTAL_MS=\(Int(Date().timeIntervalSince(started) * 1000))")
+                for segment in segments.prefix(3) { print("[\(segment.timestamp)] \(segment.text)") }
                 box.code = segments.isEmpty ? 1 : 0
             } catch {
                 print("ERROR=\(error.localizedDescription)")

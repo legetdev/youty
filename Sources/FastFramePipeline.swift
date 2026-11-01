@@ -227,19 +227,8 @@ final class FastFramePipeline: FramePipeline {
     // MARK: - Format fetch with fast-fail timeouts
 
     private func fetchFormatsWithFastFail(videoID: String) async throws -> StreamFetcher.FormatList {
-        let visitorData = try await StreamFetcher.getVisitorData()
         do {
-            return try await StreamFetcher.fetchFormats(videoID: videoID, visitorData: visitorData)
-        } catch StreamFetchError.visitorDataInvalid {
-            DebugLog.log("fast: visitor data invalid → refresh + retry")
-            StreamFetcher.invalidateVisitorData()
-            let fresh = try await StreamFetcher.getVisitorData()
-            do {
-                return try await StreamFetcher.fetchFormats(videoID: videoID, visitorData: fresh)
-            } catch StreamFetchError.restrictedVideo {
-                DebugLog.log("fast: restricted → trying PlayerFetcher (cookied retry)")
-                return try await playerFetcher.fetchFormats(videoID: videoID)
-            }
+            return try await StreamFetcher.fetchFormats(videoID: videoID)
         } catch StreamFetchError.restrictedVideo {
             DebugLog.log("fast: restricted → trying PlayerFetcher (cookied retry)")
             return try await playerFetcher.fetchFormats(videoID: videoID)
